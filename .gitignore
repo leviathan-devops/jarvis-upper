@@ -2,6 +2,7 @@
 runtime/status.json
 runtime/ticks.log
 runtime/wire_capture.json
+runtime/dt_transcripts/
 store.sqlite
 store.sqlite-wal
 store.sqlite-shm
@@ -9,3 +10,4 @@ node_modules/
 dist/
 # the JAM/JFM desk tracker: LIVE state (jfm writes it on every verb) — never source
 .omp-waves/
+.aider*
