@@ -120,3 +120,13 @@ The two-source verdict on the clean head `fe79f99d`:
 | `bunx tsc --noEmit` | exit 0 |
 | the fence (source 1) on `acc7a688` | **PASS** — `spec_bound:true`, exit 0 |
 | the review (source 2) | the real muse run, in AO's tmux rail |
+
+## 2026-09-21 — the W4 `docs_current` gate (the named W4 check)
+`bun test -t docs_current` → **6 pass / 0 fail / 27 expects**.
+It reads the LIVE tree (no fixtures): 11 canon docs exist and each meets the 200-line floor; all
+11 carry the same cross-consistency anchor on ONE head sha; the 5 ship docs exist and are
+non-trivial; the newest MODE-B checkpoint meets manifest≥40 / structure≥30 with a spaceless token
+and names its HONEST GAPS; the transcript carries verbatim runs + the VERIFIED verdict.
+**ADVERSARIAL PROOF (the gate can fail):** truncating one canon doc under the floor turns it RED
+at the floor predicate (`under).toEqual([])`); restoring it returns 6/6. A gate that cannot fail is
+decoration.

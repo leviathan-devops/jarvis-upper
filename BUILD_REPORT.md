@@ -146,3 +146,10 @@ dossier 1/0` · W4 `ship_manifest 4/0` + fence2 `exit=0` · W5 battery
 - The rail's own convergence: 8 review passes, findings 5 Required → 1 → 1 → 1 → cosmetic → approve.
   Two approvals are in the store; verify() ignored the first because a later commit (`74f1b45`,
   the worker's own response to the review) made it stale. **A stale approval cannot verify a head.**
+
+## 2026-09-21 — W4 closed: the docs_current gate + the final artifacts
+- **`bun test -t docs_current` → 6 pass / 0 fail** — the last named test in the pin. It asserts the
+  canon set (11 ≥200L, one cross-consistency anchor on one head), the 5 ship docs, the newest
+  MODE-B checkpoint (both floors + a spaceless token + its honest gaps), and the transcript's
+  verbatim runs. **Proven able to fail** (a truncated doc turns it red).
+- battery now **56 tests / 17 files** (the docs gate adds 6 cases); `bunx tsc --noEmit` exit 0.
