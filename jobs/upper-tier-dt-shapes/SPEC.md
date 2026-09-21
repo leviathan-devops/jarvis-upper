@@ -7,6 +7,6 @@ steps:
       - cd /home/leviathan/.ao/data/worktrees/jarvis-upper/jarvis-upper-2 && bun test -t dt_shapes
     depends: []
     retries: 0
-    silence_s: 300
+    silence_s: 90
 sha16:
   dt-shapes: 5ecd27503bbb7bd6
