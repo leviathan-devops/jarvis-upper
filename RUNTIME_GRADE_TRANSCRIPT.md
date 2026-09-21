@@ -180,3 +180,18 @@ $ canon floors
   267 POST-COMPACTION_PROMPT.md
   266 EVIDENCE_STATE.md
 ```
+
+## THE FENCE REFUSED A STALE PIN (a live negative, 2026-09-21)
+After the review fixes the fence reported `dt-shapes-fixture SHA_MISMATCH`: the SPEC pinned
+`63a90648cb4c788d` but the artifact's real sha16 was `79895a0e4fb4f27c` (the file changed after
+the pin was written). The fence refused — correctly. Re-stamped to the artifact's real sha and
+re-adjudicated:
+```console
+$ sha256sum jobs/upper-tier-dt-shapes/fence_bridge.test.ts | cut -c1-16
+79895a0e4fb4f27c
+$ fence2 adjudicate jobs/upper-tier-dt-shapes
+dt-shapes-fixture PASS
+{"job":"upper-tier-dt-shapes","seat":"ao-worker","v":2,"verdict":"PASS","fence_exit":0,...}
+fence_exit=0
+```
+**A pin that cannot detect a changed artifact is decoration. Ours caught it.**

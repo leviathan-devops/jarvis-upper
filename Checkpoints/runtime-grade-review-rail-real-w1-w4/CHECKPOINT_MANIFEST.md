@@ -5,7 +5,7 @@
 - **Date:** 2026-09-21 · **Era:** RUNTIME GRADE — the two-source verdict law, JFM live, and a **real** review verdict
 - **Seal mode:** **MODE B — NO LOCK** (a mutable working snapshot; the tree is under active development)
 - **factory head (jarvis-upper main):** `f2785c32554b987b47f5ae658070b7b118710c9a`
-- **job head (PR #1 branch ao/jarvis-upper-2/root):** `acc7a688b56cd2db7e28f28a19db800da8baf1be`
+- **job head (PR #1 branch ao/jarvis-upper-2/root):** `cc5958af1026e6825b2e9903ff73655e6f28b41b`
 - **jfm head:** `417c5368f3bb40e90cd6b5cdd3c2829ab4772cbb`
 
 ## THE STATE (measured, not claimed)
@@ -20,7 +20,7 @@
 | jfm battery | 8 pass / 0 fail / 30 expects | `cd ../jfm && bun test` |
 | jfm live | `{"ok":true,"ao":"http://localhost:3001","http":200}` | `jfm health` |
 | the runtime wall | prNodes=5 (a real AO pull) | `upper sync` / `upper status` |
-| source 1 — the fence | **PASS** — `spec_bound:true`, exit 0 | `fence2 adjudicate jobs/upper-tier-dt-shapes` |
+| source 1 — the fence | **PASS** — `spec_bound:true`, exit 0 (after a re-stamp the fence itself REFUSED as stale) | `fence2 adjudicate jobs/upper-tier-dt-shapes` |
 | source 2 — the review | a **real** muse run on AO's tmux rail; it returned `changes_requested` on `adbdacf`; its 5 Required findings are fixed in `acc7a688b56cd2db7e28f28a19db800da8baf1be` | `ao review ls jarvis-upper-2` |
 | AO daemon | healthz 200 · 35 sessions | `GET /healthz` |
 
