@@ -153,78 +153,77 @@ test("dt_shapes: DT-2 bug-loop seed→attribute→kick→observe→close status=
   }
 });
 
-// ── DT-3: loss-replay under kill-9 storm ×20 ────────────────────────
-test("dt_shapes: DT-3 loss-replay kill-9 storm converge dupes=0 gaps=0 cursor=500", async () => {
-  const db = openStore(":memory:");
+// ── DT-3: loss/dupe accounting under a real restart storm ────────────
+test("dt_shapes: DT-3 loss-replay: restart storm + gap/dupe accounting converges cursor=500", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dt3-"));
+  const dbPath = join(dir, "rail.sqlite");
+  let db = openStore(dbPath);
   db.exec("DELETE FROM rail_seq;");
   const tx: string[] = [];
-
+  const cycles = 20;
+  const batchSize = 25;
+  const allStats: RailStats[] = [];
+  let db2: ReturnType<typeof openStore> | null = null;
   try {
-    // 500 ordered pr_state_changed frames
     const allFrames: string[] = [];
     for (let n = 1; n <= 500; n++) allFrames.push(frame(n, "pr_state_changed"));
 
-    // 20 kill-9 cycles: each spawns a fresh EventRail (simulating process
-    // restart) that resumes from the persisted cursor in rail_seq.
-    // Each cycle processes 25 distinct frames → dupes=0, gaps=0.
-    const cycles = 20;
-    const batchSize = 25;
-    const allStats: RailStats[] = [];
-
+    // (A) RESTART STORM: 20 cycles, each CLOSES the file-backed DB and REOPENS it.
+    // A :memory: DB is destroyed by a real kill -9, so only a file-backed reopen can
+    // prove the cursor survives a restart. Each cycle processes the next 25 frames.
     for (let c = 0; c < cycles; c++) {
-      const start = c * batchSize;
-      const end = start + batchSize;
-      const batch = allFrames.slice(start, end);
-
-      const rail = new EventRail(db); // fresh process after kill-9
-      const beforeCursor = rail.getCursor();
-      const stats = await rail.attach(batch, (ev: RailEvent) => {
-        reduceEvent(db, ev);
-      });
-      tx.push(
-        `CYCLE_${c}:cursor=${beforeCursor}->${stats.cursor} dupes=${stats.dupes} gaps=${stats.gaps} processed=${stats.processed}`,
-      );
+      db.close();               // simulated kill -9: the process dies
+      db = openStore(dbPath);   // a fresh process reopens the SAME file
+      const rail = new EventRail(db);
+      const batch = allFrames.slice(c * batchSize, c * batchSize + batchSize);
+      const stats = await rail.attach(batch, (ev: RailEvent) => { reduceEvent(db, ev); });
+      tx.push(`RESTART_${c}:cursor=${stats.cursor} dupes=${stats.dupes} gaps=${stats.gaps} processed=${stats.processed}`);
       allStats.push(stats);
     }
+    const afterStorm = new EventRail(db).getCursor();
+    const stormProcessed = allStats.reduce((s, x) => s + x.processed, 0);
+    tx.push(`CONVERGE:afterStorm=${afterStorm} processed=${stormProcessed}`);
+    expect(afterStorm).toBe(500);          // the cursor SURVIVED 20 real restarts
+    expect(stormProcessed).toBe(500);
+    expect(allStats.reduce((s, x) => s + x.dupes, 0)).toBe(0);
+    expect(allStats.reduce((s, x) => s + x.gaps, 0)).toBe(0);
 
-    // Convergence: cursor must be 500, zero dupes, zero gaps
-    const finalRail = new EventRail(db);
-    const finalCursor = finalRail.getCursor();
-    const totalDupes = allStats.reduce((s, x) => s + x.dupes, 0);
-    const totalGaps = allStats.reduce((s, x) => s + x.gaps, 0);
-    const totalProcessed = allStats.reduce((s, x) => s + x.processed, 0);
-    tx.push(`CONVERGE:cursor=${finalCursor} dupes=${totalDupes} gaps=${totalGaps} processed=${totalProcessed}`);
+    // (B) LOSS + DUPE ACCOUNTING on a fresh rail, over inputs that CONTAIN loss and
+    // overlap: an overlapping batch (dupes) and a skipped-seq batch (gaps + resync).
+    db2 = openStore(join(dir, "rail2.sqlite"));
+    const r2 = new EventRail(db2);
+    const f = (a: number, b: number) => allFrames.slice(a - 1, b);
+    await r2.attach(f(1, 10), (ev: RailEvent) => { reduceEvent(db2 as never, ev); });               // 1..10
+    const overlap = await r2.attach(f(9, 15), (ev: RailEvent) => { reduceEvent(db2 as never, ev); }); // 9,10 dupes
+    const skipped = await r2.attach(f(20, 25), (ev: RailEvent) => { reduceEvent(db2 as never, ev); }); // 16..19 MISSING
+    tx.push(`OVERLAP:dupes=${overlap.dupes} processed=${overlap.processed}`);
+    tx.push(`SKIPPED:gaps=${skipped.gaps} resyncs=${skipped.resyncs} processed=${skipped.processed}`);
+    expect(overlap.dupes).toBe(2);         // the overlap was DETECTED
+    expect(overlap.processed).toBe(5);
+    expect(skipped.gaps).toBe(4);          // the 4 skipped seqs were COUNTED
+    expect(skipped.resyncs).toBeGreaterThanOrEqual(1);
+    expect(skipped.processed).toBe(6);
+    expect(r2.getCursor()).toBe(25);
 
-    expect(finalCursor).toBe(500);
-    expect(totalDupes).toBe(0);
-    expect(totalGaps).toBe(0);
-    expect(totalProcessed).toBe(500);
-
-    // Double-replay idempotence — re-feed all 500, all should be dupes
-    const replayRail = new EventRail(db);
-    const replayStats = await replayRail.attach(allFrames, (ev: RailEvent) => {
-      reduceEvent(db, ev);
-    });
-    tx.push(`IDEMPOTENT:processed=${replayStats.processed} dupes=${replayStats.dupes}`);
-    expect(replayStats.processed).toBe(0);
-    expect(replayStats.dupes).toBe(500);
-
-    const rowCount = db.query("SELECT COUNT(*) AS n FROM pr_node").get() as { n: number };
-    tx.push(`ROWS:${rowCount.n}`);
+    // (C) IDEMPOTENCE: re-feeding the whole stream after a restart processes nothing.
+    db.close(); db = openStore(dbPath);
+    const replay = await new EventRail(db).attach(allFrames, (ev: RailEvent) => { reduceEvent(db, ev); });
+    tx.push(`IDEMPOTENT:processed=${replay.processed} dupes=${replay.dupes}`);
+    expect(replay.processed).toBe(0);
+    expect(replay.dupes).toBe(500);
 
     transcript("DT3", {
       shape: "DT-3", status: "pass",
-      steps: ["init", "storm", "converge", "idempotent"],
+      steps: ["restart_storm", "converge", "loss_dupe_accounting", "idempotent"],
       transcript: tx.join("\n"),
-      evidence: {
-        events: 500, cycles, dupes: totalDupes, gaps: totalGaps,
-        cursor: finalCursor, processed: totalProcessed,
-        replayDupes: replayStats.dupes, replayProcessed: replayStats.processed,
-        rows: rowCount.n,
-      },
+      evidence: { events: 500, cycles, restarts: cycles, afterStorm, stormProcessed,
+        overlapDupes: overlap.dupes, skippedGaps: skipped.gaps,
+        replayDupes: replay.dupes, replayProcessed: replay.processed },
     });
   } finally {
-    db.close();
+    try { db.close(); } catch { /* already closed */ }
+    try { db2?.close(); } catch { /* already closed */ }
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

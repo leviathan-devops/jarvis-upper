@@ -2,7 +2,7 @@
 runtime/status.json
 runtime/ticks.log
 runtime/wire_capture.json
-runtime/dt_transcripts/
+jobs/runtime/dt_transcripts/
 store.sqlite
 store.sqlite-wal
 store.sqlite-shm

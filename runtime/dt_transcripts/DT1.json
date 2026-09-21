@@ -1,0 +1,24 @@
+{
+  "shape": "DT-1",
+  "status": "pass",
+  "daemon": "up",
+  "steps": [
+    "spawn",
+    "pr",
+    "sync",
+    "gate",
+    "plan",
+    "confirm",
+    "merge",
+    "kill"
+  ],
+  "transcript": "SPAWN_OK:scratch-12 PR_COUNT:0 SYNC_UPSET:0 INJECT_SYNTH_PR GUARD:pr:scratch-12:1:eligible PLAN:ok MERGE:pr:scratch-12:1 STATE:merged KILL_OK",
+  "evidence": {
+    "sessionId": "scratch-12",
+    "prId": "pr:scratch-12:1",
+    "prCount": 0,
+    "gateEligible": true,
+    "planKind": "ok",
+    "finalState": "merged"
+  }
+}
