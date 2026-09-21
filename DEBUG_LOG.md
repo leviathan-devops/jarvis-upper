@@ -143,3 +143,27 @@
   are NOT installed here).
 - **THE LESSON:** a run row is not a run. `status: running` with zero children and zero sockets is
   a ZOMBIE — the gate must read the PROCESS, not the row.
+
+## EN-010 — `upper sync` was a STUB: the runtime wall reported prNodes=0 while AO held 5 real PRs (2026-09-21)
+- **THE FINDING:** `verbSync` built `const rows: PrRow[] = []` and handed the empty literal
+  to `syncPrs`; `runtime.ts` defaulted `listPrs` to `async () => []`. Both are SILENT ZEROS:
+  the verb printed `ok:true` and the daemon ticked `prNodes=0` with `errors=[]`.
+- **THE FIX (TDD, RED->GREEN):** `adapter-verbs.listPrsFromAo()` enumerates sessions through
+  the typed AO client (`listSessions` -> `listSessionPRs` per session) and maps each PR to a
+  rail row (null headSha preserved as null). `verbSync` and the runtime's default `listPrs`
+  now both call it; the injection seam stays for tests.
+- **THE EVIDENCE (live):**
+  - `bun src/cli.ts sync` -> `{"ok":true,"projects":4,"prNodes":5,"openPrNodes":5}` exit 0
+  - the railway after: 5 rows — jarvis-upper#1 (fe79f99d, ao/jarvis-upper-2/root) and
+    jfm-e2e #1/#2/#4/#5, each with its real head sha.
+  - a live loop (`UPPER_TICK_MS=2500`, 4 ticks) -> `status.json prNodes=5, errors=[]`
+  - `bun src/cli.ts status` -> `prNodes=5`
+  - battery 56 pass / 0 fail (was 52) — the 3 new tests cover the mapping, the project filter,
+    a reviewer session with no PRs, a null headSha, an AO failure that must be LOUD, and the
+    upsert (re-sync does not duplicate).
+- **A SECOND DEFECT FOUND IN PASSING:** the tick log interleaved `tick=1,2,3,4` with
+  `tick=5040,5041,5042` — a STALE daemon from an earlier run was still writing the same
+  store+log (two writers to one artifact). Killed. A runtime that can double-start is a
+  single-writer violation; the store needs a pid lock (OPEN, low).
+- **THE LESSON:** `ok:true` with a zero is the most expensive kind of lie. A default of `[]`
+  in a dependency slot is a stub wearing production clothes.

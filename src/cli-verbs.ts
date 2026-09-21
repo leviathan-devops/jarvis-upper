@@ -10,8 +10,8 @@ import { attributeBug } from "./attribute";
 import { executePlan, type MergeAdapter } from "./execute";
 import { waveA, waveB, waveC, waveD } from "./desks";
 import { readStatus } from "./status";
-import { syncPrs, type PrRow } from "./sync";
-import { listProjects } from "./adapter-verbs";
+import { syncPrs } from "./sync";
+import { listProjects, listPrsFromAo } from "./adapter-verbs";
 
 export interface VerbResult { code: number; out: Record<string, unknown> }
 
@@ -54,11 +54,11 @@ export async function verbGates(root: string, _arg?: string): Promise<VerbResult
   return emit(0, { ok: true, ready: ready.length, eligible: checks.filter((c) => c.ok).length, checks });
 }
 
-export async function verbSync(root: string, _arg?: string): Promise<VerbResult> {
+export async function verbSync(root: string, arg?: string): Promise<VerbResult> {
   const projects = await listProjects();
-  const rows: PrRow[] = [];
-  const { rows: n } = await syncPrs(openStore(), async () => rows);
-  return emit(0, { ok: true, projects: projects.length, prNodes: n });
+  const { rows: n } = await syncPrs(openStore(), () => listPrsFromAo({ project: arg }));
+  const prs = openStore().query("SELECT COUNT(*) AS n FROM pr_node WHERE state != 'merged'").get() as { n: number };
+  return emit(0, { ok: true, projects: projects.length, prNodes: n, openPrNodes: prs.n });
 }
 
 export async function verbBug(root: string, arg?: string): Promise<VerbResult> {

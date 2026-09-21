@@ -1,12 +1,13 @@
 // runtime.ts — the loop that owns TIME: boot · tick · stop.
 // Side effects are injectable so the loop is testable without a daemon:
 //   probe()   -> boolean      (default: GET /healthz)
-//   listPrs() -> PrRow[]      (default: [] until the adapter is wired)
+//   listPrs() -> PrRow[]      (default: the REAL AO adapter — never a silent [])
 //   rails()   -> number       (default: real SSE capture from the daemon)
 
 import { Database } from "bun:sqlite";
 import { openStore } from "./store";
 import { syncPrs, type PrRow } from "./sync";
+import { listPrsFromAo } from "./adapter-verbs";
 import { orderMerges } from "./plan";
 import { guardrail } from "./guardrail";
 import { appendTick, writeStatus, type RuntimeStatus } from "./status";
@@ -75,7 +76,9 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
   const db = opts.db ?? openStore();
   const deps = opts.deps ?? {};
   const probe = deps.probe ?? defaultProbe;
-  const listPrs = deps.listPrs ?? (async () => [] as PrRow[]);
+  // EN-010: the default is the REAL adapter. A daemon tick that silently syncs
+  // zero PRs is a wrong answer wearing a green light — so the default pulls AO.
+  const listPrs = deps.listPrs ?? ((): Promise<PrRow[]> => listPrsFromAo());
   const rails = deps.rails ?? defaultRails;
   const now = deps.now ?? (() => new Date());
 
