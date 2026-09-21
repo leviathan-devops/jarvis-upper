@@ -86,3 +86,27 @@
 - **The raw output:** `Q1..Q5:YES` with `VERDICT:RUNS (fail=0)` · `ORPHANS=0` · `FREEZE:match` + `TEST-SHAPE-DRIFT:DT1..DT3` · spec-audit `VERDICT:REJECTED (fail=6)` · exits 7×0 + order=2.
 - **The verdict:** **PASS** — with the spec-audit's REJECTED recorded as the CORRECT outcome (it audits the old spec; the new pin satisfies GS-1/GS-5/GS-8 by construction).
 - **The artifacts:** OPERATIONAL_VERIFICATION.md · runtime/status.json (RUNNING) · runtime/ticks.log (18 rows) · runtime/wire_capture.json (168 frames / 65,638 bytes) · gates/shape_freeze.sha16.
+
+## FINAL RE-RUN — 2026-09-21 (after EN-010's fix + the gate fix)
+| gate | command | result |
+|---|---|---|
+| W1 battery | `bun test` | **56 pass / 0 fail / 201 expects / 17 files** |
+| W1 types | `bunx tsc --noEmit` | exit 0 |
+| the five questions | `bash gates/does_anything_run.sh .` | Q1-Q5 YES · **VERDICT:RUNS (fail=0)** |
+| shape freeze | `bash gates/shape_freeze.sh .` | **SHAPES:all declared ids implemented** (exit 0) |
+| orphan scan | `bash gates/orphan_scan.sh .` | **ORPHANS=0** |
+| JFM battery | `cd ../jfm && bun test` | **8 pass / 0 fail / 30 expects** |
+| JFM live | `jfm health` | `{"ok":true,"ao":"http://localhost:3001","http":200}` |
+| FENCE (source 1) | `fence2 adjudicate jobs/upper-tier-dt-shapes` | **PASS, exit 0** — `fe5589aebc5ccb36\|sandbox=bwrap\|spec_bound:true` |
+| the runtime wall | `upper sync` → `upper status` | **prNodes=5** (real AO pull) — was a stub reporting 0 |
+| the loop | `UPPER_TICK_MS=2500 bun src/main.ts` (4 ticks) | `status.json prNodes=5, errors=[]`, `daemonOk=true` |
+| AO daemon | `GET /healthz` | 200 |
+| REVIEW (source 2) | `/reviews/trigger` ×N | **BLOCKED — EN-011** (host cwd defect; run row `running` forever, 0 children, 0 sockets) |
+
+The two-source verdict on the clean head `fe79f99d`:
+```
+{"verdict":"UNVERIFIED","fence":"FENCE-GREEN",
+ "review":"REVIEW-NOT-APPROVED: verdicts [\"\",\"\",...]",
+ "reasons":["REVIEW-NOT-APPROVED: ..."]}
+```
+**SOURCE 1 GREEN · SOURCE 2 BLOCKED · one source alone = UNVERIFIED (the law holds).**

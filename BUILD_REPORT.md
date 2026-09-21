@@ -97,3 +97,25 @@ dossier 1/0` · W4 `ship_manifest 4/0` + fence2 `exit=0` · W5 battery
 **The verification:** `OPERATIONAL_VERIFICATION.md` — every command re-run from a clean shell with its verbatim output (§1-§11), including the supervised-runtime seal (§10) and the declaration with its residual (§11).
 
 **The honest notes:** the railway carries no live PR yet (`prNodes=0`); `kick` is unwired; the desk runner is not connected to the macro level; the legacy spec is REJECTED by its own audit (the new pin is audit-shaped but unaudited); ripwire's crawl root excludes this tree (EN-007) so structural edits here are exempt-by-record, not verified-by-graph.
+
+## 2026-09-21 — W3 runtime wall + EN-010 closed + the gate made HONEST
+- **EN-010 CLOSED (live):** `upper sync` was a literal stub (`const rows: PrRow[] = []`) and the
+  runtime defaulted `listPrs` to `async () => []`. Both are now the REAL AO pull
+  (`adapter-verbs.listPrsFromAo` → `listSessions` → `listSessionPRs` per session).
+  Live: `sync` → `{"ok":true,"prNodes":5,"openPrNodes":5}`; the railway holds 5 real PR nodes
+  (jarvis-upper#1 fe79f99d + jfm-e2e #1/#2/#4/#5); the loop ticks `prNodes=5, errors=[]`.
+  Battery 52 → 56 (3 new tests: mapping/filter/no-PR-session/null-headSha/LOUD-failure/upsert).
+- **The shape gate made honest:** it compared DECLARED spec shapes (`DT1 DT2 DT3`) against test
+  FILE BASENAMES, so it could not see shapes implemented INSIDE a job's test (the worker
+  worktree's `tests/dt_shapes.test.ts`). Fixed: IMPL = factory test files + `jobs/*/*.test.ts`
+  + auto-discovered `~/.ao/data/worktrees/*/*/tests`, with `DT-1|DT_1|DT1` normalized.
+  It now returns exit 1 in the factory alone (honest: the DT shapes are the JOB's deliverable)
+  and exit 0 with the claimed job's worktree in scope.
+- **A checkpoint is now part of the test surface:** a full-source snapshot under `Checkpoints/`
+  is scanned by `bun test` and by the gates. `bunfig.toml` now ignores `Checkpoints/**`
+  (the snapshot's imports resolve against the LIVE tree). A snapshot must never break the battery.
+- **A stale duplicate daemon** was found by the tick log (ticks 5040-5042 interleaved with 1-4):
+  two writers to one store+log. Killed; a pid lock is OPEN (low).
+- **EN-011 (the only blocker to the goal's STOP):** AO's review pty-host runs with
+  `PWD=.../Shared_Workspace` (the omp session's cwd) instead of the worker worktree it is handed
+  → every reviewer harness exits instantly; the run row stays `running` with 0 children/0 sockets.
