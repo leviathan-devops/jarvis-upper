@@ -188,3 +188,17 @@
   `REVIEW-NOT-APPROVED`. The design is sound: only an approving verdict on the SAME head passes.
 - **THE PROOF:** `REVIEW-NOT-APPROVED: verdicts ["changes_requested","","",...]` — the reviewer's
   real verdict, on the head, from AO's store.
+
+## EN-017 — a poll must read the PROCESS and its ARTIFACTS, never the bookkeeping row (2026-09-21)
+- **THE FINDING (the derailment, logged as F-06):** the AO review row stays `running` after the
+  reviewer exits, because the reviewer cannot record its own result (its sandbox is separate: its
+  `ao review submit` refuses and the daemon's endpoint 500s). I polled the row and waited blind.
+- **THE THREE SIGNALS THAT ACTUALLY MOVE:**
+  1. the PROCESS — `muse-bin ... reviewer/requests/.../task.md` disappears when the review ends;
+  2. the ARTIFACT — the reviewer writes `/tmp/review_body.md` and posts a GitHub review with an id;
+  3. the STORE — AO's run row flips to `delivered` once the operator records it.
+- **THE RULE:** for any long-running external agent, the completion oracle is (process exit,
+  output artifact), in that order. A status column is a *claim by a third party*, and this third
+  party was the one failing. (Cf. EN-011: "a run row is not a run.")
+- **WHY IT MATTERS HERE:** the whole task is "do not trust a claim; verify the substrate". I applied
+  that to the workers and not to my own poll loop. The law applies to the observer too.

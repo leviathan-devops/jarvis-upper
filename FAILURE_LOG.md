@@ -79,3 +79,33 @@
 - **Impact:** one command rewritten; **a working example of the class of
   guardrail this log proposes (§G.3)**.
 - **Disposition:** **NOT-A-BUG — recorded as evidence.**
+
+### F-06 — BLIND POLLING on a status field that never transitions (2026-09-21)
+
+- **What happened:** I polled the AO review **row** (`GET /api/v1/sessions/jarvis-upper-2/reviews`
+  → `runs[0].status`) in 45s loops across four separate background jobs (bg_24, bg_5, bg_8, bg_6,
+  bg_4) — ~9 minutes of dead waiting per cycle. The reviewer had **already completed and exited**;
+  its verdict was on disk and on GitHub. My poll printed `running` 15 consecutive times and never
+  broke, because the row is left `running` when the reviewer cannot record (its sandbox's
+  `ao review submit` fails with "daemon not running" — a false negative while `/healthz` returns
+  `ok` — and it refuses to hand-edit the store). The row is therefore **not** a completion signal.
+- **Evidence:**
+  - the pane: `◆ Worked for 10m 11s · 7:47 AM` then `To continue this session, run muse resume …`
+    then `Terminated` — the reviewer was DONE —
+  - while the same window printed `[15] 07:49:21 muse=no [delivered|changes_requested|6b6b1432]`
+    only *after* it exited, and earlier cycles printed `running` 15×,
+  - the artifacts existed the whole time: `/tmp/review_body.md`, GitHub review `5262876460`
+    (`COMMENTED @6b6b1432`), and AO's own store moved the run to `delivered`.
+- **Found:** the operator, twice — *"one completed and the other is dead/not-available. why are you
+  asleep w/ no way to see this"*. Correct call: the work was done and I could not see it.
+- **Root cause:** I treated a **bookkeeping field** as the oracle of completion. The reviewer is a
+  process that exits and leaves artifacts; the row is updated by a *different* component that was
+  failing. Polling the one signal that could NOT change — and not the three that DID — is the
+  derailment. (Same class as EN-011: reading a row instead of the process.)
+- **Impact:** ~20-30 min of wall time lost; the operator had to intervene twice; two completed
+  reviews sat unread (`6f92c026`, `1bc05105`) until I scraped the pane by hand.
+- **Disposition:** **FIXED.** The poll now keys on the most direct observable of completion:
+  `pgrep -f "muse-bin.*reviewer"` (process exit) **and** the artifact (`/tmp/review_body.md` /
+  the new GitHub review id) **and** AO's store row, in that order. AO's row is reconciled
+  afterwards by the operator path (`ao review submit --reviews -`), as done for both runs above.
+  Rule adopted: **poll the process and its output, never the bookkeeping row.**
