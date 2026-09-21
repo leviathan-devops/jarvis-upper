@@ -369,23 +369,23 @@ test("dt_shapes: DT-3 loss-replay: restart storm + gap/dupe accounting converges
 });
 
 test("dt_shapes: DT-1b the confirm gate REFUSES an unconfirmed plan (mutation killer)", async () => {
-// ENFORCE-BY-DEFAULT (operator law 2026-09-21): DT-1 exercises confirm:true only.
-// Without this case, deleting the confirm gate from executePlan leaves DT-1 green —
-// proven by mutation on 2026-09-21. This test makes that mutation FAIL here.
-const db = openStore(":memory:");
-try {
-const prId = "pr:neg:1";
-db.query("INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state) VALUES (?, 'p', 1, 's', 'h', 'ready_to_merge')").run(prId);
-for (const g of ["ci_green", "audit", "hardened", "fence2"] as const) {
+  // ENFORCE-BY-DEFAULT (operator law 2026-09-21): DT-1 exercises confirm:true only.
+  // Without this case, deleting the confirm gate from executePlan leaves DT-1 green —
+  // proven by mutation on 2026-09-21. This test makes that mutation FAIL here.
+  const db = openStore(":memory:");
+  try {
+  const prId = "pr:neg:1";
+  db.query("INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state) VALUES (?, 'p', 1, 's', 'h', 'ready_to_merge')").run(prId);
+  for (const g of ["ci_green", "audit", "hardened", "fence2"] as const) {
   db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, sha16, at) VALUES (?,?,?,?,?,0)").run(`${prId}:${g}`, prId, g, "pass", "h");
-}
-let merges = 0;
-const adapter = { merge: async () => { merges += 1; return { ok: true }; } };
-let threw = "";
-try { await executePlan(db, adapter, { confirm: false }); } catch (e) { threw = String(e); }
-expect(threw).toContain("UNCONFIRMED-PLAN");
-expect(merges).toBe(0);
-const st = db.query("SELECT state FROM pr_node WHERE id = ?").get(prId) as { state: string };
-expect(st.state).toBe("ready_to_merge");
+  }
+  let merges = 0;
+  const adapter = { merge: async () => { merges += 1; return { ok: true }; } };
+  let threw = "";
+  try { await executePlan(db, adapter, { confirm: false }); } catch (e) { threw = String(e); }
+  expect(threw).toContain("UNCONFIRMED-PLAN");
+  expect(merges).toBe(0);
+  const st = db.query("SELECT state FROM pr_node WHERE id = ?").get(prId) as { state: string };
+  expect(st.state).toBe("ready_to_merge");
   } finally { db.close(); }   // the handle closes even when an assertion throws
 });
