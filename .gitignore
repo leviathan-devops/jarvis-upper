@@ -1,8 +1,8 @@
+dist/
 # runtime state (regenerated every tick) — never a source artifact
 runtime/status.json
 runtime/ticks.log
 runtime/wire_capture.json
-jobs/runtime/dt_transcripts/
 store.sqlite
 store.sqlite-wal
 store.sqlite-shm
