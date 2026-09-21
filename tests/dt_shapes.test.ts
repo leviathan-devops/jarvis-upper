@@ -1,9 +1,9 @@
 // DT-1/DT-2/DT-3 deep container shapes
 // Run: bun test -t dt_shapes
-// SPEC: jobs/upper-tier-dt-shapes/SPEC.md (§12)
+// SPEC: jobs/upper-tier-dt-shapes/SPEC.md (the job's done-when pins THIS file)
 // DT-1 full-loop: spawn→PR→sync→gate→plan→(confirm)→merge→state=merged
 // DT-2 bug-loop: seed defect→attribute→kick→observe→close status=fixed
-// DT-3 loss-replay: kill-9 storm ×20 over 500 events, converge dupes=0 gaps=0
+// DT-3 loss-replay: a restart storm (file-backed, close/reopen ×20) + gap/dupe accounting
 import { test, expect } from "bun:test";
 import { $ } from "bun";
 import { tmpdir } from "node:os";
@@ -380,4 +380,5 @@ test("dt_shapes: DT-1b the confirm gate REFUSES an unconfirmed plan (mutation ki
   expect(merges).toBe(0);
   const st = db.query("SELECT state FROM pr_node WHERE id = ?").get(prId) as { state: string };
   expect(st.state).toBe("ready_to_merge");
+  db.close();   // the reviewer's nit: DT-1b leaked its :memory: handle
 });
