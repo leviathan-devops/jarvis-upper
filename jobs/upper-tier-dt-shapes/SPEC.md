@@ -9,7 +9,4 @@ steps:
     retries: 0
     silence_s: 90
 sha16:
-  dt-shapes-fixture: f2bb7f710669ab10
-
-# NOTE: artifact/done-when paths are ABSOLUTE by design — the fence resolves the
-# artifact from its own cwd, so it must be host-absolute for the sandbox.
+  dt-shapes-fixture: 02126ad5bdf7ca59
