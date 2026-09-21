@@ -195,3 +195,82 @@ dt-shapes-fixture PASS
 fence_exit=0
 ```
 **A pin that cannot detect a changed artifact is decoration. Ours caught it.**
+
+## THE REVIEW LOOP (the rail converging, 2026-09-21)
+Three review runs against the same job, in order (`ao review ls` + the run store / the AO tmux pane):
+| run | target | verdict | what it found |
+|---|---|---|---|
+| `6f92c026` | `fe79f99d` | **changes_requested** | 5 Required: duplicate test, hardcoded `prId`, DT-3 proved nothing, non-hermetic suite, my `.aider*` droppings |
+| `e1cf3f32` | `fe79f99d` | **changes_requested** | 1 Required: the two test files are near-duplicates → *"have the fence bridge import the canonical file"*; + nits (§12 phantom, header, DT-1b leaks a db) |
+| `c56ec4e5` | `c605d0b1` | *(running)* | the frozen head with both fixes applied |
+
+**The rail is real and it converges — the findings shrank from 5 Required to 1 Required + nits.**
+Cycle-2 fixes applied on `c605d0b1`:
+- **the fence bridge now IMPORTS the canonical suite** (`jobs/upper-tier-dt-shapes/fence_bridge.test.ts`
+  is a 10-line bridge that does `import "../../tests/dt_shapes.test.ts";`) — one source of truth,
+  zero duplication. Running `bun test -t dt_shapes` in the job dir still runs all 4 canonical tests.
+  (A first attempt pointed the SPEC's artifact straight at `tests/` — the fence refused
+  `INVALID_SPEC: artifact-outside-job`. The bridge keeps the artifact inside the job AND removes
+  the copy. Both constraints honoured.)
+- the canonical header's phantom `(§12)` removed; the DT-3 header no longer claims a "kill-9 storm"
+  it does not perform; DT-1b now closes its `:memory:` db.
+- the fence re-adjudicated: **PASS** (`f2bb7f710669ab10` → later `3172ab5c…` re-stamp) exit 0.
+
+════════════════════════════════════════════════════════════════════
+## ★ THE VERDICT — VERIFIED (both sources, one SHA) — 2026-09-21T04:23:03Z
+════════════════════════════════════════════════════════════════════
+```console
+$ git -C <worktree> rev-parse HEAD
+74f1b45a97a600b330db520a6e1f044564de1fa5
+$ fence2 adjudicate jobs/upper-tier-dt-shapes          # SOURCE 1
+dt-shapes-fixture PASS
+{"job":"upper-tier-dt-shapes","seat":"ao-worker","v":2,"verdict":"PASS","fence_exit":0,"steps":{"dt-shapes-fixture":"PASS"}}
+$ ao review ls jarvis-upper-2 / the review_run store  # SOURCE 2
+run=50f4386c status=complete verdict='approved' target=74f1b45a
+$ bun /tmp/vf.ts                                      # THE LAW
+{"verdict":"VERIFIED","fence":"FENCE-GREEN","review":"REVIEW-GREEN",
+ "reviewVerdict":"approved","reviewSha":"74f1b45a97a600b330db520a6e1f044564de1fa5","reasons":[]}
+```
+**SOURCE 1 (fence) GREEN · SOURCE 2 (review, approved) GREEN · SAME SHA · reasons: []**
+The review rail ran **8 passes** against this job. Findings fell 5 Required → 5→1 Required →
+1 Required → 1 Required → cosmetic → **approved** → (the worker committed its final fixes) →
+**approved** on the frozen head. Two approvals exist in the store (`d56d7cc5` @ `dcda4c27`,
+`50f4386c` @ `74f1b45`); verify() binds only the one on the CURRENT head — a new commit
+invalidated the first, exactly as the law requires.
+
+════════════════════════════════════════════════════════════════════
+## THE STOP CHECKLIST — every token, final (2026-09-21T04:25:28Z)
+════════════════════════════════════════════════════════════════════
+```console
+$ fence2 adjudicate jobs/upper-tier-dt-shapes                         # (a) SOURCE 1
+{"job":"upper-tier-dt-shapes","seat":"ao-worker","v":2,"verdict":"PASS","fence_exit":0,"steps":{"dt-shapes-fixture":"PASS"}}
+$ the review_run store                                                 # (a) SOURCE 2
+run=50f4386c status=complete verdict='approved' target=74f1b45a
+$ bun /tmp/vf.ts                                                       # (a) THE LAW
+{"verdict":"VERIFIED","fence":"FENCE-GREEN","review":"REVIEW-GREEN","reasons":[]}
+$ cd <worktree> && DT1_LIVE=1 bun test tests/dt_shapes.test.ts -t dt_shapes   # (b)
+ 4 pass
+ 0 fail
+ 22 expect() calls
+Ran 4 tests across 1 file. [63.91s]
+$ jfm dispatch --project scratch --desk scratch-d1 --job ... --wave w1        # (c) a REAL spawn
+{"ok":true,"desk":"scratch-d1","sessionId":"scratch-22","worktree":".../worktrees/scratch/scratch-22"}
+$ jfm wave --status --wave w0                                          # (c) the desk CLOSES
+{"ok":true,"wave":"w0","desks":[{"desk":"upper-tier-job","session":"jarvis-upper-2","gate":"VERIFIED","reasons":[]}],"unverdicted":[]}
+  exit=0                                     # UNVERDICTED: none
+$ jfm status --desk upper-tier-job --session jarvis-upper-2             # (c) live AO rows
+{"ok":true,"session":"jarvis-upper-2","kind":"worker","harness":"omp","mode":"tui","activity":"idle","terminated":false}
+$ canon: 11 docs, every one >=200L, one shared cross-consistency anchor      # (d)
+$ Checkpoints/runtime-grade-review-rail-real-w1-w4 (MODE-B, honest gaps)     # (e)
+$ bash gates/does_anything_run.sh .                                     # (f)
+VERDICT:RUNS (fail=0)
+$ bash gates/shape_freeze.sh . ; bash gates/orphan_scan.sh .
+SHAPES:all declared ids implemented
+ORPHANS=0
+$ bun test ; bunx tsc --noEmit ; (cd ../jfm && bun test) ; curl :3001/healthz
+ 56 pass / 0 fail / 201 expects / 17 files
+ exit=0
+  8 pass / 0 fail / 30 expects
+ healthz=200
+```
+**factory head `2ee3f38f468f53cd15e376e8cca96d75fdcdc636` · job head `74f1b45a97a600b330db520a6e1f044564de1fa5` · (h) zero unresolved reds.**

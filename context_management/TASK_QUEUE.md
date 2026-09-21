@@ -263,7 +263,7 @@ End of TASK_QUEUE.
 
 ---
 <!-- CROSS-CONSISTENCY ANCHOR (all 11 canon docs carry this identical line) -->
-- **factory head:** `98cd7aaf111781891e2e52ca822889bcfb503471` (jarvis-upper main) · **job head (PR #1):** `acc7a688b56cd2db7e28f28a19db800da8baf1be`
-- **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green
-- **source 1 (fence):** PASS `spec_bound:true` · **source 2 (review):** the real muse run on AO's rail (per-run verdict in the AO store)
-- **review fixes applied:** byte-identical dup deleted · DT-1 prId derived + gate asserted · DT-3 proved loss+restart · DT-1 live opt-in · .aider* removed
+- **factory head:** `2ee3f38f468f53cd15e376e8cca96d75fdcdc636` (jarvis-upper main) · **job head (PR #1):** `74f1b45a97a600b330db520a6e1f044564de1fa5`
+- **VERDICT: VERIFIED** — fence PASS `spec_bound:true` + review `approved`, SAME sha
+- **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green · jfm 8/0
+- **jfm wave w0:** the desk `upper-tier-job` closed, `unverdicted: []`

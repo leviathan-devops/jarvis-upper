@@ -135,3 +135,14 @@ dossier 1/0` · W4 `ship_manifest 4/0` + fence2 `exit=0` · W5 battery
 - **EN-014 (mine, found by the reviewer):** I committed another session's reviewer droppings
   (`.aider.chat.history.md` referenced the reviewer prompt paths) with a blanket `git add -A`.
   A blanket add is how foreign state enters a repo. Removed + gitignored.
+
+## 2026-09-21 — ★ PR #1 VERIFIED BY BOTH SOURCES ON ONE SHA
+- **head `74f1b45a97a600b330db520a6e1f044564de1fa5`** (branch `ao/jarvis-upper-2/root`).
+- **SOURCE 1 — the fence:** `fence2 adjudicate jobs/upper-tier-dt-shapes` → **PASS**,
+  `spec_bound:true`, exit 0.
+- **SOURCE 2 — the review:** an AO review run (`50f4386c`, harness `muse`) recorded
+  **`approved`** on the same sha; it also posted GitHub review `5263017163`.
+- **verify() → `VERIFIED`, `reasons: []`.**
+- The rail's own convergence: 8 review passes, findings 5 Required → 1 → 1 → 1 → cosmetic → approve.
+  Two approvals are in the store; verify() ignored the first because a later commit (`74f1b45`,
+  the worker's own response to the review) made it stale. **A stale approval cannot verify a head.**

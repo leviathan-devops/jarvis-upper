@@ -210,22 +210,7 @@ End of RUNNING_BUILD_LOG.
 
 ---
 <!-- CROSS-CONSISTENCY ANCHOR (all 11 canon docs carry this identical line) -->
-- **factory head:** `98cd7aaf111781891e2e52ca822889bcfb503471` (jarvis-upper main) · **job head (PR #1):** `acc7a688b56cd2db7e28f28a19db800da8baf1be`
-- **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green
-- **source 1 (fence):** PASS `spec_bound:true` · **source 2 (review):** the real muse run on AO's rail (per-run verdict in the AO store)
-- **review fixes applied:** byte-identical dup deleted · DT-1 prId derived + gate asserted · DT-3 proved loss+restart · DT-1 live opt-in · .aider* removed
-
-## 2026-09-21 — the review fixes (W3, post-review)
-The muse reviewer returned **changes_requested** on `adbdacf` with 5 Required + 3 Consider
-findings. All 5 Required applied in `acc7a688b56cd2db7e28f28a19db800da8baf1be`:
-1. deleted `jobs/fence_bridge.test.ts` (byte-identical to `tests/dt_shapes.test.ts` — root
-   `bun test` discovered it and ran the live DT-1 twice).
-2. DT-1: `prId` derived from the synced rows (`SELECT id, pr_number FROM pr_node WHERE session_id=?`)
-   instead of a hardcoded `:1`, and `g.ok` is now ASSERTED (an ineligible gate fails the test).
-3. DT-3: rewritten to prove what it claims — a **file-backed DB closed and reopened per cycle**
-   (a real restart, impossible on `:memory:`) plus an **overlapping batch** (dupes counted) and a
-   **skipped-seq batch** (gaps + resync counted). The old test fed neither.
-4. DT-1 live is now **opt-in** (`DT1_LIVE=1`); the default suite skips it honestly (a skip, not a
-   blocked-pass) so the suite is hermetic without a daemon.
-5. removed the `.aider*` reviewer droppings + gitignored them; fixed the `dt_transcripts` pattern.
-Re-stamped the SPEC sha16 (`63a90648cb4c788d`) and re-adjudicated: **fence PASS** on the new head.
+- **factory head:** `2ee3f38f468f53cd15e376e8cca96d75fdcdc636` (jarvis-upper main) · **job head (PR #1):** `74f1b45a97a600b330db520a6e1f044564de1fa5`
+- **VERDICT: VERIFIED** — fence PASS `spec_bound:true` + review `approved`, SAME sha
+- **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green · jfm 8/0
+- **jfm wave w0:** the desk `upper-tier-job` closed, `unverdicted: []`
