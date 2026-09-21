@@ -1,0 +1,211 @@
+# CHANGELOG — jarvis-upper (this build era)
+
+Append-only history of the jarvis-upper build era. Dates are `YYYY-MM-DD`.
+SHAs are quoted verbatim from the verified state. Format per entry: date,
+SHA, what changed, evidence. file:line anchors measured at W4.
+
+---
+
+## 2026-09-2x — W0: AO vanilla install + permissions bypass
+
+Wave W0 is the AO (Agent Orchestrator v0.13.0) bootstrap on this host. No
+`jarvis-upper` commit exists yet; this wave is host-level only. All subsequent
+work keys off `http://localhost:3001` (healthz 200).
+
+- **Date:** 2026-09-2x
+- **SHA:** (AO .deb install — host-level)
+- **Milestone:** AO (Agent Orchestrator v0.13.0) installed from the official
+  .deb on this host; dashboard loads.
+- **Evidence:** `ao --version` → 0.13.0; `curl http://localhost:3001` → 200.
+
+- **Date:** 2026-09-2x
+- **SHA:** (ao config)
+- **Milestone:** AO permissions bypass set at 3 levels (`ao yolo config` +
+  the `/permissions` endpoint bypass + the respawn rule) so AO sessions do
+  not prompt on tool calls after a fresh install.
+- **Evidence:** `ao config` shows bypass-permissions true.
+
+- **Date:** 2026-09-2x
+- **SHA:** (AO introspection)
+- **Milestone:** AO daemon surface introspected: `144 paths / 164 ops / 269
+  schemas`. AO merge model is explicit-only. SSE at
+  `/api/v1/events?after=<cursor>`. AO has NO webhook/notifier/plugin surface.
+- **Evidence:** introspection result.
+
+- **Date:** 2026-09-2x
+- **SHA:** (AO merge)
+- **Milestone:** Confirmed AO merge is explicit-only — there is no auto-merge
+  surface.
+- **Evidence:** AO semantics.
+
+---
+
+## 2026-09-2x — W1: Upper-tier bootstrap (repo + gates + profile + JFM)
+
+Wave W1 creates `jarvis-upper` as its OWN git repo, the 3 refusal gates, the
+worker profile pin, and JFM as a separate repo.
+
+- **Commit:** `760ad1b`
+- **`jarvis-upper` repo:** created (its OWN git repo, branch `main`, remote
+  `https://github.com/leviathan-devops/jarvis-upper.git` private).
+  Evidence: `git -C jarvis-upper log --oneline` → `760ad1b`.
+- **`src/main.ts:1-19`:** stub entry (19 lines).
+- **`src/runtime.ts:1-150`:** stub (→ EN-003 no entry/loop).
+- **`src/status.ts:1-48`:** stub.
+- **`src/verdict.ts:1-184`:** created with `verify({jobDir, headSha,
+  sessionId})` skeleton (two-source law not yet wired end to end). Anchor:
+  `src/verdict.ts:1-5`.
+- **Gates created:** `gates/does_anything_run.sh:1-49`,
+  `gates/shape_freeze.sh:1-50`, `gates/orphan_scan.sh:1-35`. Initial run: RED
+  (→ EN-001, EN-006). Evidence: `bash gates/does_anything_run.sh .` initially RED.
+- **`scripts/spec-audit.ts:1-86`:** created.
+- **AO-client layer scaffolded:** `ao-client/client.ts:1-75`,
+  `ao-client/rail.ts:1-113`, `ao-client/gen.ts:1-39`,
+  `ao-client/gen/routes.ts:1-173` (144 paths surface).
+- **`tests/`:** 16 test files present at W4 (lines: 111+19+26+96+89+83+48+36+76+
+  67+45+58+33+92+20+68). Evidence: `wc -l tests/*.ts`.
+- **AO review defaults set on `jarvis-upper`:** `autoReview: true`,
+  `reviewers: [{"harness":"muse"}]` (`.omp/config.yml`). AO REJECTS `omp`
+  harness.
+- **Worker profile** `~/.omp/profiles/jarvis-worker/agent/config.yml` pinned:
+  `default`/`task` = `poolside/poolside/laguna-s-2.1:high` (Poolside DIRECT).
+- **JFM repo created** at `/home/leviathan/JARVIS_WORKSPACE/jfm/` (branch
+  `main`), symlinked `~/.local/bin/jfm`. JAM desk core IMPORTED from
+  `Shared_Workspace/JARVIS/src/desk-orchestrator.ts:1-1080` (never forked).
+  JFM modules: `jfm/src/cli.ts:1-155`, `jfm/src/ao-transport.ts:1-133`,
+  `jfm/src/pin.ts:1-55`, `jfm/src/desk.ts:1-78`, `jfm/src/watch-ao.ts:1-84`,
+  `jfm/src/gate.ts:1-7`.
+- **Blueprint of record** `reports/JFM_Blueprint_v1.md:1-395` committed.
+  Evidence: `wc -l reports/JFM_Blueprint_v1.md` → 395.
+- **Defects opened:** EN-001, EN-003, EN-006, EN-007, EN-008, EN-009, EN-010.
+
+Scope: W1 establishes the factory shell + the three gates + the worker profile
+pin + JFM. Completion NOT claimed — does-anything-run gate still RED.
+
+---
+
+## 2026-09-2x — W2: Runtime wall + two-source law wired
+
+Wave W2 implements the runtime tick loop, drives all 3 gates + battery + tsc
+green, and finalizes the two-source verdict law in `verify()`.
+
+- **Commit:** `732083e`
+- **`src/runtime.ts:1-150`:** tick loop implemented; `UPPER_TICK_MS=3000` wired.
+  Runtime status → RUNNING.
+- **`src/status.ts:1-48`:** publishes `runtime/status.json:1-13`;
+  `runtime/ticks.log:1-5005` appends each 3000ms.
+- **`runtime/wire_capture.json:1-7`:** frozen frame
+  `parsedFrames=168, bytes=65638`.
+- **`src/verdict.ts:1-184`:** finalized — VERIFIED iff (1) fence2 adjudicate
+  exit 0 AND (2) AO review approves the same head sha. Anchor:
+  `src/verdict.ts:1-5`.
+- **Gate G1:** `bash gates/does_anything_run.sh .` → `VERDICT:RUNS (fail=0)` (PASS).
+- **Gate G2:** `bash gates/shape_freeze.sh .` → `SHAPES:all declared ids
+  implemented` (PASS).
+- **Gate G3:** `bash gates/orphan_scan.sh .` → `ORPHANS=0` (PASS).
+- **Gate G4:** `bunx tsc --noEmit` → exit 0 (PASS).
+- **Gate G5:** `bun test` → `52 pass / 0 fail / 183 expects / 16 files` (PASS).
+- **Gate G6:** `bun test -t two_source_verdict` → `8 pass / 0 fail` (PASS).
+- **Gate G7:** `bun test -t jfm_verbs` → `8 pass / 0 fail` (PASS).
+- **EN-001 fixed** (via later `jarvis-upper-2` job). EN-003, EN-006 closed.
+
+Scope: W2 turns the runtime green and the three gates + battery + typecheck +
+verdict law all PASS. Does-anything-run law (D-002) satisfied.
+
+---
+
+## 2026-09-2x — W3: Factory jobs — AO spawn → PR (dt-shapes + jfm-e2e)
+
+Wave W3 proves the AO factory can spawn a Poolside-Direct worker, fix a real
+bug, commit, push, open a PR, and fence2 + AO-review the result.
+
+- **Commit:** `adbdacf` (PR #1 head); `cce7bdb` (jfm-e2e)
+- **`adbdacf98b5cb1d57b0a802b57f756bf7d01c45b`:** head of `ao/jarhus-upper-2/root`.
+  Evidence: `git rev-parse` of PR #1.
+- **Job `jarvis-upper-2`:** worker/omp/tui, profile `jarvis-worker`,
+  OMP_PROFILE=jarvis-worker. Fixed the DT-shapes drift bug (EN-001).
+  Evidence: PR #1 commits `760ad1b`, `732083e`, `adbdacf`.
+- **PR #1 opened:** `https://github.com/leviathan-devops/jarvis-upper/pull/1`
+  (OPEN), branch `ao/jarhus-upper-2/root`.
+- **fence2 adjudicate:** for job `upper-tier-dt-shapes` on head
+  `adbdacf98b5cb1d57b0a802b57f756bf7d01c45b`: verdict PASS,
+  evidence `6954bafbd4918f75|sandbox=bwrap|spec_bound:true` (G10 PASS).
+  Evidence: `verdicts.jsonl` row.
+- **Fence sandbox:** confirmed `bwrap --unshare-all` (no network); DB_1's
+  hermetic step runs offline BY DESIGN.
+- **AO review:** autoReview:true + reviewers:muse on jarvis-upper +
+  jarvis_orchestrator. AO REJECTS `omp` harness
+  (`INVALID_PROJECT_CONFIG`). Reviewer-capable installed: muse/aider/cursor.
+- **Job `jfm-e2e-1`:** worker produced first end-to-end spawn→commit→push→PR:
+  `https://github.com/leviathan-devops/jfm-e2e/pull/1`, commit `cce7bdb`,
+  `E2E-PROOF.txt` = `DT1-OK`.
+- **EN-007:** ripwire crawl root EXCLUDES jarvis-upper → graph gate cannot
+  verify edits here.
+- **EN-008:** daemon stale run-file + rotating X cookie.
+- **EN-009:** checkpoint test copies re-ran → pinned.
+- **EN-010:** `upper sync` is a STUB (returns prNodes 0 while PR open).
+- **EN-019:** desk-local model pin invisible to AO spawns → removed.
+- **EN-020:** PAT burned (embedded in a git remote URL, printed) → operator
+  rotation required.
+
+Scope: W3 proves the factory produces real PRs through JFM. fence2 (G10) PASS.
+AO review (G11) is OPEN — approval of `adbdacf98b5cb1d57b0a802b57f756bf7d01c45b`
+not yet observed. Both required (D-004).
+
+---
+
+## 2026-09-21 — W4: Canon docs (docs-only)
+
+- **Date:** 2026-09-21
+- **SHA:** (none — docs-only wave)
+- **Re-verification:** `bun test` → `52 pass / 0 fail / 183 expects / 16 files`;
+  `bunx tsc --noEmit` → exit 0; `bun test -t two_source_verdict` →
+  `8 pass / 0 fail`; `bun test -t jfm_verbs` → `8 pass / 0 fail`.
+- **Gates re-verified:** `VERDICT:RUNS (fail=0)` / `SHAPES:all declared ids
+  implemented` / `ORPHANS=0`.
+- **Runtime re-verified:** `bun src/cli.ts status` → `RUNNING (tick >3000)`.
+- **AO daemon:** still `200`; fence2 PASS row unchanged
+  (`6954bafbd4918f75|sandbox=bwrap|spec_bound:true`).
+- **11 canon docs written** into `context_management/`.
+- **PR #1:** still OPEN (head `adbdacf98b5cb1d57b0a802b57f756bf7d01c45b`).
+- **`upper sync`:** still STUB (EN-010).
+- Scope: W4 codifies the W0–W3 verified state. The two-source verdict loop is
+  NOT closed until G11 (AO review approval) is observed. Per D-004, BOOLEAN
+  FALSE until both gates pass on the same sha.
+
+---
+
+## OPERATOR RULINGS APPLIED (this era)
+
+| Ruling ID | Verbatim | Applied at |
+|-----------|----------|------------|
+| D-001 | "I NEVER WANT TO SEE ANOTHER BULLSHIT SLOP REPORT AGAIN." | all reports |
+| D-002 | "Never once asked does anything run? — THIS IS THE ONLY THING THAT MATTERS." | G1 |
+| D-003 | "this is all theatrical bullshit. explicitly forbid this as a verification gate... this is NOT tangible verification evidence." | forbidden evidence set |
+| D-004 | "THIS IS THE ONLY ACCEPTED VERIFICATION EVIDENCE. BOTH OF THESE... BOOLEAN FALSE." | two-source law |
+| D-005 | "review harness should be muse code, auto review should be true." | AO review defaults |
+| D-006 | "test needs to enforce by default." | battery gates |
+| D-007 | "worker profile needs the direct poolside api wired as the default model + the task agent's pinned default" | jarvis-worker default/task |
+| D-008 | "the default model for the jarvis workers needs to be set to muse spark 1.3 contributor on opencode go. NOT conflicting with my main omp having deepseek pinned." | jarvis-worker sonic..slow + global deepseek |
+
+## REJECTED ALTERNATIVES (recorded, do not re-attempt)
+
+| What was rejected | Why | Recorded in |
+|-------------------|-----|-------------|
+| Citing commit/diffs/tests/PR as verification | D-003 forbids ("theatrical bullshit") | DECISION_CHAIN.md |
+| Single-source verdict (fence2 only, or review only) | D-004 requires BOTH ("BOOLEAN FALSE") | DECISION_CHAIN.md |
+| AO `omp` as reviewer harness | `INVALID_PROJECT_CONFIG` | DECISION_CHAIN.md |
+| Desk-local model pin | EN-019 invisible to spawns | DECISION_CHAIN.md |
+| Forking JAM desk core / fence2 | must import | DECISION_CHAIN.md |
+| Auto-merge path | D-004 forbids non-two-source | DECISION_CHAIN.md |
+| A second tracker | "one tracker law" | DECISION_CHAIN.md |
+| Recording the burned PAT material | forbidden credential material | DECISION_CHAIN.md |
+
+End of CHANGELOG.
+
+---
+<!-- CROSS-CONSISTENCY ANCHOR (all 11 canon docs carry this identical line) -->
+- **factory head:** `98cd7aaf111781891e2e52ca822889bcfb503471` (jarvis-upper main) · **job head (PR #1):** `acc7a688b56cd2db7e28f28a19db800da8baf1be`
+- **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green
+- **source 1 (fence):** PASS `spec_bound:true` · **source 2 (review):** the real muse run on AO's rail (per-run verdict in the AO store)
+- **review fixes applied:** byte-identical dup deleted · DT-1 prId derived + gate asserted · DT-3 proved loss+restart · DT-1 live opt-in · .aider* removed

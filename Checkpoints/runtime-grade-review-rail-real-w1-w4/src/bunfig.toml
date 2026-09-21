@@ -1,0 +1,5 @@
+# Checkpoints/ holds full source snapshots (including *.test.ts copies) for recovery.
+# They are NOT the live suite: their relative imports resolve against the LIVE tree.
+# Keep them out of `bun test` so a snapshot never breaks the battery.
+[test]
+pathIgnorePatterns = ["Checkpoints/**"]

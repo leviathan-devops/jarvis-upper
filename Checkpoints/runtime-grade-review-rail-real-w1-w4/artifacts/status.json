@@ -1,0 +1,13 @@
+{
+  "ts": "2026-09-21T01:59:37.135Z",
+  "tick": 5046,
+  "daemonOk": true,
+  "cursor": 336,
+  "prNodes": 5,
+  "ready": 0,
+  "eligible": 0,
+  "planHash": "e3b0c44298fc1c14",
+  "planKind": "ok",
+  "kicks": 0,
+  "errors": []
+}
