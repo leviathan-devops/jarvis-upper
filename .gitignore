@@ -11,3 +11,4 @@ dist/
 # the JAM/JFM desk tracker: LIVE state (jfm writes it on every verb) — never source
 .omp-waves/
 .aider*
+runtime/dt_transcripts/
