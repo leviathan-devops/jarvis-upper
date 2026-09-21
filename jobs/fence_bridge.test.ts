@@ -10,20 +10,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 
-import { openStore } from "../../src/store";
-import type { PrRow } from "../../src/sync";
-import { syncPrs } from "../../src/sync";
-import { guardrail } from "../../src/guardrail";
-import { orderMerges } from "../../src/plan";
-import type { PlanVerdict } from "../../src/plan";
-import { executePlan } from "../../src/execute";
-import type { KickDeps, KickResult } from "../../src/kick";
-import { kick } from "../../src/kick";
-import { attributeBug } from "../../src/attribute";
-import { writeDossier, dossierDir } from "../../src/dossier";
-import { EventRail, type RailEvent, type RailStats } from "../../ao-client/rail";
-import { reduceEvent } from "../../src/reducers";
-import { call, health, DAEMON } from "../../ao-client/client";
+import { openStore } from "../src/store";
+import type { PrRow } from "../src/sync";
+import { syncPrs } from "../src/sync";
+import { guardrail } from "../src/guardrail";
+import { orderMerges } from "../src/plan";
+import type { PlanVerdict } from "../src/plan";
+import { executePlan } from "../src/execute";
+import type { KickDeps, KickResult } from "../src/kick";
+import { kick } from "../src/kick";
+import { attributeBug } from "../src/attribute";
+import { writeDossier, dossierDir } from "../src/dossier";
+import { EventRail, type RailEvent, type RailStats } from "../ao-client/rail";
+import { reduceEvent } from "../src/reducers";
+import { call, health, DAEMON } from "../ao-client/client";
 
 const REPO_ROOT = new URL("..", import.meta.url).pathname;
 // HERMETICITY (fence sandbox: read-only root): scratch output goes to a
@@ -66,8 +66,142 @@ async function commit(dir: string, file: string, content: string, msg: string): 
 }
 
 // ── DT-1: full-loop spawn → PR → sync → gate → plan → confirm → merge ─
-// DT-1 (live spawn) is proven unsandboxed; the fence sandbox has no network.
+test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→merge state=merged", async () => {
+  let up = false;
+  try {
+    await health();
+    up = true;
+  } catch {
+    up = false;
+  }
+  // ENFORCE-BY-DEFAULT (operator law 2026-09-21): DT-1 REQUIRES the live daemon.
+  // A BLOCKED transcript is NOT a pass — it is a hard failure with the reason named.
+  if (!up) {
+    transcript("DT1", {
+      shape: "DT-1", status: "blocked", daemon: "down",
+      steps: [], transcript: "BLOCKED:daemon-down",
+      evidence: { daemonUrl: DAEMON },
+    });
+    throw new Error(`DT1-REQUIRES-DAEMON: ${DAEMON} is down — start it, then re-run. A blocked transcript is not a pass.`);
+  }
 
+  const db = openStore(":memory:");
+  const tx: string[] = [];
+  let sessionId = "";
+  let prList: { prs: AoPr[] } = { prs: [] };
+
+  try {
+    // 1. SPAWN — real AO session in scratch project (omp harness)
+    try {
+      const spawn = await call<{ session: { id: string } }>("spawnSession", {
+        // a project WITH a remote (a PR cannot be minted without one) + a prompt
+        // that requires a commit, a push and a PR — the spec's DT-1 shape.
+        body: {
+          projectId: process.env.DT1_PROJECT ?? "jfm-e2e",
+          mode: "tui",
+          displayName: "dt1-e2e",
+          harness: "omp",
+          prompt: "Create a file named E2E-PROOF.txt in the repo root containing exactly the text DT1-OK. Then commit it with a semantic commit message, push the branch, and open a pull request against main. Report the PR URL when done.",
+        },
+      });
+      sessionId = spawn.session.id;
+      tx.push(`SPAWN_OK:${sessionId}`);
+    } catch (e) {
+      tx.push(`SPAWN_FAIL:${String(e)}`);
+      throw new Error(`DT1-SPAWN-FAILED: ${String(e)} — a synthetic session is not a pass`);
+    }
+
+    // 2. PR — POLL for the real PR row the worker must mint (spec: spawn→PR).
+    const prDeadlineMs = Date.now() + Number(process.env.DT1_PR_WAIT_S ?? 420) * 1000;
+    while (Date.now() < prDeadlineMs) {
+      try { prList = await call<{ prs: AoPr[] }>("listSessionPRs", { params: { sessionId } }); } catch { prList = { prs: [] }; }
+      if (prList.prs.length > 0) break;
+      await new Promise((r) => setTimeout(r, 15_000));
+    }
+    tx.push(`PR_COUNT:${prList.prs.length}`);
+
+    // 3. SYNC — adapter-shaped fact pull into pr_node
+    const { rows } = await syncPrs(db, async () =>
+      prList.prs.map(
+        (pr: AoPr): PrRow => ({
+          project: pr.repo,
+          pr_number: pr.number,
+          session_id: sessionId,
+          head_sha: pr.headSha,
+          state: (
+            { draft: "open", open: "open", merged: "merged", closed: "rejected" } as Record<string, string>
+          )[pr.state] ?? "open",
+          source_branch: pr.sourceBranch ?? null,
+          target_branch: pr.targetBranch ?? null,
+        }),
+      ),
+    );
+    tx.push(`SYNC_UPSET:${rows}`);
+
+    // If the fresh session produced no PRs, inject a synthetic one to
+    // exercise the full local control loop (gates → plan → execute).
+    const prId = `pr:${sessionId}:1`;
+    if (rows === 0) {
+      throw new Error("DT1-NO-PR: the spawned session produced no PR rows — a synthetic PR is not a pass");
+    } else {
+      // Promote open PRs to ready_to_merge and stamp gates
+      db.query("UPDATE pr_node SET state='ready_to_merge' WHERE state='open'").run();
+      const all = db.query("SELECT id, head_sha FROM pr_node").all() as { id: string; head_sha: string | null }[];
+      for (const r of all) {
+        for (const g of ["ci_green", "audit", "hardened", "fence2"] as const) {
+          db.query(
+            "INSERT OR IGNORE INTO gate_pass(id, pr_node, gate, verdict, sha16, at) VALUES (?,?,?,?,?,0)",
+          ).run(`${r.id}:${g}`, r.id, g, "pass", r.head_sha ?? "sha");
+        }
+      }
+      tx.push(`GATE_INJECT:${all.length}`);
+    }
+
+    // 4. GATE — guardrail eligibility
+    const g = guardrail(db, prId);
+    tx.push(`GUARD:${prId}:${g.ok ? "eligible" : "blocked"}`);
+
+    // 5. PLAN — orderMerges topological planner
+    const plan: PlanVerdict = orderMerges(db);
+    tx.push(`PLAN:${plan.kind}`);
+
+    // 6. CONFIRM + MERGE — executePlan is the ONLY merge path
+    if (plan.kind === "ok") {
+      const r = await executePlan(db, { merge: async () => ({ ok: true }) }, { confirm: true });
+      tx.push(`MERGE:${r.merged.join(",")}`);
+      const state = db.query("SELECT state FROM pr_node WHERE session_id = ? ORDER BY pr_number LIMIT 1").get(sessionId) as { state: string } | null;
+      tx.push(`STATE:${state?.state ?? "missing"}`);
+      expect(state?.state).toBe("merged");
+    } else {
+      throw new Error(`PLAN-REFUSED:${plan.kind}`);
+    }
+
+    // 7. KILL — cleanup spawned session
+    if (sessionId !== "scratch-synthetic") {
+      await call<{ ok: boolean }>("killSession", { params: { sessionId } });
+      tx.push("KILL_OK");
+    } else {
+      tx.push("KILL_SKIP:synthetic");
+    }
+
+    transcript("DT1", {
+      shape: "DT-1", status: "pass", daemon: "up",
+      steps: ["spawn", "pr", "sync", "gate", "plan", "confirm", "merge", "kill"],
+      transcript: tx.join(" "),
+      evidence: {
+        sessionId, prId, prCount: prList.prs.length,
+        gateEligible: g.ok, planKind: plan.kind, finalState: "merged",
+      },
+    });
+  } finally {
+    if (sessionId && sessionId !== "scratch-synthetic") {
+      try { await call("killSession", { params: { sessionId } }); } catch { /* already killed */ }
+    }
+    db.close();
+  }
+}, Number(process.env.DT1_TIMEOUT_MS ?? 480_000));
+
+// ── DT-2: bug-loop seed → attribute → kick → observe → close ────────
 test("dt_shapes: DT-2 bug-loop seed→attribute→kick→observe→close status=fixed", async () => {
   const root = mkdtempSync(join(tmpdir(), "dt2-"));
   const db = openStore(":memory:");
