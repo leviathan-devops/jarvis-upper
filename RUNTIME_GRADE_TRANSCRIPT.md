@@ -139,3 +139,44 @@ $ GET /sessions/jfm-e2e-1/pr → [{"number":1,"url":".../jfm-e2e/pull/1",...}]
 3. JFM's `wave` returns NO-DESKS for wave `w0`: no desk has been dispatched THROUGH jfm yet (the jobs so far went via direct AO spawns). JFM's dispatch path is exercised by its tests, not by a live production desk.
 4. The canon docs are written but not all at the ≥200-line floor (8 of 11 under; a follow-up agent is expanding them).
 5. The MODE-B checkpoint is not yet saved for this era.
+
+════════════════════════════════════════════════════════════════════
+## INDEPENDENT RE-VERIFICATION — 2026-09-21T02:27:04Z (fresh shell)
+════════════════════════════════════════════════════════════════════
+```console
+$ cd jarvis-upper && bun test
+ 56 pass
+ 0 fail
+ 201 expect() calls
+Ran 56 tests across 17 files. [640.00ms]
+$ bunx tsc --noEmit ; echo exit=$?
+exit=0
+$ bash gates/does_anything_run.sh .
+Q5:YES:heartbeat:runtime/ticks.log has 11 row(s)
+VERDICT:RUNS (fail=0)
+$ bash gates/shape_freeze.sh .
+SHAPES:all declared ids implemented
+$ bash gates/orphan_scan.sh .
+ORPHANS=0
+$ jfm health && (cd ../jfm && bun test | tail -3)
+{"ok":true,"ao":"http://localhost:3001","http":200}
+ 0 fail
+ 30 expect() calls
+Ran 8 tests across 1 file. [81.00ms]
+$ bun src/cli.ts sync && bun src/cli.ts status
+{"ok":true,"projects":4,"prNodes":5,"openPrNodes":5}
+{"prNodes": 5, "daemonOk": null, "planKind": "ok"}
+$ fence2 adjudicate jobs/upper-tier-dt-shapes --expect-spec-sha <inv>   # SOURCE 1
+  invariant=b4b7ac6eed26f5cc
+dt-shapes-fixture SHA_MISMATCH
+  exit=0
+$ ao review ls jarvis-upper-2   # SOURCE 2
+PR  STATUS        VERDICT  TITLE
+#1  needs_review  -        test(dt_shapes): implement DT-1/DT-2/DT-3 deep container shapes
+$ curl :3001/healthz
+healthz=200
+$ canon floors
+  269 TASK_QUEUE.md
+  267 POST-COMPACTION_PROMPT.md
+  266 EVIDENCE_STATE.md
+```
