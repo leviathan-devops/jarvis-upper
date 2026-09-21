@@ -1,0 +1,22 @@
+{
+  "shape": "DT-3",
+  "status": "pass",
+  "steps": [
+    "init",
+    "storm",
+    "converge",
+    "idempotent"
+  ],
+  "transcript": "CYCLE_0:cursor=0->25 dupes=0 gaps=0 processed=25\nCYCLE_1:cursor=25->50 dupes=0 gaps=0 processed=25\nCYCLE_2:cursor=50->75 dupes=0 gaps=0 processed=25\nCYCLE_3:cursor=75->100 dupes=0 gaps=0 processed=25\nCYCLE_4:cursor=100->125 dupes=0 gaps=0 processed=25\nCYCLE_5:cursor=125->150 dupes=0 gaps=0 processed=25\nCYCLE_6:cursor=150->175 dupes=0 gaps=0 processed=25\nCYCLE_7:cursor=175->200 dupes=0 gaps=0 processed=25\nCYCLE_8:cursor=200->225 dupes=0 gaps=0 processed=25\nCYCLE_9:cursor=225->250 dupes=0 gaps=0 processed=25\nCYCLE_10:cursor=250->275 dupes=0 gaps=0 processed=25\nCYCLE_11:cursor=275->300 dupes=0 gaps=0 processed=25\nCYCLE_12:cursor=300->325 dupes=0 gaps=0 processed=25\nCYCLE_13:cursor=325->350 dupes=0 gaps=0 processed=25\nCYCLE_14:cursor=350->375 dupes=0 gaps=0 processed=25\nCYCLE_15:cursor=375->400 dupes=0 gaps=0 processed=25\nCYCLE_16:cursor=400->425 dupes=0 gaps=0 processed=25\nCYCLE_17:cursor=425->450 dupes=0 gaps=0 processed=25\nCYCLE_18:cursor=450->475 dupes=0 gaps=0 processed=25\nCYCLE_19:cursor=475->500 dupes=0 gaps=0 processed=25\nCONVERGE:cursor=500 dupes=0 gaps=0 processed=500\nIDEMPOTENT:processed=0 dupes=500\nROWS:500",
+  "evidence": {
+    "events": 500,
+    "cycles": 20,
+    "dupes": 0,
+    "gaps": 0,
+    "cursor": 500,
+    "processed": 500,
+    "replayDupes": 500,
+    "replayProcessed": 0,
+    "rows": 500
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "shape": "DT-2",
+  "status": "pass",
+  "steps": [
+    "seed",
+    "attribute",
+    "dossier",
+    "record",
+    "kick",
+    "observe",
+    "close"
+  ],
+  "transcript": "SEED_OK:2ae17ceb ATTRITE_OK:commit=2ae17ceb confidence=0.9 method=blame+log DOSSIER_OK:sha=4f40c5a7 RECORD_OK KICK_OK:mode=live target=s-1 sha=4f40c5a7 OBSERVE_OK:outcome=delivered sha=4f40c5a7 CLOSE_OK:status=fixed",
+  "evidence": {
+    "originCommit": "2ae17cebd6688b05893d841c687e0c135879cfc9",
+    "attribution": {
+      "commit": "2ae17cebd6688b05893d841c687e0c135879cfc9",
+      "confidence": 0.9,
+      "method": "blame+log"
+    },
+    "kickMode": "live",
+    "kickTarget": "s-1",
+    "kickOutcome": "delivered",
+    "bugStatus": "fixed",
+    "dossierSha16": "4f40c5a78188ffee"
+  }
+}
