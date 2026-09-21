@@ -202,3 +202,62 @@
   party was the one failing. (Cf. EN-011: "a run row is not a run.")
 - **WHY IT MATTERS HERE:** the whole task is "do not trust a claim; verify the substrate". I applied
   that to the workers and not to my own poll loop. The law applies to the observer too.
+
+## EN-018 — I reported from a status field and it was theater (2026-09-21)
+- **THE FINDING:** I told the operator **"2 of 3 crons are erroring"** — read from the
+  cron store's `last_status`. The receipt ledger said otherwise:
+  `11/11 tick_ok:true`, including receipts at 06:30:21, 06:46:14, 06:52:59 — *inside the
+  window I called erroring*. The ticks LANDED; the status described the LLM turn, not the work.
+- **THE ROOT CAUSE:** I read the **bookkeeping row** instead of the **artifact**. This is
+  F-06/EN-017 verbatim — the law I had written four hours earlier: *"a poll must read the
+  PROCESS and its ARTIFACTS, never the bookkeeping row."* **I violated my own law.** The
+  aggravating factor: the cron's action kind is `agent_turn` (an LLM chat round-trip), so
+  the 120s cap bounds the *turn*, while `tick.sh` runs in milliseconds and writes its
+  receipt regardless. Two different quantities, one field name.
+- **THE FIX:** the firewall — `meta-watchdog-lib.py` + the artifact-first watchers. A status
+  claiming `error` beside a fresh receipt is adjudicated **DIVERGENCE: the artifact wins**;
+  a status claiming `error` with NO receipt in the window is **AGREEMENT: a real failure,
+  escalate**. Three verdicts, both directions tested.
+- **THE VERIFICATION:** `{"diverged": True, "verdict": "DIVERGENCE: the status claims an
+  error but a receipt landed 132s ago — THE ARTIFACT WINS."}` · stale-ledger case →
+  `{"diverged": False, "verdict": "AGREEMENT: ... a REAL failure, escalate."}`
+- **THE LESSON:** a status column is a third party's CLAIM. When you catch yourself about to
+  say "the system is broken", read the artifact that the work would have produced — if it
+  exists, the system is fine and the *measurement* is broken.
+
+## EN-019 — the prefix is not cosmetic: a session with no namespace borrows one (2026-09-21)
+- **THE FINDING:** eight writes against the `jarvis-meta` hand — owned by another,
+  concurrent session — because I was debugging that hand and derived my naming from it.
+  ~50% pure spillover (F-07).
+- **THE ROOT CAUSE:** I never declared which namespace this session owns. `jarvis-factory`
+  was already taken (seat-plane intercom, up 14h); `jarvis-meta-*` was theirs. With nothing
+  claimed, the path of least resistance was to name my artifacts after the thing on screen.
+- **THE FIX:** the factory owns **`jarvis-upper-*`**. Established: `jarvis-upper.service`
+  (the tick loop, `Restart=always`) + `jarvis-upper-watchdog.{service,timer}` (artifact-first,
+  every 2 min). My code moved out of their tree into `JARVIS_INFRA/watchdogs/`. The law is
+  written into that directory's README with the ownership table.
+- **THE VERIFICATION:** `systemctl --user list-unit-files | grep jarvis` →
+  `jarvis-upper.service enabled` · `jarvis-upper-watchdog.timer enabled` ·
+  `jarvis-meta-promotion.*` (theirs) untouched. Their hand re-checked: `Running`.
+- **THE LESSON:** **declare the prefix before the first write.** The namespace is the
+  *interface between concurrent sessions*; without it, two agents editing one machine
+  cannot tell whose artifact they are looking at — and the failure is silent until someone
+  loses work.
+
+## EN-020 — the factory was a ritual, not a system (2026-09-21)
+- **THE FINDING:** `jarvis-upper` had **no systemd unit**. Its loop had been dead **8,680s**
+  (2h24m) while AO answered `healthz=200` and the railway held 9 PR rows.
+- **THE ROOT CAUSE:** the factory was built as *a library you run* (`bun src/main.ts`), never
+  as *a service you install*. The artifact that reveals a dead loop (a tick timestamp)
+  existed the whole time and was never watched. Compounding: the missing watcher and the
+  missing service were the same omission seen from two sides.
+- **THE FIX:** `jarvis-upper.service` (`Type=simple`, `WorkingDirectory=…/jarvis-upper`,
+  `Restart=always`, `RestartSec=5`) + `jarvis-upper-watchdog.timer` (checks AO healthz,
+  tick freshness, and `prNodes > 0` — the EN-010 silent-zero guard).
+- **THE VERIFICATION:** unit mtime `2026-09-21 11:30:45` (so it did not exist before —
+  this IS the evidence for the root cause); started `11:30:46` per journal; then
+  `{"tick_age_s": 5, "problems": []}` → `{"tick_age_s": 15, "problems": []}` →
+  `status.json tick=17 daemonOk=True prNodes=9 errors=[]`.
+- **THE LESSON:** **if a component must be started by hand, its uptime is a measure of human
+  memory, not of the system.** Every "the factory is live" claim before this entry described
+  a corpse. The watchdog found in 3 seconds what no status field had reported in 8,680.

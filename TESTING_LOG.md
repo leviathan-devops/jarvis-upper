@@ -130,3 +130,57 @@ and names its HONEST GAPS; the transcript carries verbatim runs + the VERIFIED v
 **ADVERSARIAL PROOF (the gate can fail):** truncating one canon doc under the floor turns it RED
 at the floor predicate (`under).toEqual([])`); restoring it returns 6/6. A gate that cannot fail is
 decoration.
+
+## TEST RESULT — 2026-09-21 — the artifact-first firewall (both directions)
+
+### SCRIPT
+- **The run:** `bash meta-watchdog.sh` (DIVERGENCE case, live) then `touch -d "30 minutes ago" audit-ledger.jsonl && bash meta-watchdog.sh` (AGREEMENT case)
+- **The raw output:**
+  ```
+  {"diverged": True,  "verdict": "DIVERGENCE: the status claims an error but a receipt landed 132s ago — THE ARTIFACT WINS."}
+  {"diverged": False, "verdict": "AGREEMENT: the status claims an error AND no receipt landed in the window — this is a REAL failure, escalate."}
+  ```
+- **The verdict:** **PASS** — the detector fires on the true anti-pattern and stays silent on the true failure. Three bugs were found and fixed only by running it (the API does not expose `last_status`; a nested-heredoc syntax error; `True` vs `"true"` case).
+- **The artifacts:** `JARVIS_INFRA/watchdogs/meta-watchdog.sh`, `meta-watchdog-lib.py`, `relocated-ledger.jsonl`
+
+## TEST RESULT — 2026-09-21 — the factory's liveness (before/after)
+
+### HOST
+- **The run:** `bash upper-watchdog.sh` — once against the dead factory, once after `jarvis-upper.service` was installed
+- **The raw output:**
+  ```
+  BEFORE: {"ts":"2026-09-21T07:30:12Z","ao_http":"200","tick_age_s":8680,"prNodes":"9","problems":["TICK-STALE:8680s"]}
+  AFTER : {"ts":"2026-09-21T07:31:06Z","ao_http":"200","tick_age_s":5,   "prNodes":"9","problems":[]}
+  AFTER : {"ts":"2026-09-21T07:34:01Z","ao_http":"200","tick_age_s":15,  "prNodes":"9","problems":[]}
+  ```
+- **The verdict:** **PASS** — `status.json tick=17 daemonOk=True prNodes=9 errors=[]`; the loop is live and the watcher reports it from the artifact.
+- **The artifacts:** `jarvis-upper.service` (unit mtime `2026-09-21 11:30:45`), `runtime/watchdog-ledger.jsonl`
+
+## TEST RESULT — 2026-09-21 — the cross-stream cleanup (their hand after my spillover)
+
+### HOST
+- **The run:** `openfang status | grep jarvis-meta` · `systemctl --user list-unit-files | grep jarvis` · `ls ~/.openfang/hands/jarvis-meta/`
+- **The raw output:**
+  ```
+  jarvis-meta-agent (6560d5fc-7766-590e-a6d6-3d1ee009f191) -- Running [openai:nvidia/nemotron-3.5-lightning-30b-a3b]
+  jarvis-meta-promotion.service static · jarvis-meta-promotion.timer enabled   (theirs, untouched)
+  their dir lists only: HAND.toml · HAND.toml.bak-* · SKILL.md · SKILL.md.bak-* · audit-ledger.jsonl · guardrails.toml · promotion-state.json · register-cron.sh · tick.sh
+  ```
+- **The verdict:** **PASS** — my files gone from their tree, my units out of their namespace, their agent Running and their crons enabled.
+- **The artifacts:** F-07's cleanup table; `pgrep -f "openfang agent chat 6560d5fc"` → no process (mine stopped)
+
+## TEST RESULT — 2026-09-21 — THE CODE-AUDIT GATE (qwen-code-audit / ocr)
+
+### SCRIPT
+- **The run:** `ocr review --repo /home/leviathan/JARVIS_WORKSPACE/Shared_Workspace -c 4e0e0b8 -f json -o /tmp/sg-ocr-4e0e0b8.json --effort low --timeout 8 --audience agent`
+- **The scope:** 3 code files selected for review (`JARVIS_INFRA/watchdogs/meta-watchdog-lib.py`, `meta-watchdog.sh`, `upper-watchdog.sh`); 5 excluded as unsupported extension.
+- **The raw output:**
+  ```
+  [ocr] Session: 6205f9b1-c082-4d81-a300-bde026b4b0c7
+  Error: review failed: all 3 file review(s) failed — check your LLM configuration and API key
+  status: failed · model: muse-spark-1.3-contributor-free
+  summary: {"files_reviewed": 3, "comments": 0, "total_tokens": 0, "elapsed": "28s"}
+  ```
+- **AUDIT GATE: BLOCKED (muse-free lane provider/auth failure — 0 tokens on 3/3 files)**
+- **The artifacts:** `/tmp/sg-ocr-4e0e0b8.json` (13,673B, `session_id 6205f9b1-c082-4d81-a300-bde026b4b0c7`)
+- **The retry condition:** re-run through the alternate lane (the zen-free adapter on :4098, or the poolside-direct lane) per the pinned judge chain, then re-wire this entry. **This BLOCKED state withholds every ship-ready / production-grade claim.** An earlier run on commit `591a14d` returned `status: skipped` (0 files selected — it carried only a `.md`); a skipped run is also not a pass.
