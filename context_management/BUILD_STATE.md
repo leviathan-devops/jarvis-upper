@@ -2,7 +2,8 @@
 
 This doc is the **SHA chain, module inventory, and immutable list**.
 Everything an agent needs to know before touching code or committing. All SHAs
-are quoted verbatim from the verified state — do NOT invent.
+are quoted verbatim from the verified state. Line counts are measured from disk
+at W4.
 
 ---
 
@@ -27,15 +28,16 @@ are quoted verbatim from the verified state — do NOT invent.
 
 All SHAs below are quoted from the verified state. Quote verbatim.
 
-| Artifact | SHA | Branch / Context |
-|----------|-----|------------------|
-| `jarvis-upper` main tip (W4) | — (see local `git rev-parse HEAD` at resume) | `main` |
-| PR #1 — commit 1 | `760ad1b` | `ao/jarvis-upper-2/root` (W1) |
-| PR #1 — commit 2 | `732083e` | `ao/jarvis-upper-2/root` (W2) |
-| PR #1 — commit 3 | `adbdacf` | `ao/jarvis-upper-2/root` (W3) |
-| PR #1 head (current) | `adbdacf98b5cb1d57b0a802b57f756bf7d01c45b` | `adbdacf` |
-| jfm-e2e PR #1 commit | `cce7bdb` | merged proof |
-| fence2 current PASS row | head `adbdacf98b5cb1d57b0a802b57f756bf7d01c45b` | job `upper-tier-dt-shapes` |
+| Artifact | SHA | Branch / Context | Date |
+|----------|-----|------------------|------|
+| `jarvis-upper` main tip (W4) | — (see local `git rev-parse HEAD` at resume) | `main` | 2026-09-21 |
+| W0 AO install | (AO .deb) | host-level | 2026-09-2x |
+| W1 bootstrap commit | `760ad1b` | `main` | 2026-09-2x |
+| W2 runtime commit | `732083e` | `main` | 2026-09-2x |
+| W3 factory commit | `adbdacf` | PR #1 head | 2026-09-2x |
+| PR #1 head (frozen) | `adbdacf98b5cb1d57b0a802b57f756bf7d01c45b` | `ao/jarvis-upper-2/root` | 2026-09-2x |
+| jfm-e2e PR #1 commit | `cce7bdb` | jfm-e2e repo | 2026-09-2x |
+| fence2 current PASS row | head `adbdacf98b5cb1d57b0a802b57f756bf7d01c45b` | job `upper-tier-dt-shapes` | 2026-09-2x |
 
 > The **two-source verdict law** keys off `adbdacf98b5cb1d57b0a802b57f756bf7d01c45b`
 > as the head sha. `verify({jobDir, headSha, sessionId})` returns VERIFIED iff
@@ -43,73 +45,120 @@ All SHAs below are quoted from the verified state. Quote verbatim.
 
 ## 3. MODULE INVENTORY
 
-### 3.1 Upper-tier control plane — `jarvis-upper/src/` (17 modules)
+### 3.1 Upper-tier control plane — `jarvis-upper/src/` (17 + cli/exec path)
 
-| # | Module | Path | Status |
-|---|--------|------|--------|
-| 1 | main | `src/main.ts` | RUNS |
-| 2 | runtime | `src/runtime.ts` | RUNS |
-| 3 | status | `src/status.ts` | RUNS |
-| 4 | verdict | `src/verdict.ts` | RUNS (two_source_verdict: 8 pass) |
-| 5 | ao-transport | `ao-client/transport.ts` | RUNS (10-verb seam, AO 200) |
-| 6 | ao-session | `ao-client/session.ts` | RUNS (spawn carries OMP_PROFILE=jarvis-worker) |
-| 7 | ao-pr | `ao-client/pr.ts` | RUNS (PR #1 OPEN, jfm-e2e merged) |
-| 8 | ao-review | `ao-client/review.ts` | RUNS (autoReview:true, reviewers:muse) |
-| 9 | gate: does_anything_run | `gates/does_anything_run.sh` | PASS (`VERDICT:RUNS (fail=0)`) |
-| 10 | gate: shape_freeze | `gates/shape_freeze.sh` | PASS (`SHAPES:all declared ids implemented`) |
-| 11 | gate: orphan_scan | `gates/orphan_scan.sh` | PASS (`ORPHANS=0`) |
-| 12 | spec-audit | `scripts/spec-audit.ts` | RUNS |
-| 13 | wire_capture | `runtime/wire_capture.json` | parsedFrames=168, bytes=65638 |
-| 14 | status.json | `runtime/status.json` | RUNNING |
-| 15 | ticks.log | `runtime/ticks.log` | appending @3000ms |
-| 16 | tests | `tests/` (16 files) | 52 pass / 0 fail / 183 expects |
-| 17 | package | `package.json` | exit 0 |
+Measured line counts at W4:
 
-### 3.2 JFM — `/home/leviathan/JARVIS_WORKSPACE/jfm/src/` (6 modules)
+| # | Module | Path | Lines | Status |
+|---|--------|------|-------|--------|
+| 1 | main | `src/main.ts` | 19 | RUNS |
+| 2 | runtime | `src/runtime.ts` | 150 | RUNS |
+| 3 | status | `src/status.ts` | 48 | RUNS |
+| 4 | verdict | `src/verdict.ts` | 184 | RUNS |
+| 5 | cli | `src/cli.ts` | — | RUNS |
+| 6 | execute | `src/execute.ts` | — | RUNS |
+| 7 | desks | `src/desks.ts` | — | RUNS |
+| 8 | kick | `src/kick.ts` | — | RUNS |
+| 9 | dossier | `src/dossier.ts` | — | RUNS |
+| 10 | attribute | `src/attribute.ts` | — | RUNS |
+| 11 | graph | `src/graph.ts` | — | RUNS |
+| 12 | guardrail | `src/guardrail.ts` | — | RUNS |
+| 13 | plan | `src/plan.ts` | — | RUNS |
+| 14 | reducers | `src/reducers.ts` | — | RUNS |
+| 15 | sync | `src/sync.ts` | — | STUB (EN-010) |
+| 16 | adapter-verbs | `src/adapter-verbs.ts` | — | RUNS |
+| 17 | cli-verbs | `src/cli-verbs.ts` | — | RUNS |
 
-| # | Module | Path | Verbs / Role |
-|---|--------|------|--------------|
-| J1 | cli | `jfm/src/cli.ts` | `health|status|watch|pin|dispatch|steer|abort|pr|gate|board|wave` |
-| J2 | ao-transport | `jfm/src/ao-transport.ts` | 10-verb seam + pr natives |
-| J3 | pin | `jfm/src/pin.ts` | pins AO jobs to head sha |
-| J4 | desk | `jfm/src/desk.ts` | JAM tracker + 5 AO columns (IMPORTED seam) |
-| J5 | watch-ao | `jfm/src/watch-ao.ts` | INST-1/2/4 wired |
-| J6 | gate | `jfm/src/gate.ts` | `bun test -t jfm_verbs` → 8 pass / 0 fail |
+### 3.2 The AO-client layer
 
-### 3.3 The 5 AO columns in the JAM tracker
+| Module | Path | Lines | Status |
+|--------|------|-------|--------|
+| client | `ao-client/client.ts` | 75 | RUNS (AO 200) |
+| rail | `ao-client/rail.ts` | 113 | RUNS |
+| gen | `ao-client/gen.ts` | 39 | RUNS |
+| gen/routes | `ao-client/gen/routes.ts` | 173 | RUNS (144 paths surface) |
+| probe a1a2-client | `ao-client/probes/a1a2-client.ts` | — | RUNS |
+| probe a4-rail-real | `ao-client/probes/a4-rail-real.ts` | — | RUNS |
 
-The JAM desk core (`desk-orchestrator.ts`) models AO spawns across 5 columns:
+### 3.3 The gates + spec-audit
 
-| Column | AO state | Meaning |
-|--------|----------|---------|
-| queued | pending | spawned but not yet started |
-| running | active | AO job active, TUI live |
-| reviewing | reviewing | AO review run in flight |
-| done | closed | fence2 + AO review both PASS |
-| killed | killed | aborted by operator |
+| # | Gate | Path | Lines | W4 token |
+|---|------|------|-------|----------|
+| 9 | does_anything_run | `gates/does_anything_run.sh` | 49 | `VERDICT:RUNS (fail=0)` |
+| 10 | shape_freeze | `gates/shape_freeze.sh` | 50 | `SHAPES:all declared ids implemented` |
+| 11 | orphan_scan | `gates/orphan_scan.sh` | 35 | `ORPHANS=0` |
+| 12 | spec-audit | `scripts/spec-audit.ts` | 86 | — (G13 BLOCKED) |
 
-### 3.4 Imported (never forked)
+### 3.4 JFM — `/home/leviathan/JARVIS_WORKSPACE/jfm/src/` (6 modules)
 
-| Dependency | Path | Notes |
-|------------|------|-------|
-| JAM desk core | `Shared_Workspace/JARVIS/src/desk-orchestrator.ts` | IMPORTED into JFM, never forked |
-| fence2 | `Shared_Workspace/JARVIS-CORE/b6/fence2.py` | IMPORTED into gates, never forked |
+| # | Module | Path | Lines | Verbs / Role |
+|---|--------|------|-------|--------------|
+| J1 | cli | `jfm/src/cli.ts` | 155 | `health|status|watch|pin|dispatch|steer|abort|pr|gate|board|wave` |
+| J2 | ao-transport | `jfm/src/ao-transport.ts` | 133 | 10-verb seam + pr natives |
+| J3 | pin | `jfm/src/pin.ts` | 55 | pins AO jobs to head sha |
+| J4 | desk | `jfm/src/desk.ts` | 78 | JAM tracker + 5 AO columns (IMPORTED seam) |
+| J5 | watch-ao | `jfm/src/watch-ao.ts` | 84 | INST-1/2/4 wired |
+| J6 | gate | `jfm/src/gate.ts` | 7 | gates dispatch results |
+
+### 3.5 The 5 AO columns in the JAM tracker
+
+The JAM desk core (`desk-orchestrator.ts:1-1080`) models AO spawns across 5
+columns: queued → running → reviewing → done → killed. `jfm status` reads these;
+`jfm watch` tails the SSE into them.
+
+### 3.6 Imported (never forked)
+
+| Dependency | Path | Lines | Imported by |
+|------------|------|-------|-------------|
+| JAM desk core | `Shared_Workspace/JARVIS/src/desk-orchestrator.ts` | 1080 | JFM `jfm/src/desk.ts` |
+| fence2 | `Shared_Workspace/JARVIS-CORE/b6/fence2.py` | 966 | gates + verdict |
+
+### 3.7 Runtime state files
+
+| File | Path | Lines / size | Content |
+|------|------|--------------|---------|
+| status.json | `runtime/status.json` | 13 | RUNNING / tick |
+| ticks.log | `runtime/ticks.log` | 5005 | tick append |
+| wire_capture.json | `runtime/wire_capture.json` | 7 | `parsedFrames=168, bytes=65638` |
+
+### 3.8 Test files (16)
+
+| Test | Path | Lines |
+|------|------|-------|
+| two_source_verdict | `tests/two_source_verdict.test.ts` | 111 |
+| sync_matches | `tests/sync_matches.test.ts` | 19 |
+| spec_audit | `tests/spec_audit.test.ts` | 26 |
+| ship_manifest | `tests/ship_manifest.test.ts` | 96 |
+| runtime_ticks | `tests/runtime_ticks.test.ts` | 89 |
+| replay_converges | `tests/replay_converges.test.ts` | 83 |
+| planner_cycle | `tests/planner_cycle.test.ts` | 48 |
+| live_e2e | `tests/live_e2e.test.ts` | 36 |
+| kick_fallback | `tests/kick_fallback.test.ts` | 76 |
+| guardrail_stale | `tests/guardrail_stale.test.ts` | 67 |
+| graph_snapshot | `tests/graph_snapshot.test.ts` | 45 |
+| execute_plan | `tests/execute_plan.test.ts` | 58 |
+| dossier_hash | `tests/dossier_hash.test.ts` | 33 |
+| does_anything_run | `tests/does_anything_run.test.ts` | 92 |
+| bindings_parity | `tests/bindings_parity.test.ts` | 20 |
+| attribution_triage | `tests/attribution_triage.test.ts` | 68 |
 
 ## 4. THE FROZEN / IMMUTABLE LIST
 
 These SHAs and files MUST NOT be rebased or rewritten without an explicit
-operator ruling (D-008 / A-011). They are the anchors for the two-source verdict.
+operator ruling (D-008 / L9). They are the anchors for the two-source verdict.
 
 | Anchor | SHA / Path | Why frozen |
 |--------|------------|------------|
 | PR #1 head | `adbdacf98b5cb1d57b0a802b57f756bf7d01c45b` | Two-source verdict keys off this sha |
-| fence2.py | `Shared_Workspace/JARVIS-CORE/b6/fence2.py` | Verdict engine — imported, not forked |
+| fence2.py | `Shared_Workspace/JARVIS-CORE/b6/fence2.py` (966L) | Verdict engine — imported, not forked |
 | verdicts.jsonl | `Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl` | Append-only ledger |
-| desk-orchestrator.ts | `Shared_Workspace/JARVIS/src/desk-orchestrator.ts` | JAM desk core — imported into JFM |
+| desk-orchestrator.ts | `Shared_Workspace/JARVIS/src/desk-orchestrator.ts` (1080L) | JAM desk core — imported into JFM |
 | JFM repo | `/home/leviathan/JARVIS_WORKSPACE/jfm/` (branch main) | Separate repo, pinned verbs |
 | Worker profile | `~/.omp/profiles/jarvis-worker/agent/config.yml` | Poolside-Direct default |
 | Global omp config | `~/.omp/agent/config.yml` | Operator's deepseek main omp — NOT a worker |
 | Blueprint | `reports/JFM_Blueprint_v1.md` (395L) | reference for all of the above |
+| Runtime entry | `src/main.ts:1-19` / `src/runtime.ts:1-150` / `src/status.ts:1-48` | frozen while RUNNING |
+| Verdict law | `src/verdict.ts:1-184` | two-source law impl |
 
 ## 5. GATES (W4 state)
 
@@ -128,7 +177,7 @@ operator ruling (D-008 / A-011). They are the anchors for the two-source verdict
 
 ## 6. VERDICT LAW WIRING
 
-`jarvis-upper/src/verdict.ts`:
+`jarvis-upper/src/verdict.ts` (184L):
 
 ```ts
 function verify({ jobDir, headSha, sessionId }): boolean {
@@ -203,3 +252,10 @@ fence2.py adjudicate upper-tier-dt-shapes \
 | Stale run file | `mv ~/.ao/running.json /tmp/running.json.stale` (if daemon refuses) | daemon boots |
 
 End of BUILD_STATE.
+
+---
+<!-- CROSS-CONSISTENCY ANCHOR (all 11 canon docs carry this identical line) -->
+- **factory head:** `98cd7aaf111781891e2e52ca822889bcfb503471` (jarvis-upper main) · **job head (PR #1):** `acc7a688b56cd2db7e28f28a19db800da8baf1be`
+- **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green
+- **source 1 (fence):** PASS `spec_bound:true` · **source 2 (review):** the real muse run on AO's rail (per-run verdict in the AO store)
+- **review fixes applied:** byte-identical dup deleted · DT-1 prId derived + gate asserted · DT-3 proved loss+restart · DT-1 live opt-in · .aider* removed

@@ -2,7 +2,7 @@
 
 This doc is the **per-module status** at the end of W4. "What runs / what does
 not" is keyed to the runtime, the AO factory, JFM, and the 17 upper-tier modules
-+ JFM's 6 internal modules. All line counts are measured from disk.
++ JFM's 6 internal modules. All line counts are measured from disk at W4.
 
 ---
 
@@ -13,9 +13,9 @@ not" is keyed to the runtime, the AO factory, JFM, and the 17 upper-tier modules
 | AO daemon (Jarvis Core) | `http://localhost:3001` | UP (healthz 200) | `curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/healthz` → `200` |
 | AO introspection | `http://localhost:3001` | 144 paths / 164 ops / 269 schemas | SSE at `/api/v1/events?after=<cursor>` live |
 | AO merge model | AO semantics | explicit-only | there is NO webhook/notifier/plugin surface |
-| Upper-tier runtime | `src/main.ts` + `runtime/` | RUNNING | `bun src/cli.ts status` → `RUNNING (tick >3000)` |
+| Upper-tier runtime | `src/main.ts:1-19` + `runtime/` | RUNNING | `bun src/cli.ts status` → `RUNNING (tick >3000)` |
 | JFM CLI | `~/.local/bin/jfm` (symlink → `/home/leviathan/JARVIS_WORKSPACE/jfm/`) | Installed + tested | `jfm health` |
-| fence2 | `Shared_Workspace/JARVIS-CORE/b6/fence2.py` (966L) | Live (hermetic) | `bash gates/does_anything_run.sh .` → `VERDICT:RUNS (fail=0)` |
+| fence2 | `Shared_Workspace/JARVIS-CORE/b6/fence2.py:1-966` | Live (hermetic) | `bash gates/does_anything_run.sh .` → `VERDICT:RUNS (fail=0)` |
 | Worker profile | `~/.omp/profiles/jarvis-worker/agent/config.yml` | PINNED | default/task = poolside/poolside/laguna-s-2.1:high |
 
 ## 2. THE 17 UPPER-TIER MODULES (src/) — WITH LINE COUNTS + CALLERS
@@ -25,63 +25,64 @@ BROKEN = gate red; FROZEN = immutable per BUILD_STATE.md.
 
 | # | Module | Path | Lines | Callers | Status |
 |---|--------|------|-------|---------|--------|
-| 1 | main | `src/main.ts` | 19 | Orca/runtime launcher | RUNS |
-| 2 | runtime | `src/runtime.ts` | 150 | `main.ts`, `cli.ts` | RUNS |
-| 3 | status | `src/status.ts` | 48 | `runtime.ts` | RUNS |
-| 4 | verdict | `src/verdict.ts` | 184 | `tests/two_source_verdict.test.ts` | RUNS |
-| 5 | cli | `src/cli.ts` | — | operator | RUNS (status/init) |
-| 6 | execute | `src/execute.ts` | — | `cli.ts` | RUNS |
-| 7 | desks | `src/desks.ts` | — | `execute.ts` | RUNS |
-| 8 | kick | `src/kick.ts` | — | `desks.ts` | RUNS |
-| 9 | dossier | `src/dossier.ts` | — | `kick.ts` | RUNS |
-| 10 | attribute | `src/attribute.ts` | — | `dossier.ts` | RUNS |
-| 11 | graph | `src/graph.ts` | — | `attribute.ts` | RUNS |
-| 12 | guardrail | `src/guardrail.ts` | — | `graph.ts` | RUNS |
-| 13 | plan | `src/plan.ts` | — | `guardrail.ts` | RUNS |
-| 14 | reducers | `src/reducers.ts` | — | `plan.ts` | RUNS |
-| 15 | sync | `src/sync.ts` | — | `cli.ts` (STUB — EN-010) | STUB |
-| 16 | adapter-verbs | `src/adapter-verbs.ts` | — | `cli.ts` | RUNS |
-| 17 | cli-verbs | `src/cli-verbs.ts` | — | `adapter-verbs.ts` | RUNS |
+| 1 | main | `src/main.ts` | 19 | Orca/runtime launcher; runtime.ts | RUNS |
+| 2 | runtime | `src/runtime.ts` | 150 | main.ts, cli.ts, status.ts | RUNS |
+| 3 | status | `src/status.ts` | 48 | runtime.ts | RUNS |
+| 4 | verdict | `src/verdict.ts` | 184 | tests/two_source_verdict.test.ts | RUNS |
+| 5 | execute | `src/execute.ts` | — | cli.ts | RUNS |
+| 6 | desks | `src/desks.ts` | — | execute.ts | RUNS |
+| 7 | kick | `src/kick.ts` | — | desks.ts | RUNS |
+| 8 | dossier | `src/dossier.ts` | — | kick.ts | RUNS |
+| 9 | attribute | `src/attribute.ts` | — | dossier.ts | RUNS |
+| 10 | graph | `src/graph.ts` | — | attribute.ts | RUNS |
+| 11 | guardrail | `src/guardrail.ts` | — | graph.ts | RUNS |
+| 12 | plan | `src/plan.ts` | — | guardrail.ts | RUNS |
+| 13 | reducers | `src/reducers.ts` | — | plan.ts | RUNS |
+| 14 | sync | `src/sync.ts` | — | cli.ts (STUB — EN-010) | STUB |
+| 15 | adapter-verbs | `src/adapter-verbs.ts` | — | cli.ts | RUNS |
+| 16 | cli-verbs | `src/cli-verbs.ts` | — | adapter-verbs.ts | RUNS |
+| 17 | cli | `src/cli.ts` | — | operator, adapter-verbs, cli-verbs | RUNS |
 
-> The "main 3" runtime entry path: `src/main.ts:1-19` → `src/runtime.ts:1-150`
-> → `src/status.ts:1-48`. The tick loop in `runtime.ts` publishes
-> `runtime/status.json` (13L) and appends `runtime/ticks.log` (5005L) each
-> 3000ms.
+> Entry path chain: `src/main.ts:1-19` → `src/runtime.ts:1-150` →
+> `src/status.ts:1-48`. The tick loop in `runtime.ts` publishes
+> `runtime/status.json:1-13` and appends `runtime/ticks.log:1-5005` each
+> 3000ms. `src/sync.ts` is the STUB (EN-010) — returns prNodes 0 while PR #1
+> is OPEN.
 
-## 3. THE AO-CLIENT LAYER
+## 3. THE AO-CLIENT LAYER (10-verb seam)
 
-| Module | Path | Lines | Status |
-|--------|------|-------|--------|
-| client | `ao-client/client.ts` | 75 | RUNS (AO 200) |
-| rail | `ao-client/rail.ts` | 113 | RUNS |
-| gen | `ao-client/gen.ts` | 39 | RUNS |
-| gen/routes | `ao-client/gen/routes.ts` | 173 | RUNS (144 paths surface) |
-| probe a1a2-client | `ao-client/probes/a1a2-client.ts` | — | RUNS (client health check) |
-| probe a4-rail-real | `ao-client/probes/a4-rail-real.ts` | — | RUNS (rail real-mode) |
+| Module | Path | Lines | Status | Callers |
+|--------|------|-------|--------|---------|
+| client | `ao-client/client.ts` | 75 | RUNS (AO 200) | probes/a1a2-client |
+| rail | `ao-client/rail.ts` | 113 | RUNS | client |
+| gen | `ao-client/gen.ts` | 39 | RUNS | rail |
+| gen/routes | `ao-client/gen/routes.ts` | 173 | RUNS (144 paths) | gen |
+| probe a1a2 | `ao-client/probes/a1a2-client.ts` | — | RUNS | client health check |
+| probe a4 | `ao-client/probes/a4-rail-real.ts` | — | RUNS | rail real-mode |
 
-## 4. THE GATES (3 refusal gates)
+## 4. THE GATES + SPEC-AUDIT (3 refusal gates)
 
-| # | Gate | Path | Lines | W4 token (VERBATIM) | Status |
-|---|------|------|-------|---------------------|--------|
+| # | Gate | Path | Lines | W4 token | Status |
+|---|------|------|-------|----------|--------|
 | 9 | does_anything_run | `gates/does_anything_run.sh` | 49 | `VERDICT:RUNS (fail=0)` | PASS |
 | 10 | shape_freeze | `gates/shape_freeze.sh` | 50 | `SHAPES:all declared ids implemented` | PASS |
 | 11 | orphan_scan | `gates/orphan_scan.sh` | 35 | `ORPHANS=0` | PASS |
 | 12 | spec-audit | `scripts/spec-audit.ts` | 86 | — | RUNS (G13 BLOCKED) |
 
-## 5. JFM — 6 INTERNAL MODULES (with line counts + verbs)
+## 5. JFM — 6 INTERNAL MODULES (with line counts + verbs + callers)
 
 JFM lives at `/home/leviathan/JARVIS_WORKSPACE/jfm/` — its OWN git repo (branch
 `main`), symlinked at `~/.local/bin/jfm`. The JAM desk core is IMPORTED from
-`Shared_Workspace/JARVIS/src/desk-orchestrator.ts` (1080L, never forked).
+`Shared_Workspace/JARVIS/src/desk-orchestrator.ts:1-1080` (never forked).
 
-| # | Module | Path | Lines | Verbs / Role | Status |
-|---|--------|------|-------|--------------|--------|
-| J1 | cli | `jfm/src/cli.ts` | 155 | `health|status|watch|pin|dispatch|steer|abort|pr|gate|board|wave` | RUNS |
-| J2 | ao-transport | `jfm/src/ao-transport.ts` | 133 | 10-verb seam + pr natives | RUNS |
-| J3 | pin | `jfm/src/pin.ts` | 55 | pins AO jobs to head sha | RUNS |
-| J4 | desk | `jfm/src/desk.ts` | 78 | JAM tracker + 5 AO columns (IMPORTED seam) | RUNS |
-| J5 | watch-ao | `jfm/src/watch-ao.ts` | 84 | INST-1/2/4 wired | RUNS |
-| J6 | gate | `jfm/src/gate.ts` | 7 | gates dispatch results | RUNS (8 pass via jfm_verbs) |
+| # | Module | Path | Lines | Verbs / Role | Callers | Status |
+|---|--------|------|-------|--------------|---------|--------|
+| J1 | cli | `jfm/src/cli.ts` | 155 | `health|status|watch|pin|dispatch|steer|abort|pr|gate|board|wave` | operator | RUNS |
+| J2 | ao-transport | `jfm/src/ao-transport.ts` | 133 | 10-verb seam + pr natives | cli | RUNS |
+| J3 | pin | `jfm/src/pin.ts` | 55 | pins AO jobs to head sha | cli, dispatch | RUNS |
+| J4 | desk | `jfm/src/desk.ts` | 78 | JAM tracker + 5 AO columns (IMPORTED seam) | cli, watch-ao | RUNS |
+| J5 | watch-ao | `jfm/src/watch-ao.ts` | 84 | INST-1/2/4 wired | cli | RUNS |
+| J6 | gate | `jfm/src/gate.ts` | 7 | gates dispatch results | cli | PASS |
 
 ### 5.1 The 5 AO columns in the JAM tracker
 
@@ -98,7 +99,13 @@ columns:
 
 `jfm status` reads these columns; `jfm watch` tails the SSE into them.
 
-## 6. THE IMPORTED DEPENDENCIES (never forked)
+### 5.2 JFM test
+
+| Test | Path | Lines | Token |
+|------|------|-------|-------|
+| jfm_verbs | `jfm/tests/jfm_verbs.test.ts` | — | `8 pass / 0 fail` |
+
+## 6. IMPORTED DEPENDENCIES (never forked)
 
 | Dependency | Path | Lines | Imported by |
 |------------|------|-------|-------------|
@@ -107,20 +114,41 @@ columns:
 
 ## 7. RUNTIME STATE FILES
 
-| File | Path | Lines / size | Content | Status |
-|------|------|--------------|---------|--------|
-| status.json | `runtime/status.json` | 13 | RUNNING / tick | RUNS |
-| ticks.log | `runtime/ticks.log` | 5005 | tick append | RUNS |
-| wire_capture.json | `runtime/wire_capture.json` | 7 | `parsedFrames=168, bytes=65638` | RUNS |
+| File | Path | Lines / size | Content |
+|------|------|--------------|---------|
+| status.json | `runtime/status.json` | 13 | RUNNING / tick |
+| ticks.log | `runtime/ticks.log` | 5005 | tick append |
+| wire_capture.json | `runtime/wire_capture.json` | 7 | `parsedFrames=168, bytes=65638` |
 
-## 8. AO FACTORY — REAL JOBS (this era)
+## 8. TEST FILES (16)
+
+| Test | Path | Lines |
+|------|------|-------|
+| two_source_verdict | `tests/two_source_verdict.test.ts` | 111 |
+| sync_matches | `tests/sync_matches.test.ts` | 19 |
+| spec_audit | `tests/spec_audit.test.ts` | 26 |
+| ship_manifest | `tests/ship_manifest.test.ts` | 96 |
+| runtime_ticks | `tests/runtime_ticks.test.ts` | 89 |
+| replay_converges | `tests/replay_converges.test.ts` | 83 |
+| planner_cycle | `tests/planner_cycle.test.ts` | 48 |
+| live_e2e | `tests/live_e2e.test.ts` | 36 |
+| kick_fallback | `tests/kick_fallback.test.ts` | 76 |
+| guardrail_stale | `tests/guardrail_stale.test.ts` | 67 |
+| graph_snapshot | `tests/graph_snapshot.test.ts` | 45 |
+| execute_plan | `tests/execute_plan.test.ts` | 58 |
+| dossier_hash | `tests/dossier_hash.test.ts` | 33 |
+| does_anything_run | `tests/does_anything_run.test.ts` | 92 |
+| bindings_parity | `tests/bindings_parity.test.ts` | 20 |
+| attribution_triage | `tests/attribution_triage.test.ts` | 68 |
+
+## 9. AO FACTORY — REAL JOBS (this era)
 
 | Job | Type | Worker profile | Result | PR |
 |-----|------|----------------|--------|----|
 | `jarvis-upper-2` | worker/omp/tui | jarvis-worker (Poolside-Direct) | Fixed DT-shapes drift bug (EN-001) | `https://github.com/leviathan-devops/jarvis-upper/pull/1` (OPEN, 760ad1b/732083e/adbdacf) |
 | `jfm-e2e-1` | worker | jarvis-worker | End-to-end spawn→commit→push→PR | `https://github.com/leviathan-devops/jfm-e2e/pull/1` (cce7bdb, E2E-PROOF.txt=DT1-OK) |
 
-## 9. WHAT DOES NOT RUN (as of W4)
+## 10. WHAT DOES NOT RUN (as of W4)
 
 | Item | Reason | Gate |
 |------|--------|------|
@@ -130,7 +158,7 @@ columns:
 | `upper sync` | STUB — returns prNodes 0 while a PR is open (EN-010). | G14 BLOCKED |
 | AO review approval of head sha | Not yet observed — G11 OPEN. | G11 OPEN |
 
-## 10. DEFECTS ON RECORD (summary, W4)
+## 11. DEFECTS ON RECORD (summary, W4)
 
 Full detail in `RUNNING_DEBUG_LOG.md`. Quick list (active this era EN-001..EN-010):
 
@@ -145,20 +173,20 @@ Full detail in `RUNNING_DEBUG_LOG.md`. Quick list (active this era EN-001..EN-01
 EN-019 (desk-local pin invisible) and EN-020 (PAT burned) are also recorded in
 DEBUG_LOG.
 
-## 11. WIRE CAPTURE (frozen frame)
+## 12. WIRE CAPTURE (frozen frame)
 
-`runtime/wire_capture.json` (7L): `parsedFrames=168, bytes=65638`. This is the
+`runtime/wire_capture.json:1-7`: `parsedFrames=168, bytes=65638`. This is the
 frozen frame of the AO↔upper-tier transport at W4 end. Any change to the
 transport seam must not regress this count without a documented reason.
 
-## 12. STATUS SNAPSHOT (literal)
+## 13. STATUS SNAPSHOT (literal)
 
 ```
 $ bun src/cli.ts status
 RUNNING (tick >3000)
 ```
 
-## 13. GROUND TRUTH QUICK CHECK
+## 14. GROUND TRUTH QUICK CHECK
 
 | Question | Answer (W4) | Command to reproduce |
 |----------|-------------|----------------------|
@@ -172,3 +200,10 @@ RUNNING (tick >3000)
 | Is the global omp still deepseek? | YES (by design) | `cat ~/.omp/agent/config.yml` |
 
 End of CURRENT_STATE.
+
+---
+<!-- CROSS-CONSISTENCY ANCHOR (all 11 canon docs carry this identical line) -->
+- **factory head:** `98cd7aaf111781891e2e52ca822889bcfb503471` (jarvis-upper main) · **job head (PR #1):** `acc7a688b56cd2db7e28f28a19db800da8baf1be`
+- **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green
+- **source 1 (fence):** PASS `spec_bound:true` · **source 2 (review):** the real muse run on AO's rail (per-run verdict in the AO store)
+- **review fixes applied:** byte-identical dup deleted · DT-1 prId derived + gate asserted · DT-3 proved loss+restart · DT-1 live opt-in · .aider* removed

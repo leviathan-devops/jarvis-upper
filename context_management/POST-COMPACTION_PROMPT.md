@@ -26,39 +26,57 @@ For any job `J` on head sha `H`:
 | 4 | Typecheck clean | `bunx tsc --noEmit` | exit 0 |
 | 5 | Runtime alive | `UPPER_TICK_MS=3000 bun src/main.ts` + `bun src/cli.ts status` | `RUNNING (tick >3000)` |
 
-**Both** (1) and (2) must be true — the two-source law. One alone is theatrical.
+**Both** (1) and (2) must be true — the two-source law (D-004). One alone is
+theatrical and equals Boolean FALSE.
 
 ## 3. PROJECT LAYOUT (anchor map)
 
-| Path | Role | Lines / size |
-|------|------|--------------|
+| Path | Role | Lines (measured at W4) |
+|------|------|------------------------|
 | `jarvis-upper/` | Project root — its OWN git repo, branch `main`, remote `https://github.com/leviathan-devops/jarvis-upper.git` (private) | — |
-| `src/main.ts` | Runtime entry point | — |
-| `src/runtime.ts` | Tick loop / supervisor | — |
-| `src/status.ts` | Status publisher | — |
-| `src/verdict.ts` | `verify({jobDir, headSha, sessionId})` — the two-source gate | — |
-| `ao-client/` | AO transport adapter (10-verb seam) | — |
-| `gates/` | 3 refusal gates | — |
-| `scripts/spec-audit.ts` | Spec-audit gate | — |
-| `tests/` | 16 test files | — |
-| `runtime/` | `status.json` + `ticks.log` + `wire_capture.json` | parsedFrames=168, bytes=65638 |
-| `jfm/` (`/home/leviathan/JARVIS_WORKSPACE/jfm/`) | JFM (AO desk manager) — its OWN git repo, branch `main`, symlinked `~/.local/bin/jfm` | — |
-| `Shared_Workspace/JARVIS-CORE/b6/` | fence2 ledger + verdicts.jsonl + fence2.py | — |
-| `Shared_Workspace/JARVIS/src/desk-orchestrator.ts` | JAM desk core (IMPORTED, never forked) — imported into JFM | — |
-| `reports/JFM_Blueprint_v1.md` | Blueprint of record (395L) | 395L |
+| `src/main.ts` | Runtime entry point | 19 |
+| `src/runtime.ts` | Tick loop / supervisor | 150 |
+| `src/status.ts` | Status publisher | 48 |
+| `src/verdict.ts` | `verify({jobDir, headSha, sessionId})` — the two-source gate | 184 |
+| `src/sync.ts` | Sync path (STUB — EN-010) | — |
+| `ao-client/client.ts` | AO transport client | 75 |
+| `ao-client/rail.ts` | AO API rail | 113 |
+| `ao-client/gen.ts` | AO codegen driver | 39 |
+| `ao-client/gen/routes.ts` | AO route surface (144 paths) | 173 |
+| `gates/does_anything_run.sh` | Gate 1 (D-002) | 49 |
+| `gates/shape_freeze.sh` | Gate 2 | 50 |
+| `gates/orphan_scan.sh` | Gate 3 | 35 |
+| `scripts/spec-audit.ts` | Spec-audit gate | 86 |
+| `tests/` | 16 test files | 16 files |
+| `runtime/status.json` | status | 13 |
+| `runtime/ticks.log` | tick log | 5005 |
+| `runtime/wire_capture.json` | frozen frame | 7 (parsedFrames=168, bytes=65638) |
+| `jfm/ (/home/leviathan/JARVIS_WORKSPACE/jfm/)` | JFM repo — its OWN git repo, branch main, symlinked `~/.local/bin/jfm` | — |
+| `jfm/src/cli.ts` | JFM CLI (10 verbs) | 155 |
+| `jfm/src/ao-transport.ts` | 10-verb seam | 133 |
+| `jfm/src/pin.ts` | pins AO jobs to head sha | 55 |
+| `jfm/src/desk.ts` | JAM tracker + 5 AO columns | 78 |
+| `jfm/src/watch-ao.ts` | INST-1/2/4 SSE watcher | 84 |
+| `jfm/src/gate.ts` | gates dispatch results | 7 |
+| `Shared_Workspace/JARVIS/src/desk-orchestrator.ts` | JAM desk core (IMPORTED into JFM, never forked) | 1080 |
+| `Shared_Workspace/JARVIS-CORE/b6/fence2.py` | fence2 (IMPORTED, never forked) | 966 |
+| `Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl` | fence2 append-only ledger | — |
+| `reports/JFM_Blueprint_v1.md` | Blueprint of record | 395 |
+| `~/.omp/profiles/jarvis-worker/agent/config.yml` | Pinned worker profile | — |
+| `~/.omp/agent/config.yml` | Operator's main omp (deepseek, NOT a worker) | — |
 
 ## 4. READING ORDER (strict)
 
 1. **THIS FILE** — mission + resume commands.
-2. **BUILD_STATE.md** — the SHA chain, module inventory, immutable list.
+2. **BUILD_STATE.md** — the SHA chain, module inventory, line counts, immutable list.
 3. **EVIDENCE_STATE.md** — copy-paste the exact tokens that are TRUE right now.
-4. **TASK_QUEUE.md** — which gates are PASS / OPEN / BLOCKED.
+4. **TASK_QUEUE.md** — which gates are PASS / OPEN / BLOCKED + risk register.
 5. **CURRENT_STATE.md** — per-module status (what runs, what does not).
 6. **DECISION_CHAIN.md** — the operator's binding rulings (read before changing anything).
 7. **COMPACTION_SURVIVAL.md** — resume recipe + binding laws.
-8. **RUNNING_BUILD_LOG.md** — W1..W4 receipts (append-only).
+8. **RUNNING_BUILD_LOG.md** — W0..W4 receipts (append-only).
 9. **RUNNING_DEBUG_LOG.md** — EN-001..EN-010 (append-only).
-10. **NEXT_STEPS.md** — queued work + risk register.
+10. **NEXT_STEPS.md** — queued work + dependency-ordered work queue.
 11. **CHANGELOG.md** — append-only history of this build era.
 
 ## 5. VERIFIED STATE (as of W4)
@@ -66,21 +84,22 @@ For any job `J` on head sha `H`:
 | System | Status | Proof |
 |--------|--------|-------|
 | AO daemon | 200 | `curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/healthz` → `200` |
-| AO introspection | 144 paths / 164 ops / 269 schemas | `/api/v1/events` SSE live |
+| AO introspection | 144 paths / 164 ops / 269 schemas | introspection |
 | Battery | 52 pass / 0 fail | `bun test` |
 | Typecheck | exit 0 | `bunx tsc --noEmit` |
-| Gate: does_anything_run | PASS | `VERDICT:RUNS (fail=0)` |
-| Gate: shape_freeze | PASS | `SHAPES:all declared ids implemented` |
-| Gate: orphan_scan | PASS | `ORPHANS=0` |
+| Gate G1 does_anything_run | PASS | `VERDICT:RUNS (fail=0)` |
+| Gate G2 shape_freeze | PASS | `SHAPES:all declared ids implemented` |
+| Gate G3 orphan_scan | PASS | `ORPHANS=0` |
 | fence2 (job upper-tier-dt-shapes) | PASS | `6954bafbd4918f75|sandbox=bwrap|spec_bound:true` |
 | Runtime | RUNNING | `bun src/cli.ts status` → `RUNNING (tick >3000)` |
 | two_source_verdict | 8 pass / 0 fail | `bun test -t two_source_verdict` |
 | jfm_verbs | 8 pass / 0 fail | `bun test -t jfm_verbs` |
-| PR #1 | OPEN | `ao/jarvis-upper-2/root` (760ad1b, 732083e, adbdacf) |
-| jfm-e2e-1 | DONE | PR `https://github.com/leviathan-devops/jfm-e2e/pull/1` commit `cce7bdb`, `E2E-PROOF.txt` = `DT1-OK` |
-| Worker profile | PINNED | `jarvis-worker` → Poolside-Direct `poolside/poolside/laguna-s-2.1:high` |
+| PR #1 | OPEN | `ao/jarhus-upper-2/root` (760ad1b, 732083e, adbdacf) |
+| jfm-e2e-1 | DONE | `https://github.com/leviathan-devops/jfm-e2e/pull/1` (cce7bdb, E2E-PROOF.txt=DT1-OK) |
+| Worker profile | PINNED | `jarvis-worker` → poolside/poolside/laguna-s-2.1:high |
 | AO review defaults | SET | `autoReview: true`, `reviewers: [{"harness":"muse"}]` |
 | AO review approval of head sha | OPEN | G11 — not yet observed |
+| `upper sync` | STUB | EN-010 (returns prNodes 0 while PR open) |
 
 ## 6. THE FROZEN HEAD SHA
 
@@ -88,14 +107,10 @@ For any job `J` on head sha `H`:
 adbdacf98b5cb1d57b0a802b57f756bf7d01c45b
 ```
 
-This is:
-- PR #1 head (`ao/jarvis-upper-2/root`, commits `760ad1b`, `732083e`, `adbdacf`).
-- The sha fence2 adjudicated PASS for job `upper-tier-dt-shapes`.
-- The sha the AO review must approve (G11).
-- The sha `verify({headSha})` in `src/verdict.ts` keys off for VERIFIED.
-
-Any PR merge or rebase MOVES this sha — and requires re-running BOTH fence2
-(G10) AND the AO review (G11) on the NEW sha before completion.
+This is: PR #1 head; the sha fence2 adjudicated PASS for job `upper-tier-dt-shapes`;
+the sha the AO review must approve (G11); the sha `verify({headSha})` in
+`src/verdict.ts:1-184` keys off for VERIFIED. Any PR merge/rebase MOVES this sha —
+requires re-running BOTH G10 and G11 on the new sha (D-004).
 
 ## 7. RESUME COMMANDS (paste-ready)
 
@@ -131,11 +146,11 @@ bun test -t two_source_verdict         # 8 pass / 0 fail
 
 # 7. JFM sanity
 jfm health                             # healthy
-jfm status                             # desk + columns
+jfm status
 bun test -t jfm_verbs                  # 8 pass / 0 fail
 
 # 8. Two-source verdict on the frozen sha (manual)
-bash /home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py \
+/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py \
   adjudicate upper-tier-dt-shapes \
   --expect-spec-sha adbdacf98b5cb1d57b0a802b57f756bf7d01c45b
 # expect VERDICT:PASS + 6954bafbd4918f75|sandbox=bwrap|spec_bound:true
@@ -143,12 +158,14 @@ bash /home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py 
 
 ## 8. THE THREE NON-NEGOTIABLE LAWS
 
-1. **Two-source verdict law** — `verify({jobDir, headSha, sessionId})` returns
-   VERIFIED iff fence2 adjudicate exits 0 AND an AO review run approves the same
-   head sha. `bun test -t two_source_verdict` → 8 pass / 0 fail.
+1. **Two-source verdict law** — `verify({jobDir, headSha, sessionId})` in
+   `src/verdict.ts:1-184` returns VERIFIED iff fence2 adjudicate exits 0 AND an
+   AO review run approves the same head sha. `bun test -t two_source_verdict`
+   → `8 pass / 0 fail`.
 2. **Does-anything-run law** — `bash gates/does_anything_run.sh .` MUST return
-   `VERDICT:RUNS (fail=0)`. Citing commit-exists / diff-changed / tests-pass /
-   PR-open as verification is **explicitly forbidden** (operator ruling D-003).
+   `VERDICT:RUNS (fail=0)` (`gates/does_anything_run.sh:1-49`). Citing
+   commit-exists / diff-changed / tests-pass / PR-open as verification is
+   **explicitly forbidden** (D-003).
 3. **Worker-profile pin law** — every AO spawn carries `OMP_PROFILE=jarvis-worker`.
    The `jarvis-worker` profile has `default`/`task` = Poolside-Direct
    `poolside/poolside/laguna-s-2.1:high`; `sonic`/`reviewer`/`plan`/`slow` =
@@ -161,12 +178,12 @@ bash /home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py 
 
 | Task | Touchable files | NOT touchable |
 |------|-----------------|---------------|
-| Runtime bug | `src/runtime.ts`, `src/status.ts`, `src/main.ts`, `runtime/*` | `gates/` (only if law changes), JFM (separate repo) |
-| Verdict gate | `src/verdict.ts` | `.../b6/fence2.py` (imported, never forked) |
+| Runtime bug | `src/runtime.ts:1-150`, `src/status.ts:1-48`, `src/main.ts:1-19`, `runtime/*` | `gates/` (only if law changes), JFM (separate repo) |
+| Verdict gate | `src/verdict.ts:1-184` | `.../b6/fence2.py` (imported, never forked) |
 | Worker profile | `~/.omp/profiles/jarvis-worker/agent/config.yml` | `~/.omp/agent/config.yml` |
 | AO settings | project `.omp/config.yml` on jarvis-upper (autoReview, reviewers) | AO daemon config (`http://localhost:3001`) |
 | Canon docs | `context_management/` ONLY | everything else |
-| JFM | `/home/leviathan/JARVIS_WORKSPACE/jfm/` | JAM desk core (imported) |
+| JFM | `/home/leviathan/JARVIS_WORKSPACE/jfm/` | JAM desk core (imported from `desk-orchestrator.ts:1-1080`) |
 
 ## 10. CONTACTS / PEERS
 
@@ -193,6 +210,7 @@ If a gate is RED:
 
 ```
 AO: 200
+AO introspection: 144 paths / 164 ops / 269 schemas
 G1: VERDICT:RUNS (fail=0)
 G2: SHAPES:all declared ids implemented
 G3: ORPHANS=0
@@ -204,7 +222,7 @@ G9: RUNNING (tick >3000)
 G10: 6954bafbd4918f75|sandbox=bwrap|spec_bound:true
 ```
 
-### 12.2 The forbidden evidence set (cite NEVER)
+### 12.2 The forbidden evidence set (cite NEVER — D-003)
 
 | Forbidden | Ruling |
 |-----------|--------|
@@ -226,4 +244,24 @@ smol: openrouter/nvidia/nemotron-3.5-lightning:free
 scout: openrouter/nvidia/nemotron-3.5-lightning:free
 ```
 
+### 12.4 The frozen SHA
+
+```
+adbdacf98b5cb1d57b0a802b57f756bf7d01c45b
+```
+
+### 12.5 The two defects left OPEN
+
+| Defect | Status | Action |
+|--------|--------|--------|
+| EN-010 `upper sync` STUB | OPEN | Next wave N2.1 |
+| EN-020 PAT burned | OPEN (rotate) | Operator rotation |
+
 End of post-compaction prompt.
+
+---
+<!-- CROSS-CONSISTENCY ANCHOR (all 11 canon docs carry this identical line) -->
+- **factory head:** `98cd7aaf111781891e2e52ca822889bcfb503471` (jarvis-upper main) · **job head (PR #1):** `acc7a688b56cd2db7e28f28a19db800da8baf1be`
+- **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green
+- **source 1 (fence):** PASS `spec_bound:true` · **source 2 (review):** the real muse run on AO's rail (per-run verdict in the AO store)
+- **review fixes applied:** byte-identical dup deleted · DT-1 prId derived + gate asserted · DT-3 proved loss+restart · DT-1 live opt-in · .aider* removed

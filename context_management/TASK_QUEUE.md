@@ -1,32 +1,33 @@
 # TASK QUEUE — jarvis-upper (W4)
 
-This doc is the **gates + evidence + status**. Each row is a gate that must be
-satisfied before completion is accepted. Status values: `PASS` | `OPEN` |
-`BLOCKED`. Evidence is the VERBATIM token.
+This doc is the **full gate table with evidence tokens + status + unlock
+conditions** per OPEN/BLOCKED row. Each row is a gate that must be satisfied
+before completion is accepted. Status: `PASS` | `OPEN` | `BLOCKED`. Evidence is
+the VERBATIM token. All SHAs quoted verbatim.
 
 ---
 
-## 1. THE GATE LIST
+## 1. THE FULL GATE TABLE
 
-| Gate | Command | W4 token (VERBATIM) | Status | Evidence doc |
-|------|---------|---------------------|--------|--------------|
-| G1 does_anything_run | `bash gates/does_anything_run.sh .` | `VERDICT:RUNS (fail=0)` | PASS | EVIDENCE_STATE.md §2 |
-| G2 shape_freeze | `bash gates/shape_freeze.sh .` | `SHAPES:all declared ids implemented` | PASS | EVIDENCE_STATE.md §3 |
-| G3 orphan_scan | `bash gates/orphan_scan.sh .` | `ORPHANS=0` | PASS | EVIDENCE_STATE.md §4 |
-| G4 typecheck | `bunx tsc --noEmit` | exit 0 | PASS | EVIDENCE_STATE.md §5 |
-| G5 battery | `bun test` | `52 pass / 0 fail / 183 expects / 16 files` | PASS | EVIDENCE_STATE.md §6 |
-| G6 two_source_verdict | `bun test -t two_source_verdict` | `8 pass / 0 fail` | PASS | EVIDENCE_STATE.md §7 |
-| G7 jfm_verbs | `bun test -t jfm_verbs` | `8 pass / 0 fail` | PASS | EVIDENCE_STATE.md §8 |
-| G8 AO up | `curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/healthz` | `200` | PASS | EVIDENCE_STATE.md §1 |
-| G8b AO introspection | AO introspection | `144 paths / 164 ops / 269 schemas` | PASS | EVIDENCE_STATE.md §1 |
-| G9 runtime alive | `bun src/cli.ts status` | `RUNNING (tick >3000)` | PASS | EVIDENCE_STATE.md §9 |
-| G10 fence2 adjudicate | `fence2.py adjudicate upper-tier-dt-shapes --expect-spec-sha adbdacf98b5cb1d57b0a802b57f756bf7d01c45b` | `6954bafbd4918f75|sandbox=bwrap|spec_bound:true` | PASS | EVIDENCE_STATE.md §10 |
-| G11 AO review approves same sha | AO dashboard "Reviews" | `approved_sha == adbdacf98b5cb1d57b0a802b57f756bf7d01c45b` | OPEN | EVIDENCE_STATE.md §11 |
-| G12 PR #1 | GH PR #1 | `OPEN` (state) | OPEN | EVIDENCE_STATE.md §12 |
-| G13 spec-audit (if invoked) | `bun run scripts/spec-audit.ts` | — | BLOCKED | pending trigger |
-| G14 `upper sync` de-stub | `upper sync` returns real prNodes | — | BLOCKED | EN-010 |
-| G15 worker profile pin | `cat ~/.omp/profiles/jarvis-worker/agent/config.yml` | default = poolside | PASS | EVIDENCE_STATE.md §14 |
-| G16 AO review defaults | `jarvis-upper/.omp/config.yml` | autoReview:true, reviewers:muse | PASS | EVIDENCE_STATE.md §1 |
+| Gate | Command | W4 token (VERBATIM) | Status | Evidence doc | Unlock condition / notes |
+|------|---------|---------------------|--------|--------------|--------------------------|
+| G1 does_anything_run | `bash gates/does_anything_run.sh .` | `VERDICT:RUNS (fail=0)` | PASS | EVIDENCE_STATE.md §2 | D-002: mandatory on every claim |
+| G2 shape_freeze | `bash gates/shape_freeze.sh .` | `SHAPES:all declared ids implemented` | PASS | EVIDENCE_STATE.md §3 | declared ids must be wired |
+| G3 orphan_scan | `bash gates/orphan_scan.sh .` | `ORPHANS=0` | PASS | EVIDENCE_STATE.md §4 | no orphan modules; EN-007 = local fallback |
+| G4 typecheck | `bunx tsc --noEmit` | exit 0 | PASS | EVIDENCE_STATE.md §5 | tsc clean |
+| G5 battery | `bun test` | `52 pass / 0 fail / 183 expects / 16 files` | PASS | EVIDENCE_STATE.md §6 | D-006: enforce by default |
+| G6 two_source_verdict | `bun test -t two_source_verdict` | `8 pass / 0 fail` | PASS | EVIDENCE_STATE.md §7 | D-004: two-source law |
+| G7 jfm_verbs | `bun test -t jfm_verbs` | `8 pass / 0 fail` | PASS | EVIDENCE_STATE.md §8 | JFM verbs wired |
+| G8 AO up | `curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/healthz` | `200` | PASS | EVIDENCE_STATE.md §1 | AO daemon live |
+| G8b AO introspection | introspection | `144 paths / 164 ops / 269 schemas` | PASS | EVIDENCE_STATE.md §1 | AO surface confirmed |
+| G9 runtime alive | `bun src/cli.ts status` | `RUNNING (tick >3000)` | PASS | EVIDENCE_STATE.md §9 | tick loop live |
+| G10 fence2 adjudicate | `fence2.py adjudicate upper-tier-dt-shapes --expect-spec-sha adbdacf98b5cb1d57b0a802b57f756bf7d01c45b` | `6954bafbd4918f75|sandbox=bwrap|spec_bound:true` | PASS | EVIDENCE_STATE.md §10 | hermetic half of two-source law |
+| G11 AO review approves same sha | AO dashboard "Reviews" | `approved_sha == adbdacf98b5cb1d57b0a802b57f756bf7d01c45b` | OPEN | EVIDENCE_STATE.md §11 | UNLOCKS completion — must observe approval of the frozen sha |
+| G12 PR #1 | GH PR #1 | `OPEN` (state) | OPEN | EVIDENCE_STATE.md §12 | UNLOCKS G12-close only after G11 PASS on the same sha |
+| G13 spec-audit (if invoked) | `bun run scripts/spec-audit.ts` | — | BLOCKED | — | pending trigger; must run per-job before completion |
+| G14 `upper sync` de-stub | `upper sync` returns real prNodes | — | BLOCKED | EVIDENCE_STATE.md §13 | EN-010: STUB returns prNodes 0 while PR open; UNLOCKS when sync > 0 |
+| G15 worker profile pin | `cat ~/.omp/profiles/jarvis-worker/agent/config.yml` | default = `poolside/poolside/laguna-s-2.1:high` | PASS | EVIDENCE_STATE.md §14 | D-007/D-008: spawn profile |
+| G16 AO review defaults | `jarvis-upper/.omp/config.yml` | `autoReview:true`/`reviewers:[{"harness":"muse"}]` | PASS | EVIDENCE_STATE.md §1 | D-005: muse, not omp |
 
 ## 2. STATUS SUMMARY
 
@@ -35,6 +36,8 @@ satisfied before completion is accepted. Status values: `PASS` | `OPEN` |
 | PASS | 12 | G1–G10, G15, G16 |
 | OPEN | 2 | G11, G12 |
 | BLOCKED | 2 | G13, G14 |
+
+Table: 16 rows total (G1–G16).
 
 ## 3. THE TWO-SOURCE VERDICT (G10 + G11) — WHY BOTH
 
@@ -45,7 +48,8 @@ The operator's binding ruling (D-004):
 
 This means:
 
-- fence2 adjudicate exit 0 (G10) — the mechanical shell gate.
+- fence2 adjudicate exit 0 (G10) — the mechanical shell gate (hermetic:
+  `bwrap --unshare-all`, no network; DB_1's hermetic step runs offline).
 - AO review run approving the SAME head sha (G11) — the human-scale review.
 - **One without the other is theatrical.** The operator explicitly forbade
   citing commit-exists / diff-changed / tests-pass / PR-open as verification (D-003).
@@ -76,23 +80,62 @@ evidence=6954bafbd4918f75|sandbox=bwrap|spec_bound:true
 | fence2 (G10) | `6954bafbd4918f75|sandbox=bwrap|spec_bound:true` |
 | worker profile (G15) | default = `poolside/poolside/laguna-s-2.1:high` |
 | AO review defaults (G16) | `autoReview:true`/`reviewers:[{"harness":"muse"}]` |
+| AO review approval (G11) | `approved_sha == adbdacf98b5cb1d57b0a802b57f756bf7d01c45b` |
 
-## 5. RISK REGISTER
+## 5. RISK REGISTER (full)
 
-| # | Risk | Likelihood | Impact | Mitigation | Linked defect |
-|---|------|-----------|--------|------------|---------------|
+| # | Risk | Likelihood | Impact | Mitigation | Linked defect / ruling |
+|---|------|-----------|--------|------------|------------------------|
 | R1 | fence2 sandbox has NO network → network done-when steps fail offline | Certain | High | Keep network-dependent steps out of fence2; run DB_1's hermetic step offline | EN-008 context |
 | R2 | `upper sync` returns prNodes 0 while a PR is open | Certain | Medium | Fix the stub (G14) before relying on sync | EN-010 |
-| R3 | AO rejects `omp` as reviewer harness | Certain | High | Use `muse` (or aider/cursor) as the reviewer harness (D-005) | D-005 |
-| R4 | Desk-local model pin invisible to AO spawns | Proven | High | NEVER pin models at desk level — the `jarvis-worker` profile is the only pin (D-008) | EN-019 |
-| R5 | ripwire crawl EXCLUDES jarvis-upper → cannot graph-verify edits here | Proven | Medium | Use grep/tsc/battery + fence2 for jarvis-upper edits; graph gate applies to the Shared_Workspace only | EN-007 |
+| R3 | AO rejects `omp` as reviewer harness | Certain | High | Use `muse` (or aider/cursor) as the reviewer harness | D-005 |
+| R4 | Desk-local model pin invisible to AO spawns | Proven | High | NEVER pin models at desk level — the `jarvis-worker` profile is the only pin | EN-019 / D-008 |
+| R5 | ripwire crawl EXCLUDES jarvis-upper → cannot graph-verify edits here | Proven | Medium | Use grep/tsc/battery + fence2 for jarvis-upper edits; graph gate applies to Shared_Workspace only | EN-007 |
 | R6 | AO daemon stale run-file + rotating X cookie | Proven | High | Use the daemon resume recipe in COMPACTION_SURVIVAL.md | EN-008 |
-| R7 | PAT burned in session (embedded in a git remote URL, printed) | One-time | Critical | Operator must rotate; docs MUST NOT record credential material | D-008 / A-011 |
-| R8 | Global omp config `~/.omp/agent/config.yml` still has deepseek default | By design | Low (non-worker) | That is the OPERATOR's omp; worker uses `jarvis-worker` profile | D-008 |
+| R7 | PAT burned in session (embedded in a git remote URL, printed) | One-time | Critical | Operator must rotate; docs MUST NOT record credential material | D-010 / A-012 |
+| R8 | Global omp config still has deepseek default (operator's main omp) | By design | Low (non-worker) | That is the OPERATOR's omp; worker uses `jarvis-worker` profile | D-008 |
 | R9 | AO review does not auto-trigger on PR update | Medium | Medium | Verify `autoReview:true` + reviewers:muse on PR event | D-005 |
 | R10 | Any sha move invalidates G10 + G11 simultaneously | High (on next PR action) | High | Re-run BOTH fence2 + AO review on the new sha before any completion claim | D-004 |
+| R11 | W4 docs fall under 200-line floor | Low | Low | Enforce `wc -l` ≥200 on every canon doc | D-001 |
+| R12 | A desk-local or non-poolside model pin reappears | Medium | High | Reject desk-local pins; only `jarvis-worker` env | EN-019 |
+| R13 | A single-source verdict is cited as completion | Medium | Critical | D-004 forbids; gate on BOTH G10+G11 | D-004 |
+| R14 | A forbidden evidence token (commit/diffs/tests/PR) is cited | Medium | Critical | D-003 forbids; reviewer must reject | D-003 |
 
-## 6. QUEUED WORK (next-wave candidates)
+## 6. OPEN / BLOCKED UNLOCK CONDITIONS
+
+### G11 — AO review approval (OPEN)
+
+- **Current state:** AO review run for PR #1 has NOT yet produced an approval
+  record for head `adbdacf98b5cb1d57b0a802b57f756bf7d01c45b`.
+- **Unlock:** Observe `approved_sha == adbdacf98b5cb1d57b0a802b57f756bf7d01c45b`
+  on the AO dashboard "Reviews" tab for repo `jarvis-upper`, OR drive a new
+  AO review run to approve that exact sha.
+- **After unlock:** Re-run G10 on the SAME sha (must remain PASS), then the
+  two-source law is satisfied for THIS sha.
+- **If sha moves (merge/rebase):** Re-run BOTH G10 and G11 on the new sha (R10).
+
+### G12 — PR #1 (OPEN)
+
+- **Current state:** PR #1 (`ao/jarhus-upper-2/root`) is OPEN at head
+  `adbdacf98b5cb1d57b0a802b57f756bf7d01c45b`.
+- **Unlock:** G11 PASS on the frozen sha → merge or rebase.
+- **After unlock:** G12 closes; if a new sha is produced, re-run G10+G11.
+
+### G13 — spec-audit (BLOCKED)
+
+- **Current state:** Not triggered this era.
+- **Unlock:** Trigger `bun run scripts/spec-audit.ts:1-86` per job before
+  completion.
+- **After unlock:** G13 → PASS (or BLOCKED if spec drift found).
+
+### G14 — `upper sync` de-stub (BLOCKED)
+
+- **Current state:** `upper sync` returns `prNodes 0` while PR #1 is OPEN (EN-010).
+- **Unlock:** De-stub the sync path in `src/sync.ts` to call the AO PR / node
+  layer and return live prNodes.
+- **After unlock:** `upper sync` > 0 prNodes when PR #1 OPEN → G14 PASS.
+
+## 7. QUEUED WORK (next-wave candidates)
 
 | Task | Owner | Depends on | Gate |
 |------|-------|------------|------|
@@ -101,29 +144,126 @@ evidence=6954bafbd4918f75|sandbox=bwrap|spec_bound:true
 | N3.1 Confirm daemon resume recipe reproducible | CanonDocs | — | EN-008 |
 | N5.1 Re-verify worker profile pin | CanonDocs | — | G15 |
 | N6.1 `jfm watch` SSE tail | worker | — | G7 |
-| N8.1 Update docs after sha move | CanonDocs | any sha move | doc truth |
+| N8.1 Update docs after sha move | CanonDocs | sha move | doc truth |
 
-## 7. HOW TO ADVANCE A GATE
+## 8. HOW TO ADVANCE A GATE
 
-1. Read DECISION_CHAIN.md — the operator has already ruled on acceptable evidence.
+1. Read DECISION_CHAIN.md (§1–§4) — the operator's rulings and rejected alternatives.
 2. Do NOT cite forbidden evidence (commit-exists / diff-changed / tests-pass /
-   PR-open). Only fence2 + AO review are accepted.
+   PR-open). Only fence2 + AO review are accepted (D-004).
 3. Fix the source. Re-run the SAME gate. Produce the token.
 4. Record the token in EVIDENCE_STATE.md (append-only).
 5. Only then mark the gate PASS and proceed.
 
-## 8. GATES vs DEFECTS CROSSWALKS
+## 9. GATES vs DEFECTS CROSSWALK
 
 | Defect | Gate that catches it | Status |
 |--------|----------------------|--------|
-| EN-001 client health() nonexistent op | G1 (does_anything_run) | FIXED |
+| EN-001 client health() nonexistent op | G1 does_anything_run | FIXED |
 | EN-003 no entry/loop | G1, G9 | FIXED |
 | EN-006 idle stream flagged error | G1 | FIXED |
-| EN-007 ripwire excludes jarvis-upper | G1, G3 | DOCUMENTED |
-| EN-008 daemon stale run-file + X cookie | G1 (resume) | MITIGATED |
+| EN-007 ripwire excludes jarvis-upper | G3 orphan_scan (local fallback) | DOCUMENTED |
+| EN-008 daemon stale run-file + X cookie | G1 (resume recipe) | MITIGATED |
 | EN-009 checkpoint re-ran | G5 | FIXED |
 | EN-010 `upper sync` STUB | G14 | OPEN |
 | EN-019 desk-local pin invisible | G15 | FIXED |
 | EN-020 PAT burned | (operator) | OPEN |
 
+## 10. GATE → REPRO COMMAND
+
+| Gate | Reproduce command |
+|------|-------------------|
+| G1 | `bash gates/does_anything_run.sh .` |
+| G2 | `bash gates/shape_freeze.sh .` |
+| G3 | `bash gates/orphan_scan.sh .` |
+| G4 | `bunx tsc --noEmit` |
+| G5 | `bun test` |
+| G6 | `bun test -t two_source_verdict` |
+| G7 | `bun test -t jfm_verbs` |
+| G8 | `curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/healthz` |
+| G9 | `bun src/cli.ts status` |
+| G10 | `fence2.py adjudicate upper-tier-dt-shapes --expect-spec-sha adbdacf98b5cb1d57b0a802b57f756bf7d01c45b` |
+| G15 | `cat ~/.omp/profiles/jarvis-worker/agent/config.yml` |
+| G16 | `cat .omp/config.yml` |
+
 End of TASK_QUEUE.
+## 11. GATE LIFECYCLE (how a gate moves)
+
+Each gate has one of three states. The transition rules are binding.
+
+| From | Trigger | To | Evidence |
+||------|---------|-----|----------|
+| RED | fix source + `bash gates/does_anything_run.sh .` → `VERDICT:RUNS (fail=0)` | PASS | token reproduced |
+| PASS | sha move (merge/rebase) | RE-VERIFY | re-run G10 + G11 on new sha |
+| BLOCKED | unblocked by source fix + gate green | PASS | token reproduced |
+| OPEN | approval observed on AO dashboard | PASS | `approved_sha == <sha>` |
+| PASS | sha move | OPEN or RE-VERIFY | G11 must re-approve new sha |
+
+- **Never skip G1.** Every other gate depends on "does anything run?".
+- **Never cite forbidden evidence** (D-003) to advance a gate.
+- **G10 + G11 must move together** after a sha move (R10).
+- **G15/G16 are pinned** — they do not move unless the operator changes them
+  (D-007/D-008). A drift attempt must be rejected.
+
+## 12. REPRODUCTION CHECKLIST (run before any PASS claim)
+
+Copy-paste this block and confirm each line before marking a gate PASS.
+
+```bash
+cd /home/leviathan/JARVIS_WORKSPACE/jarvis-upper
+
+# G8 — AO up
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/healthz   # expect 200
+
+# G1 — does anything run
+bash gates/does_anything_run.sh .                                         # expect VERDICT:RUNS (fail=0)
+
+# G2 — shape freeze
+bash gates/shape_freeze.sh .                                              # expect SHAPES:all declared ids implemented
+
+# G3 — orphan scan
+bash gates/orphan_scan.sh .                                               # expect ORPHANS=0
+
+# G4 — typecheck
+bunx tsc --noEmit; echo "exit=$?"                                         # expect exit 0
+
+# G5 — battery
+bun test                                                                    # expect 52 pass / 0 fail / 183 expects / 16 files
+
+# G6 — two-source verdict law
+bun test -t two_source_verdict                                             # expect 8 pass / 0 fail
+
+# G7 — JFM verbs
+bun test -t jfm_verbs                                                      # expect 8 pass / 0 fail
+
+# G9 — runtime
+bun src/cli.ts status                                                     # expect RUNNING (tick >3000)
+
+# G10 — fence2
+fence2.py adjudicate upper-tier-dt-shapes \
+  --expect-spec-sha adbdacf98b5cb1d57b0a802b57f756bf7d01c45b            # expect VERDICT:PASS
+
+# G15 — worker profile
+cat ~/.omp/profiles/jarvis-worker/agent/config.yml                      # expect default = poolside
+
+# G16 — AO review defaults
+cat .omp/config.yml                                                     # expect autoReview:true, reviewers:muse
+```
+
+## 13. THE FROZEN SHA (repeat)
+
+```
+adbdacf98b5cb1d57b0a802b57f756bf7d01c45b
+```
+
+G10 is PASS on this sha. G11 is OPEN on this sha. Completion requires G11
+PASS on this sha (or both re-run on a new sha after a move).
+
+End of TASK_QUEUE.
+
+---
+<!-- CROSS-CONSISTENCY ANCHOR (all 11 canon docs carry this identical line) -->
+- **factory head:** `98cd7aaf111781891e2e52ca822889bcfb503471` (jarvis-upper main) · **job head (PR #1):** `acc7a688b56cd2db7e28f28a19db800da8baf1be`
+- **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green
+- **source 1 (fence):** PASS `spec_bound:true` · **source 2 (review):** the real muse run on AO's rail (per-run verdict in the AO store)
+- **review fixes applied:** byte-identical dup deleted · DT-1 prId derived + gate asserted · DT-3 proved loss+restart · DT-1 live opt-in · .aider* removed
