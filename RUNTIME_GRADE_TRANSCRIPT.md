@@ -274,3 +274,32 @@ $ bun test ; bunx tsc --noEmit ; (cd ../jfm && bun test) ; curl :3001/healthz
  healthz=200
 ```
 **factory head `2ee3f38f468f53cd15e376e8cca96d75fdcdc636` · job head `74f1b45a97a600b330db520a6e1f044564de1fa5` · (h) zero unresolved reds.**
+
+════════════════════════════════════════════════════════════════════
+## W4 GATE — `docs_current` (the last named test) — $(date -u +%Y-%m-%dT%H:%M:%SZ)
+════════════════════════════════════════════════════════════════════
+```console
+$ bun test -t docs_current
+ 6 pass
+ 0 fail
+ 27 expect() calls
+Ran 6 tests across 18 files. [16.00ms]
+
+# ADVERSARIAL PROOF — the gate can FAIL: truncate one canon doc under the floor
+$ head -50 context_management/NEXT_STEPS.md > context_management/NEXT_STEPS.md
+$ bun test -t docs_current
+error: expect(received).toEqual(expected)
+  at tests/docs_current.test.ts:27  → expect(under).toEqual([])
+  <RED>
+$ cp /tmp/ns.bak context_management/NEXT_STEPS.md
+$ bun test -t docs_current
+ 6 pass / 0 fail          # restored
+```
+```console
+$ bun test                          # the full battery (jarvis-upper)
+ 62 pass / 0 fail / 228 expects / 18 files
+$ cd ../jfm && bun test
+ 8 pass / 0 fail / 30 expects
+$ the named set
+  docs_current 6/0 · two_source_verdict 9/0 · runtime_ticks 4/0 · spec_audit 3/0 · jfm_verbs 8/0
+```
