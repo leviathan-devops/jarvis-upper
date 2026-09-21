@@ -215,3 +215,25 @@ Cycle-2 fixes applied on `c605d0b1`:
 - the canonical header's phantom `(§12)` removed; the DT-3 header no longer claims a "kill-9 storm"
   it does not perform; DT-1b now closes its `:memory:` db.
 - the fence re-adjudicated: **PASS** (`f2bb7f710669ab10` → later `3172ab5c…` re-stamp) exit 0.
+
+════════════════════════════════════════════════════════════════════
+## ★ THE VERDICT — VERIFIED (both sources, one SHA) — 2026-09-21T04:23:03Z
+════════════════════════════════════════════════════════════════════
+```console
+$ git -C <worktree> rev-parse HEAD
+74f1b45a97a600b330db520a6e1f044564de1fa5
+$ fence2 adjudicate jobs/upper-tier-dt-shapes          # SOURCE 1
+dt-shapes-fixture PASS
+{"job":"upper-tier-dt-shapes","seat":"ao-worker","v":2,"verdict":"PASS","fence_exit":0,"steps":{"dt-shapes-fixture":"PASS"}}
+$ ao review ls jarvis-upper-2 / the review_run store  # SOURCE 2
+run=50f4386c status=complete verdict='approved' target=74f1b45a
+$ bun /tmp/vf.ts                                      # THE LAW
+{"verdict":"VERIFIED","fence":"FENCE-GREEN","review":"REVIEW-GREEN",
+ "reviewVerdict":"approved","reviewSha":"74f1b45a97a600b330db520a6e1f044564de1fa5","reasons":[]}
+```
+**SOURCE 1 (fence) GREEN · SOURCE 2 (review, approved) GREEN · SAME SHA · reasons: []**
+The review rail ran **8 passes** against this job. Findings fell 5 Required → 5→1 Required →
+1 Required → 1 Required → cosmetic → **approved** → (the worker committed its final fixes) →
+**approved** on the frozen head. Two approvals exist in the store (`d56d7cc5` @ `dcda4c27`,
+`50f4386c` @ `74f1b45`); verify() binds only the one on the CURRENT head — a new commit
+invalidated the first, exactly as the law requires.
