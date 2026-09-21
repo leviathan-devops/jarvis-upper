@@ -9,4 +9,4 @@ steps:
     retries: 0
     silence_s: 90
 sha16:
-  dt-shapes-fixture: 63a90648cb4c788d
+  dt-shapes-fixture: 79895a0e4fb4f27c
