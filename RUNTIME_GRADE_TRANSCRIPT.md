@@ -195,3 +195,23 @@ dt-shapes-fixture PASS
 fence_exit=0
 ```
 **A pin that cannot detect a changed artifact is decoration. Ours caught it.**
+
+## THE REVIEW LOOP (the rail converging, 2026-09-21)
+Three review runs against the same job, in order (`ao review ls` + the run store / the AO tmux pane):
+| run | target | verdict | what it found |
+|---|---|---|---|
+| `6f92c026` | `fe79f99d` | **changes_requested** | 5 Required: duplicate test, hardcoded `prId`, DT-3 proved nothing, non-hermetic suite, my `.aider*` droppings |
+| `e1cf3f32` | `fe79f99d` | **changes_requested** | 1 Required: the two test files are near-duplicates → *"have the fence bridge import the canonical file"*; + nits (§12 phantom, header, DT-1b leaks a db) |
+| `c56ec4e5` | `c605d0b1` | *(running)* | the frozen head with both fixes applied |
+
+**The rail is real and it converges — the findings shrank from 5 Required to 1 Required + nits.**
+Cycle-2 fixes applied on `c605d0b1`:
+- **the fence bridge now IMPORTS the canonical suite** (`jobs/upper-tier-dt-shapes/fence_bridge.test.ts`
+  is a 10-line bridge that does `import "../../tests/dt_shapes.test.ts";`) — one source of truth,
+  zero duplication. Running `bun test -t dt_shapes` in the job dir still runs all 4 canonical tests.
+  (A first attempt pointed the SPEC's artifact straight at `tests/` — the fence refused
+  `INVALID_SPEC: artifact-outside-job`. The bridge keeps the artifact inside the job AND removes
+  the copy. Both constraints honoured.)
+- the canonical header's phantom `(§12)` removed; the DT-3 header no longer claims a "kill-9 storm"
+  it does not perform; DT-1b now closes its `:memory:` db.
+- the fence re-adjudicated: **PASS** (`f2bb7f710669ab10` → later `3172ab5c…` re-stamp) exit 0.
