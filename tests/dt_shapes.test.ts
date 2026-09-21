@@ -94,7 +94,15 @@ test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→merg
     // 1. SPAWN — real AO session in scratch project (omp harness)
     try {
       const spawn = await call<{ session: { id: string } }>("spawnSession", {
-        body: { projectId: "scratch", mode: "chat", displayName: "dt1-test", harness: "omp", prompt: "" },
+        // a project WITH a remote (a PR cannot be minted without one) + a prompt
+        // that requires a commit, a push and a PR — the spec's DT-1 shape.
+        body: {
+          projectId: process.env.DT1_PROJECT ?? "jfm-e2e",
+          mode: "tui",
+          displayName: "dt1-e2e",
+          harness: "omp",
+          prompt: "Create a file named E2E-PROOF.txt in the repo root containing exactly the text DT1-OK. Then commit it with a semantic commit message, push the branch, and open a pull request against main. Report the PR URL when done.",
+        },
       });
       sessionId = spawn.session.id;
       tx.push(`SPAWN_OK:${sessionId}`);
@@ -103,13 +111,14 @@ test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→merg
       throw new Error(`DT1-SPAWN-FAILED: ${String(e)} — a synthetic session is not a pass`);
     }
 
-    // 2. PR — list session PRs from AO (if real session)
-    if (sessionId !== "scratch-synthetic") {
-      prList = await call<{ prs: AoPr[] }>("listSessionPRs", { params: { sessionId } });
-      tx.push(`PR_COUNT:${prList.prs.length}`);
-    } else {
-      tx.push("PR_COUNT:0");
+    // 2. PR — POLL for the real PR row the worker must mint (spec: spawn→PR).
+    const prDeadlineMs = Date.now() + Number(process.env.DT1_PR_WAIT_S ?? 420) * 1000;
+    while (Date.now() < prDeadlineMs) {
+      try { prList = await call<{ prs: AoPr[] }>("listSessionPRs", { params: { sessionId } }); } catch { prList = { prs: [] }; }
+      if (prList.prs.length > 0) break;
+      await new Promise((r) => setTimeout(r, 15_000));
     }
+    tx.push(`PR_COUNT:${prList.prs.length}`);
 
     // 3. SYNC — adapter-shaped fact pull into pr_node
     const { rows } = await syncPrs(db, async () =>
@@ -160,7 +169,7 @@ test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→merg
     if (plan.kind === "ok") {
       const r = await executePlan(db, { merge: async () => ({ ok: true }) }, { confirm: true });
       tx.push(`MERGE:${r.merged.join(",")}`);
-      const state = db.query("SELECT state FROM pr_node WHERE id = ?").get(prId) as { state: string } | null;
+      const state = db.query("SELECT state FROM pr_node WHERE session_id = ? ORDER BY pr_number LIMIT 1").get(sessionId) as { state: string } | null;
       tx.push(`STATE:${state?.state ?? "missing"}`);
       expect(state?.state).toBe("merged");
     } else {
@@ -190,7 +199,7 @@ test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→merg
     }
     db.close();
   }
-});
+}, Number(process.env.DT1_TIMEOUT_MS ?? 480_000));
 
 // ── DT-2: bug-loop seed → attribute → kick → observe → close ────────
 test("dt_shapes: DT-2 bug-loop seed→attribute→kick→observe→close status=fixed", async () => {
