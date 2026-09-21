@@ -72,14 +72,15 @@ test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→merg
   } catch {
     up = false;
   }
+  // ENFORCE-BY-DEFAULT (operator law 2026-09-21): DT-1 REQUIRES the live daemon.
+  // A BLOCKED transcript is NOT a pass — it is a hard failure with the reason named.
   if (!up) {
-    const path = transcript("DT1", {
+    transcript("DT1", {
       shape: "DT-1", status: "blocked", daemon: "down",
       steps: [], transcript: "BLOCKED:daemon-down",
       evidence: { daemonUrl: DAEMON },
     });
-    expect(readFileSync(path, "utf8")).toContain("BLOCKED");
-    return;
+    throw new Error(`DT1-REQUIRES-DAEMON: ${DAEMON} is down — start it, then re-run. A blocked transcript is not a pass.`);
   }
 
   const db = openStore(":memory:");
@@ -97,7 +98,7 @@ test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→merg
       tx.push(`SPAWN_OK:${sessionId}`);
     } catch (e) {
       tx.push(`SPAWN_FAIL:${String(e)}`);
-      sessionId = "scratch-synthetic";
+      throw new Error(`DT1-SPAWN-FAILED: ${String(e)} — a synthetic session is not a pass`);
     }
 
     // 2. PR — list session PRs from AO (if real session)
@@ -130,15 +131,7 @@ test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→merg
     // exercise the full local control loop (gates → plan → execute).
     const prId = `pr:${sessionId}:1`;
     if (rows === 0) {
-      db.query(
-        "INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state) VALUES (?, 'scratch', 1, ?, 'synth-sha', 'ready_to_merge')",
-      ).run(prId, sessionId);
-      for (const g of ["ci_green", "audit", "hardened", "fence2"] as const) {
-        db.query(
-          "INSERT INTO gate_pass(id, pr_node, gate, verdict, sha16, at) VALUES (?,?,?,?,?,0)",
-        ).run(`${prId}:${g}`, prId, g, "pass", "synth-sha");
-      }
-      tx.push("INJECT_SYNTH_PR");
+      throw new Error("DT1-NO-PR: the spawned session produced no PR rows — a synthetic PR is not a pass");
     } else {
       // Promote open PRs to ready_to_merge and stamp gates
       db.query("UPDATE pr_node SET state='ready_to_merge' WHERE state='open'").run();
@@ -356,4 +349,24 @@ test("dt_shapes: DT-3 loss-replay kill-9 storm converge dupes=0 gaps=0 cursor=50
   } finally {
     db.close();
   }
+});
+
+test("dt_shapes: DT-1b the confirm gate REFUSES an unconfirmed plan (mutation killer)", async () => {
+  // ENFORCE-BY-DEFAULT (operator law 2026-09-21): DT-1 exercises confirm:true only.
+  // Without this case, deleting the confirm gate from executePlan leaves DT-1 green —
+  // proven by mutation on 2026-09-21. This test makes that mutation FAIL here.
+  const db = openStore(":memory:");
+  const prId = "pr:neg:1";
+  db.query("INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state) VALUES (?, 'p', 1, 's', 'h', 'ready_to_merge')").run(prId);
+  for (const g of ["ci_green", "audit", "hardened", "fence2"] as const) {
+    db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, sha16, at) VALUES (?,?,?,?,?,0)").run(`${prId}:${g}`, prId, g, "pass", "h");
+  }
+  let merges = 0;
+  const adapter = { merge: async () => { merges += 1; return { ok: true }; } };
+  let threw = "";
+  try { await executePlan(db, adapter, { confirm: false }); } catch (e) { threw = String(e); }
+  expect(threw).toContain("UNCONFIRMED-PLAN");
+  expect(merges).toBe(0);
+  const st = db.query("SELECT state FROM pr_node WHERE id = ?").get(prId) as { state: string };
+  expect(st.state).toBe("ready_to_merge");
 });
