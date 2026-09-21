@@ -106,3 +106,40 @@
 - **THE FIX (two attempts, one honest failure):** first `bunfig.toml [test] pathIgnorePatterns=["Checkpoints/"]` — it did NOT apply in this Bun build (the count stayed 81; nothing was ignored), so the config was REMOVED rather than left as a false claim; then the copies were renamed `*.test.ts.frozen` — a suffix the runner cannot match. Battery returned to 44 pass / 0 fail.
 - **THE VERIFICATION:** `bun test` → `44 pass / 0 fail`, and the gates still pass (`VERDICT:RUNS`).
 - **THE LESSON:** a checkpoint is a SNAPSHOT, not a live tree — anything inside the project root is fair game for the tooling. Freeze by SUFFIX, not by config, and never leave a config that claims an effect it does not have.
+
+## EN-010 — the upper tier's sync verb is a STUB: the PR exists, prNodes stays 0 (2026-09-21)
+- **THE FINDING:** `PR #1` (ao/jarvis-upper-2/root → main, +457/-2) is OPEN on GitHub, yet
+  `upper sync` prints `{"projects":3,"prNodes":0}` and `upper status` shows `prNodes:0`.
+- **THE ROOT CAUSE:** `src/cli-verbs.ts` `verbSync` builds `const rows: PrRow[] = []` — a
+  hardcoded empty list — and calls `syncPrs(db, async () => rows)`. The list is never
+  populated from AO, so the railway can never see a PR. The function is wired; the DATA
+  source is not. (Same class as EN-001: a path that exists but was never exercised.)
+- **THE FIX (not yet applied):** populate `rows` from the adapter —
+  `GET /api/v1/sessions?project=<p>` → per session `GET /sessions/{id}/pr` → map to `PrRow`
+  ({project, pr_number, session_id, head_sha, state}) — then `syncPrs` upserts them.
+- **THE VERIFICATION (of the defect):** `gh pr view 1` → OPEN; `upper sync` → prNodes 0.
+  Two tool results that contradict each other — the contradiction IS the proof.
+- **THE LESSON:** "wired" is not "fed". A verb that returns a well-formed empty object passes
+  every shape test and carries no data; the only detector is comparing it to the substrate.
+
+## EN-011 — AO's reviewer host runs with the WRONG cwd → every review run zombies (2026-09-21)
+- **THE FINDING:** every reviewer harness (muse 1.3.0, aider, opencode) exits within ~1s of
+  `reviews/trigger`, leaving AO's run row `running` FOREVER with the pty-host at **0 children
+  and 0 sockets**. No verdict, no body, no review on the PR.
+- **THE ROOT CAUSE (measured):** the review pty-host is spawned with
+  `pty-host review-jarvis-upper-2 <worker-worktree> <harness> --trust-workspace ... <task.md|prompt>`
+  but its **process env carries `PWD=/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace`** — the
+  *omp session's* cwd, not the worker's worktree it was handed. A non-interactive coding harness
+  started outside its workspace exits immediately; AO never notices (the run stays `running`).
+  A second, related defect: the review `task.md` is passed as the harness's POSITIONAL PROMPT —
+  but for muse 1.3.0 a positional is PROMPT TEXT (no `-p` flag exists), so even when it does run
+  it "answers" the task into a TTY nobody reads.
+- **THE EVIDENCE:** `/proc/<review-pty-host>/environ | grep PWD` → the omp cwd; `pgrep -P <host>`
+  → empty; `ss -tnp | grep <host>` → 0 sockets; `task.md` present (2512 B) in
+  `~/.ao/data/prompts/<worker>/reviewer/requests/<batch>/<run>/`.
+- **THE WORKAROUND (honest):** none found that satisfies the two-source law — a review verdict
+  cannot be produced until AO's reviewer host is fixed upstream (or a reviewer-capable harness
+  that tolerates the wrong cwd is installed: the docs name [CC], Codex, OpenCode; [CC] and Codex
+  are NOT installed here).
+- **THE LESSON:** a run row is not a run. `status: running` with zero children and zero sockets is
+  a ZOMBIE — the gate must read the PROCESS, not the row.

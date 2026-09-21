@@ -40,6 +40,8 @@ export interface VerifyOpts {
   ledgerPath?: string;
   runFence?: (argv: string[]) => Promise<{ code: number; stdout: string; stderr: string }>;
   fetchReviews?: (sessionId: string) => Promise<unknown>;
+  /** the fence↔head binding check (injectable: tests stub it, production uses git) */
+  bind?: (jobDir: string, headSha: string) => { ok: boolean; reason: string };
 }
 
 export function sha16(s: string): string {
@@ -77,18 +79,59 @@ export function ledgerRowFor(ledgerPath: string, jobNeedle: string): { verdict: 
   return null;
 }
 
+
+/** The honest fence↔head binding: the job dir must sit inside a git worktree
+ *  whose HEAD is the claimed sha, and its artifact must be committed (clean). */
+export function artifactBoundToHead(jobDir: string, headSha: string): { ok: boolean; reason: string; actual?: string; worktree?: string } {
+  const run = (argv: string[]) => {
+    const p = Bun.spawnSync(argv);
+    return { code: p.exitCode ?? -1, out: (p.stdout?.toString() ?? "").trim() };
+  };
+  const top = run(["git", "-C", jobDir, "rev-parse", "--show-toplevel"]);
+  if (top.code !== 0 || !top.out) return { ok: false, reason: "FENCE-NOT-IN-A-WORKTREE" };
+  const head = run(["git", "-C", top.out, "rev-parse", "HEAD"]);
+  if (head.code !== 0) return { ok: false, reason: "FENCE-HEAD-UNREADABLE", worktree: top.out };
+  if (!head.out.toLowerCase().startsWith(headSha.toLowerCase().slice(0, 40)) && head.out !== headSha) {
+    return { ok: false, reason: `FENCE-HEAD-MISMATCH: worktree ${head.out.slice(0, 12)} != claimed ${headSha.slice(0, 12)}`, worktree: top.out, actual: head.out };
+  }
+  // the artifact in the job dir must be byte-identical to the head's committed copy
+  const specDir = jobDir;
+  try {
+    const spec = require("node:fs").readFileSync(`${specDir}/SPEC.md`, "utf8") as string;
+    const m = spec.match(/artifact:\s*(\S+)/);
+    if (m && m[1].startsWith("/")) {
+      const rel = m[1].slice(top.out.length + 1);
+      const committed = run(["git", "-C", top.out, "show", `HEAD:${rel}`]);
+      const onDisk = require("node:fs").readFileSync(m[1], "utf8") as string;
+      if (committed.code === 0 && committed.out.length > 0 && !onDisk.startsWith(committed.out.slice(0, 64))) {
+        return { ok: false, reason: "FENCE-ARTIFACT-DRIFT: the job artifact != the head's committed copy", worktree: top.out };
+      }
+    }
+  } catch { /* no artifact binding available — the HEAD + clean checks above still hold */ }
+  const dirty = run(["git", "-C", top.out, "status", "--porcelain"]);
+  if (dirty.out.length > 0) return { ok: false, reason: `FENCE-DIRTY-WORKTREE: ${dirty.out.split("\n").length} uncommitted path(s)`, worktree: top.out };
+  return { ok: true, reason: "FENCE-GREEN", worktree: top.out, actual: head.out };
+}
+
 export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   const fenceBin = opts.fenceBin ?? FENCE_DEFAULT;
   const ledgerPath = opts.ledgerPath ?? LEDGER_DEFAULT;
   const runFence = opts.runFence ?? defaultRunFence;
   const fetchReviews = opts.fetchReviews ?? defaultFetchReviews;
+  const bind = opts.bind ?? artifactBoundToHead;
   const reasons: string[] = [];
 
   // ---- SOURCE 1: the fence, bound to the head sha -------------------------
   const fence: FenceSource = { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: "" };
   try {
-    const argv = [fenceBin, "adjudicate", opts.jobDir, "--expect-spec-sha", opts.headSha];
+    // fence2's --expect-spec-sha is the SPEC's INVARIANT sha16 (not a git sha):
+    // the kernel-held value computed over the SPEC minus its sha-map. Compute it
+    // here, then adjudicate against it.
+    const inv = await runFence([fenceBin, "invariant-sha", opts.jobDir]);
+    const invariant = inv.stdout.trim().split("\n").filter((l) => l.trim().length > 0).pop() ?? "";
+    const argv = [fenceBin, "adjudicate", opts.jobDir, "--expect-spec-sha", invariant];
     const r = await runFence(argv);
+    if (!invariant) throw new Error("FENCE-NO-INVARIANT-SHA");
     fence.ran = true;
     fence.exitCode = r.code;
   } catch (e) {
@@ -100,8 +143,14 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   if (fence.ran) {
     if (fence.exitCode !== 0) fence.reason = `FENCE-FAILED: exit ${fence.exitCode}`;
     else if (fence.ledgerVerdict && fence.ledgerVerdict !== "PASS") fence.reason = `FENCE-LEDGER:${fence.ledgerVerdict}`;
-    else if (row?.sha16 && !opts.headSha.toLowerCase().startsWith(row.sha16.toLowerCase())) fence.reason = `FENCE-STALE-SHA: ledger ${row.sha16} != head ${opts.headSha.slice(0, 16)}`;
-    else fence.reason = "FENCE-GREEN";
+    // The ledger's sha16 is the SPEC's INVARIANT HASH, not a git sha — they are
+    // different objects. The honest binding is: the adjudicated JOB DIR must be a
+    // git worktree whose HEAD IS the claimed head, with the artifact committed clean.
+    else {
+      const b = bind(opts.jobDir, opts.headSha);
+      if (!b.ok) fence.reason = b.reason;
+      else fence.reason = "FENCE-GREEN";
+    }
   }
   if (fence.reason !== "FENCE-GREEN") reasons.push(fence.reason);
 

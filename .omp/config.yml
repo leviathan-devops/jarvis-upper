@@ -2,7 +2,7 @@
 # every AO worktree, so these roles apply to every AO-spawned omp worker here
 # regardless of the daemon's env. Mirrors ~/.omp/profiles/jarvis-worker/agent/config.yml.
 #   default/task = POOLSIDE DIRECT (inference.poolside.ai — NOT OpenRouter)
-#   sonic/reviewer/plan/slow/intelligence = zen-free muse-spark-1.3 :xhigh
+#   sonic/reviewer/plan/slow = zen-free muse-spark-1.3 :xhigh
 #   smol/scout = openrouter nemotron-3.5-lightning :free
 #   LAW: muse-spark-1.3* -> ALWAYS :xhigh · laguna* -> ALWAYS :high
 modelRoles:
@@ -12,7 +12,6 @@ modelRoles:
   reviewer: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
   plan: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
   slow: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
-  intelligence: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
   smol: openrouter/nvidia/nemotron-3.5-lightning:free
   scout: openrouter/nvidia/nemotron-3.5-lightning:free
 retry:
