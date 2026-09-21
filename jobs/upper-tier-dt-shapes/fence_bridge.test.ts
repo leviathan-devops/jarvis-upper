@@ -8,7 +8,7 @@ import { test, expect } from "bun:test";
 import { $ } from "bun";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 
 import { openStore } from "../../src/store";
 import type { PrRow } from "../../src/sync";
@@ -25,7 +25,6 @@ import { EventRail, type RailEvent, type RailStats } from "../../ao-client/rail"
 import { reduceEvent } from "../../src/reducers";
 import { call, health, DAEMON } from "../../ao-client/client";
 
-const REPO_ROOT = new URL("..", import.meta.url).pathname;
 // HERMETICITY (fence sandbox: read-only root): scratch output goes to a
 // writable, overridable dir — never outside the job dir under a ro-bind.
 const TXN_DIR = process.env.JFM_TXN_DIR ?? join(tmpdir(), "dt-transcripts");
@@ -88,7 +87,7 @@ test("dt_shapes: DT-2 bug-loop seed→attribute→kick→observe→close status=
       { repo: dir, files: ["f.txt"], lines: { "f.txt": [2] } },
       async () => ({ session: "s-1", worker: "w-1" }),
     );
-    tx.push(`ATTRITE_OK:commit=${a.commit.slice(0, 8)} confidence=${a.confidence} method=${a.method}`);
+    tx.push(`ATTRIBUTED_OK:commit=${a.commit.slice(0, 8)} confidence=${a.confidence} method=${a.method}`);
     expect(a.commit).toBe(bugSha);
     expect(a.confidence).toBeGreaterThanOrEqual(0.9);
 
