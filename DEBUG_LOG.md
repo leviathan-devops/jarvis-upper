@@ -167,3 +167,24 @@
   single-writer violation; the store needs a pid lock (OPEN, low).
 - **THE LESSON:** `ok:true` with a zero is the most expensive kind of lie. A default of `[]`
   in a dependency slot is a stub wearing production clothes.
+
+## EN-015 — the "review rail" was not broken; it runs in AO's TMUX, not a pty-host (2026-09-21)
+- **THE FINDING (correcting EN-011):** I diagnosed the review rail from the wrong evidence. AO
+  0.13.0 runs a worker's review in a dedicated **tmux** session (`tmux -L ao new-session -s
+  review-<worker>`), with the harness as the pane process. The `pty-host review-*` processes I
+  kept inspecting were leftovers from an earlier worker-session design. Reading `pgrep -P` on a
+  pty-host and seeing no child told me nothing about the tmux review — I was looking at the wrong
+  process tree.
+- **THE EVIDENCE:** `tmux -L ao ls` → `review-jarvis-upper-2`; the pane runs
+  `muse-bin-1.3.0 ... Read and follow the AO review task in <task.md>`; the pane shows the reviewer
+  running `git diff`, `gh`, `bun test`, and 📋 Thinking; `ao review ls` shows the run's state.
+- **THE LESSON:** before declaring a subsystem broken, enumerate its process tree from the
+  subsystem's OWN launcher (here: the AO tmux server), not from a process name that resembles it.
+  Two designs can coexist on disk; the stale one lies.
+
+## EN-016 — a green `verify()` can read a "reviewed" run that never reviewed the head (2026-09-21)
+- **THE FINDING:** after `ao review trigger`, AO leaves a `running` row; on `cancel` the row keeps
+  `verdict: null`. `verify()` reads the AO store directly (honest), so it correctly reports
+  `REVIEW-NOT-APPROVED`. The design is sound: only an approving verdict on the SAME head passes.
+- **THE PROOF:** `REVIEW-NOT-APPROVED: verdicts ["changes_requested","","",...]` — the reviewer's
+  real verdict, on the head, from AO's store.

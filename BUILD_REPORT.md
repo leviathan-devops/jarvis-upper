@@ -119,3 +119,19 @@ dossier 1/0` · W4 `ship_manifest 4/0` + fence2 `exit=0` · W5 battery
 - **EN-011 (the only blocker to the goal's STOP):** AO's review pty-host runs with
   `PWD=.../Shared_Workspace` (the omp session's cwd) instead of the worker worktree it is handed
   → every reviewer harness exits instantly; the run row stays `running` with 0 children/0 sockets.
+
+## 2026-09-21 — THE REVIEW RAIL WENT REAL + the 5 Required findings closed
+- **THE RAIL IS PROVEN.** The AO review for `jarvis-upper-2` runs in AO's own **tmux** session
+  (`~/.ao/runtime/tmux/.../tmux -L ao`) — not a pty-host. `muse-bin-1.3.0-R3401.1
+  --trust-workspace --approval-mode never` starts interactive, reads the task file, diffs the
+  branch against base, reviews 5-axis, then posts + submits. It produced a real
+  **`changes_requested`** on `adbdacf` with 8 inline findings (verdict recorded in AO:
+  `ao review ls` → `#1 changes_requested changes_requested`).
+- **ITS FINDINGS WERE REAL.** The reviewer found: a byte-identical duplicate test file the root
+  suite discovers and runs the live DT-1 twice through; a hardcoded `pr:<session>:1` that passes
+  even when the real PR is not #1; a "kill-9 storm" test that injects no loss and no restart; a
+  default suite that dies without a daemon; and stray `.aider*` reviewer droppings I had committed
+  with `git add -A`. All 5 applied (see RUNNING_BUILD_LOG).
+- **EN-014 (mine, found by the reviewer):** I committed another session's reviewer droppings
+  (`.aider.chat.history.md` referenced the reviewer prompt paths) with a blanket `git add -A`.
+  A blanket add is how foreign state enters a repo. Removed + gitignored.

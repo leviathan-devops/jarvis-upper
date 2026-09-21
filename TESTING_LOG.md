@@ -110,3 +110,13 @@ The two-source verdict on the clean head `fe79f99d`:
  "reasons":["REVIEW-NOT-APPROVED: ..."]}
 ```
 **SOURCE 1 GREEN · SOURCE 2 BLOCKED · one source alone = UNVERIFIED (the law holds).**
+
+## 2026-09-21 — the review fixes re-verified (worktree `acc7a688`)
+| check | result |
+|---|---|
+| `cd jobs/upper-tier-dt-shapes && bun test -t dt_shapes` (the fence's asserted test) | **3 pass / 0 fail / 21 expects** |
+| `bun test tests/dt_shapes.test.ts` | **3 pass / 1 skip / 0 fail** (DT-1 skips without `DT1_LIVE=1`) |
+| the full worktree battery | **51 pass / 1 skip / 0 fail / 208 expects / 17 files** |
+| `bunx tsc --noEmit` | exit 0 |
+| the fence (source 1) on `acc7a688` | **PASS** — `spec_bound:true`, exit 0 |
+| the review (source 2) | the real muse run, in AO's tmux rail |
