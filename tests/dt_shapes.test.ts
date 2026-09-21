@@ -200,11 +200,21 @@ dt1Test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→m
         gateEligible: g.ok, planKind: plan.kind, finalState: "merged",
       },
     });
+  } catch (e) {
+    // FAILURE TRANSCRIPT: spawn-fail / PR-timeout / gate / plan paths throw before the
+    // pass transcript — write the partial trail so the failure is evidence, not a loss.
+    transcript("DT1", {
+      shape: "DT-1", status: "fail", daemon: "up",
+      steps: tx.length > 0 ? ["partial"] : [],
+      transcript: `${tx.join(" ")} FAIL:${String(e).slice(0, 200)}`,
+      evidence: { sessionId: sessionId || null, prCount: prList.prs.length, failReason: String(e).slice(0, 120) },
+    });
+    throw e;
   } finally {
     if (sessionId) {
       try { await call("killSession", { params: { sessionId } }); } catch { /* already killed */ }
     }
-    db.close();
+    try { db.close(); } catch { /* already closed */ }
   }
 }, Number(process.env.DT1_TIMEOUT_MS ?? 480_000));
 
@@ -370,22 +380,24 @@ test("dt_shapes: DT-3 loss-replay: restart storm + gap/dupe accounting converges
 
 test("dt_shapes: DT-1b the confirm gate REFUSES an unconfirmed plan (mutation killer)", async () => {
   // ENFORCE-BY-DEFAULT (operator law 2026-09-21): DT-1 exercises confirm:true only.
-  // Without this case, deleting the confirm gate from executePlan leaves DT-1 green —
-  // proven by mutation on 2026-09-21. This test makes that mutation FAIL here.
+  // FENCE-SCOPE MUTATION KILLER: the same UNCONFIRMED-PLAN refusal is also covered by
+  // tests/execute_plan.test.ts:19 — this test pins it again here so the fence's pinned
+  // suite still fails if the confirm gate is removed (a single-source fence must not
+  // rely on a test OUTSIDE its pinned artifact to kill a mutation it cares about).
   const db = openStore(":memory:");
   try {
-  const prId = "pr:neg:1";
-  db.query("INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state) VALUES (?, 'p', 1, 's', 'h', 'ready_to_merge')").run(prId);
-  for (const g of ["ci_green", "audit", "hardened", "fence2"] as const) {
-  db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, sha16, at) VALUES (?,?,?,?,?,0)").run(`${prId}:${g}`, prId, g, "pass", "h");
-  }
-  let merges = 0;
-  const adapter = { merge: async () => { merges += 1; return { ok: true }; } };
-  let threw = "";
-  try { await executePlan(db, adapter, { confirm: false }); } catch (e) { threw = String(e); }
-  expect(threw).toContain("UNCONFIRMED-PLAN");
-  expect(merges).toBe(0);
-  const st = db.query("SELECT state FROM pr_node WHERE id = ?").get(prId) as { state: string };
-  expect(st.state).toBe("ready_to_merge");
+    const prId = "pr:neg:1";
+    db.query("INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state) VALUES (?, 'p', 1, 's', 'h', 'ready_to_merge')").run(prId);
+    for (const g of ["ci_green", "audit", "hardened", "fence2"] as const) {
+      db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, sha16, at) VALUES (?,?,?,?,?,0)").run(`${prId}:${g}`, prId, g, "pass", "h");
+    }
+    let merges = 0;
+    const adapter = { merge: async () => { merges += 1; return { ok: true }; } };
+    let threw = "";
+    try { await executePlan(db, adapter, { confirm: false }); } catch (e) { threw = String(e); }
+    expect(threw).toContain("UNCONFIRMED-PLAN");
+    expect(merges).toBe(0);
+    const st = db.query("SELECT state FROM pr_node WHERE id = ?").get(prId) as { state: string };
+    expect(st.state).toBe("ready_to_merge");
   } finally { db.close(); }   // the handle closes even when an assertion throws
 });
