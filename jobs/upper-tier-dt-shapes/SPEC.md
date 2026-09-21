@@ -4,7 +4,7 @@ steps:
   - id: dt-shapes-fixture
     artifact: /home/leviathan/.ao/data/worktrees/jarvis-upper/jarvis-upper-2/jobs/upper-tier-dt-shapes/fence_bridge.test.ts
     done-when:
-      - cd /home/leviathan/.ao/data/worktrees/jarvis-upper/jarvis-upper-2/jobs/upper-tier-dt-shapes && bun test -t dt_shapes 2>&1 | grep -qE "^( |)[0-9]+ pass" && echo PASSED
+      - cd /home/leviathan/.ao/data/worktrees/jarvis-upper/jarvis-upper-2/jobs/upper-tier-dt-shapes && bun test -t dt_shapes 2>&1 | tail -5 | grep -q "0 fail"
     depends: []
     retries: 0
     silence_s: 90
@@ -16,5 +16,5 @@ steps:
     retries: 0
     silence_s: 90
 sha16:
-  dt-shapes-fixture: 
-  dt-shapes-live: 
+  dt-shapes-fixture: 5ecd27503bbb7bd6
+  dt-shapes-live: 5ecd27503bbb7bd6
