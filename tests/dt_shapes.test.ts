@@ -26,7 +26,9 @@ import { reduceEvent } from "../src/reducers";
 import { call, health, DAEMON } from "../ao-client/client";
 
 const REPO_ROOT = new URL("..", import.meta.url).pathname;
-const TXN_DIR = join(REPO_ROOT, "runtime", "dt_transcripts");
+// HERMETICITY (fence sandbox: read-only root): scratch output goes to a
+// writable, overridable dir — never outside the job dir under a ro-bind.
+const TXN_DIR = process.env.JFM_TXN_DIR ?? join(tmpdir(), "dt-transcripts");
 
 // AO SessionPRSummary (subset we consume)
 interface AoPr {

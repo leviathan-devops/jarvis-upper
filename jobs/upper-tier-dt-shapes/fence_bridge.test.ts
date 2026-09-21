@@ -26,7 +26,9 @@ import { reduceEvent } from "../../src/reducers";
 import { call, health, DAEMON } from "../../ao-client/client";
 
 const REPO_ROOT = new URL("..", import.meta.url).pathname;
-const TXN_DIR = join(REPO_ROOT, "runtime", "dt_transcripts");
+// HERMETICITY (fence sandbox: read-only root): scratch output goes to a
+// writable, overridable dir — never outside the job dir under a ro-bind.
+const TXN_DIR = process.env.JFM_TXN_DIR ?? join(tmpdir(), "dt-transcripts");
 
 // AO SessionPRSummary (subset we consume)
 interface AoPr {
@@ -64,7 +66,7 @@ async function commit(dir: string, file: string, content: string, msg: string): 
 }
 
 // ── DT-1: full-loop spawn → PR → sync → gate → plan → confirm → merge ─
-// (DT-1 lives in tests/ and is proven unsandboxed by the W3 gate — the fence sandbox has no network)
+// DT-1 (live spawn) lives in tests/ and is proven unsandboxed by the W3 gate.
 
 test("dt_shapes: DT-2 bug-loop seed→attribute→kick→observe→close status=fixed", async () => {
   const root = mkdtempSync(join(tmpdir(), "dt2-"));
