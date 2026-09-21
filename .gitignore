@@ -7,3 +7,5 @@ store.sqlite-wal
 store.sqlite-shm
 node_modules/
 dist/
+# the JAM/JFM desk tracker: LIVE state (jfm writes it on every verb) — never source
+.omp-waves/
