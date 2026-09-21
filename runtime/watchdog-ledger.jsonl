@@ -1,0 +1,6 @@
+{"ts": "2026-09-21T07:30:12Z", "ao_http": "200", "tick_age_s": 8680, "prNodes": "9", "problems": ["TICK-STALE:8680s"]}
+{"ts": "2026-09-21T07:31:06Z", "ao_http": "200", "tick_age_s": 5, "prNodes": "9", "problems": []}
+{"ts": "2026-09-21T07:32:01Z", "ao_http": "200", "tick_age_s": 15, "prNodes": "9", "problems": []}
+{"ts": "2026-09-21T07:34:01Z", "ao_http": "200", "tick_age_s": 15, "prNodes": "9", "problems": []}
+{"ts": "2026-09-21T07:36:03Z", "ao_http": "200", "tick_age_s": 2, "prNodes": "9", "problems": []}
+{"ts": "2026-09-21T07:38:04Z", "ao_http": "200", "tick_age_s": 3, "prNodes": "9", "problems": []}
