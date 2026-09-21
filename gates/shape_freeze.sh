@@ -15,13 +15,28 @@ FREEZE="gates/shape_freeze.sha16"
 
 # The pre-written identifiers: `-t <id>` names + the DT ids, read from the spec.
 DECLARED=$(grep -oE '(bun test -t [a-z_]+|-t [a-z_]+|DT[123])' "$SPEC" 2>/dev/null \
-           | sed -E 's/.*-t //' | sort -u)
+           | sed -E 's/.*-t //' | tr '_' '-' | sed -E 's/^DT-?([123])$/DT\1/' | sort -u)
 if [ -z "$DECLARED" ]; then
   echo "SHAPE-ERROR:no declared test ids found in $SPEC"
   exit 2
 fi
 
-IMPL=$(ls tests/*.test.ts 2>/dev/null | xargs -r -n1 basename | sed 's/\.test\.ts$//' | sort -u)
+# IMPLEMENTED = the shapes the suite actually contains. Two sources, because a
+# declared shape may be a TEST FILE (`-t dt_shapes`) or a shape id INSIDE a job's
+# test (DT-1/DT-2/DT-3 live in the worker's jobs/*/tests). Normalize DT-1|DT_1|DT1
+# to one token so the two sides of `comm` speak the same alphabet.
+FACTORY=$(ls tests/*.test.ts 2>/dev/null | xargs -r -n1 basename | sed 's/\.test\.ts$//')
+JOBS=$(ls jobs/*/*.test.ts 2>/dev/null | xargs -r -n1 basename | sed 's/\.test\.ts$//')
+# A claimed job's shapes live in the WORKER'S worktree (the deliverable), not here.
+# Discover every AO worktree so the default denominator is honest without an env var.
+if [ -z "${DT_WORKTREE:-}" ]; then
+  DT_WORKTREES=$(ls -d "$HOME"/.ao/data/worktrees/*/*/tests 2>/dev/null)
+else
+  DT_WORKTREES="${DT_WORKTREE}/tests"
+fi
+DT_IDS=$(grep -rhoE 'DT[_-]?[123]' tests/ jobs/ $DT_WORKTREES 2>/dev/null \
+         | tr '_' '-' | sed -E 's/^DT-?([123])$/DT\1/' | sort -u)
+IMPL=$(printf '%s\n%s\n%s\n' "$FACTORY" "$JOBS" "$DT_IDS" | sed '/^$/d' | sort -u)
 
 sha16() { printf '%s' "$1" | sha256sum | cut -c1-16; }
 D_SHA=$(sha16 "$DECLARED")
