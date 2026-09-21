@@ -1,6 +1,7 @@
 // DT-1/DT-2/DT-3 deep container shapes
 // Run: bun test -t dt_shapes
-// SPEC: jobs/upper-tier-dt-shapes/SPEC.md (the job's done-when pins THIS file)
+// SPEC: jobs/upper-tier-dt-shapes/SPEC.md — it pins the BRIDGE
+//   (jobs/upper-tier-dt-shapes/fence_bridge.test.ts), which imports THIS file.
 // DT-1 full-loop: spawn→PR→sync→gate→plan→(confirm)→merge→state=merged
 // DT-2 bug-loop: seed defect→attribute→kick→observe→close status=fixed
 // DT-3 loss-replay: a restart storm (file-backed, close/reopen ×20) + gap/dupe accounting
@@ -22,6 +23,7 @@ import { kick } from "../src/kick";
 import { attributeBug } from "../src/attribute";
 import { writeDossier, dossierDir } from "../src/dossier";
 import { EventRail, type RailEvent, type RailStats } from "../ao-client/rail";
+import type { Database } from "bun:sqlite";
 import { reduceEvent } from "../src/reducers";
 import { call, health, DAEMON } from "../ao-client/client";
 
@@ -74,6 +76,9 @@ dt1Test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→m
   } catch {
     up = false;
   }
+  // NOTE: a live DT-1 run pushes a branch and OPENS A PR that it does NOT clean up —
+  // each run accumulates one PR on the project. It is opt-in (DT1_LIVE=1) for that reason;
+  // the fence never runs it (the sandbox has no network).
   // ENFORCE-BY-DEFAULT (operator law 2026-09-21): DT-1 REQUIRES the live daemon.
   // A BLOCKED transcript is NOT a pass — it is a hard failure with the reason named.
   if (!up) {
@@ -136,7 +141,7 @@ dt1Test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→m
         }),
       ),
     );
-    tx.push(`SYNC_COUNT:${rows}`);
+    tx.push(`SYNC_TOTAL_ROWS:${rows}`);
 
     // The minted PR is the row AO synced for THIS session — never a hardcoded number.
     // (A hardcoded `pr:<session>:1` silently passes even when the real PR is not #1.)
@@ -328,9 +333,9 @@ test("dt_shapes: DT-3 loss-replay: restart storm + gap/dupe accounting converges
     db2 = openStore(join(dir, "rail2.sqlite"));
     const r2 = new EventRail(db2);
     const f = (a: number, b: number) => allFrames.slice(a - 1, b);
-    await r2.attach(f(1, 10), (ev: RailEvent) => { reduceEvent(db2 as never, ev); });               // 1..10
-    const overlap = await r2.attach(f(9, 15), (ev: RailEvent) => { reduceEvent(db2 as never, ev); }); // 9,10 dupes
-    const skipped = await r2.attach(f(20, 25), (ev: RailEvent) => { reduceEvent(db2 as never, ev); }); // 16..19 MISSING
+    await r2.attach(f(1, 10), (ev: RailEvent) => { reduceEvent(db2 as Database, ev); });               // 1..10
+    const overlap = await r2.attach(f(9, 15), (ev: RailEvent) => { reduceEvent(db2 as Database, ev); }); // 9,10 dupes
+    const skipped = await r2.attach(f(20, 25), (ev: RailEvent) => { reduceEvent(db2 as Database, ev); }); // 16..19 MISSING
     tx.push(`OVERLAP:dupes=${overlap.dupes} processed=${overlap.processed}`);
     tx.push(`SKIPPED:gaps=${skipped.gaps} resyncs=${skipped.resyncs} processed=${skipped.processed}`);
     expect(overlap.dupes).toBe(2);         // the overlap was DETECTED
@@ -367,6 +372,7 @@ test("dt_shapes: DT-1b the confirm gate REFUSES an unconfirmed plan (mutation ki
   // Without this case, deleting the confirm gate from executePlan leaves DT-1 green —
   // proven by mutation on 2026-09-21. This test makes that mutation FAIL here.
   const db = openStore(":memory:");
+  try {
   const prId = "pr:neg:1";
   db.query("INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state) VALUES (?, 'p', 1, 's', 'h', 'ready_to_merge')").run(prId);
   for (const g of ["ci_green", "audit", "hardened", "fence2"] as const) {
@@ -380,5 +386,5 @@ test("dt_shapes: DT-1b the confirm gate REFUSES an unconfirmed plan (mutation ki
   expect(merges).toBe(0);
   const st = db.query("SELECT state FROM pr_node WHERE id = ?").get(prId) as { state: string };
   expect(st.state).toBe("ready_to_merge");
-  db.close();   // the reviewer's nit: DT-1b leaked its :memory: handle
+  } finally { db.close(); }   // the handle closes even when an assertion throws
 });
