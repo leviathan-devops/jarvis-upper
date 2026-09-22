@@ -6,6 +6,15 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 
 const specPath = Bun.argv[2] ?? "../packages/jarvis-upper-tier/jarvis_upper_tier_DPL1_SPEC.md";
 const missionPath = Bun.argv[3] ?? "../packages/jarvis-upper-tier/00-MISSION.md";
+// THE EXIT-2 CONTRACT (L9): a gate that cannot measure says so — it never
+// crashes with a raw ENOENT, and it never silently passes. In CI the spec
+// lives OUTSIDE the repo (../packages/...), so its absence is EXPECTED there.
+if (!existsSync(specPath)) {
+  console.error(`SPEC-AUDIT-ERROR:spec-missing:${specPath}`);
+  console.error("  the spec is not reachable from this cwd — the audit cannot measure.");
+  console.error("  exit 2 (UNMEASURED) — never 0, never 1.");
+  process.exit(2);
+}
 const spec = readFileSync(specPath, "utf8");
 const mission = existsSync(missionPath) ? readFileSync(missionPath, "utf8") : "";
 

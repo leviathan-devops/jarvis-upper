@@ -656,3 +656,59 @@ APPENDING correctly-formed content — never by rewriting what is there.
 | this session's entries | `context_management/RUNNING_DEBUG_LOG.md:258` (EN-100) |
 | the append-only law | `canon-doc-update/SKILL.md` (the Standing Rules) |
 | the gate that prompted it | `context_management/RUNNING_DEBUG_LOG.md:1` (the U3 check) |
+
+---
+
+## [2026-09-22] EN-107 · THE CI'S `test` JOB FAILED ON AN ENVIRONMENT DEPENDENCY
+
+**THE FINDING (the first real CI run):**
+```
+gates/test | failure
+  69 pass / 3 fail
+  (fail) spec_audit: emits all eight GS verdicts with tokens
+  (fail) spec_audit: names the historical seam on the real spec
+```
+
+**THE ROOT CAUSE — TWO DEFECTS:**
+
+### A · `scripts/spec-audit.ts:9` had NO existence check
+```ts
+const spec = readFileSync(specPath, "utf8");   // <- ENOENT if the spec is absent
+```
+The spec lives at `../packages/jarvis-upper-tier/..._SPEC.md` — **OUTSIDE the repo.** It exists on
+the host, NOT in a CI checkout. The script **crashed with a raw ENOENT** instead of following the
+**exit-2 contract** (L9: a gate that cannot measure says so).
+
+**THE FIX:**
+```ts
+if (!existsSync(specPath)) {
+  console.error(`SPEC-AUDIT-ERROR:spec-missing:${specPath}`);
+  process.exit(2);
+}
+```
+**Verified:** with the spec absent -> `SPEC-AUDIT-ERROR:spec-missing:...` + exit 2.
+With the spec present -> the full audit, `VERDICT:REJECTED (fail=6)`.
+
+### B · the TEST assumed the spec is always present
+```ts
+test("spec_audit: ...", () => { const { out } = run(); expect(out).toContain("GS-1:"); });
+```
+**It passes locally and fails in CI** — the classic environment dependency.
+
+**THE FIX:** the test branches on `existsSync(SPEC)`:
+- spec present -> assert the 8 GS verdicts + `VERDICT:(APPROVED|REJECTED)` + the exit contract
+- spec ABSENT -> assert `SPEC-AUDIT-ERROR:spec-missing:` + **exit 2**
+- and in BOTH cases: `expect(out).not.toContain("VERDICT:APPROVED")` — **no phantom approval**
+
+**THE LESSON:** a test that reads a path outside the repo tests the HOST, not the code. The fix is
+two-sided: the tool must LOUD-FAIL when it cannot measure, and the test must ASSERT that failure
+rather than assuming the measurement is possible.
+
+**THE ANCHORS:**
+| the claim | the anchor |
+|---|---|
+| the fixed tool | `scripts/spec-audit.ts:9` |
+| the fixed test | `tests/spec_audit.test.ts:1` |
+| the exit-2 contract | `scripts/spec-diff.ts:19` (the same pattern) |
+| the CI job | `.github/workflows/gates.yml:1` (the test job) |
+| the battery | `tests/spec_audit.test.ts:1` |
