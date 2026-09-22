@@ -11,7 +11,10 @@ export function dossierSha16(dossierMd: string, originJson: string): string {
   return createHash("sha256").update(dossierMd, "utf8").update("\n", "utf8").update(originJson, "utf8").digest("hex").slice(0, 16);
 }
 
+const BUGID_RE = /^[A-Za-z0-9_-]+$/;
+
 export function dossierDir(root: string, bugId: string): string {
+  if (!BUGID_RE.test(bugId) || bugId.includes("..")) throw new Error(`INVALID-BUGID:${bugId}`);
   return `${root.replace(/\/$/, "")}/dossiers/${bugId}`;
 }
 

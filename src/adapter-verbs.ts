@@ -6,8 +6,8 @@ import type { PrRow } from "./sync";
 export interface ProjectRow { id: string; name: string }
 
 export async function listProjects(): Promise<ProjectRow[]> {
-  const res = await call<{ projects: ProjectRow[] }>("listProjects");
-  return res.projects ?? [];
+  const res = await call<{ projects?: ProjectRow[] } | null>("listProjects");
+  return (res && typeof res === 'object' && Array.isArray(res.projects) ? res.projects : []) ?? [];
 }
 
 export interface SessionRow { id: string; projectId?: string; kind?: string; harness?: string }
@@ -29,12 +29,15 @@ export async function listPrsFromAo(opts: {
   const sessions = (await c<{ sessions: SessionRow[] }>("listSessions")).sessions ?? [];
   const scoped = opts.project ? sessions.filter((s) => s.projectId === opts.project) : sessions;
   const out: PrRow[] = [];
-  for (const s of scoped) {
-    const res = await c<{ sessionId: string; prs: PrPayload[] }>("listSessionPRs", {
-      params: { sessionId: s.id },
-    });
-    for (const pr of res.prs ?? []) {
-      out.push({
+  const CONC = 8;
+  for (let i = 0; i < scoped.length; i += CONC) {
+    const batch = scoped.slice(i, i + CONC);
+    const results = await Promise.allSettled(batch.map(async (s) => {
+      const res = await c<{ sessionId: string; prs?: PrPayload[] } | null>("listSessionPRs", {
+        params: { sessionId: s.id },
+      });
+      const prs = (res && typeof res === 'object' && Array.isArray(res.prs)) ? res.prs : [];
+      return prs.map((pr) => ({
         project: s.projectId ?? "unknown",
         pr_number: pr.number,
         session_id: s.id,
@@ -43,8 +46,9 @@ export async function listPrsFromAo(opts: {
         target_branch: pr.targetBranch ?? null,
         state: pr.state ?? "unknown",
         worker_hint: pr.repo ?? null,
-      });
-    }
+      }));
+    }));
+    for (const r of results) { if (r.status === 'fulfilled') out.push(...r.value); }
   }
   return out;
 }

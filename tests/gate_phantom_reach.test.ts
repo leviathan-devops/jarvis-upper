@@ -138,7 +138,7 @@ test("test_reachability_gate_structure", () => {
   const content = readFileSync(PRE_PUSH, "utf-8");
   expect(content).toContain("ORPHAN:");
   expect(content).toContain("REJECT(W-2)");
-  expect(content).toContain("grep -rln");
+  expect(content).toMatch("grep -rl");
   // Verify the existing main refusal is intact.
   expect(content).toContain("direct pushes to main are not permitted");
 });

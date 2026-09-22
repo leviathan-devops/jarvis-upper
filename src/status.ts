@@ -24,7 +24,7 @@ export function wireCapturePath(root: string): string { return join(root, "runti
 export function writeStatus(root: string, s: RuntimeStatus): void {
   mkdirSync(join(root, "runtime"), { recursive: true });
   const p = statusPath(root);
-  const tmp = `${p}.tmp`;
+  const tmp = `${p}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tmp, JSON.stringify(s, null, 2) + "\n", "utf8");
   renameSync(tmp, p);
 }
@@ -33,6 +33,15 @@ export function appendTick(root: string, s: RuntimeStatus): void {
   mkdirSync(join(root, "runtime"), { recursive: true });
   const line = `${s.ts} tick=${s.tick} daemonOk=${s.daemonOk} cursor=${s.cursor} prNodes=${s.prNodes} planKind=${s.planKind} errors=${s.errors.length}`;
   appendFileSync(ticksPath(root), line + "\n", "utf8");
+  // F54: rotation — truncate if log exceeds 10000 lines
+  try {
+    const tp = ticksPath(root);
+    const content = readFileSync(tp, "utf8");
+    const lines = content.split("\n");
+    if (lines.length > 10000) {
+      writeFileSync(tp, lines.slice(-5000).join("\n") + "\n", "utf8");
+    }
+  } catch { /* rotation is best-effort */ }
 }
 
 export function readStatus(root: string): RuntimeStatus | null {

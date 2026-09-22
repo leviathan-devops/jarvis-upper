@@ -1,22 +1,26 @@
 // spec-audit.ts — GS-1..GS-8: the eight mechanical questions a SPEC must
 // survive before it may be pinned. Mirrors the code-audit for the OTHER
 // artifact: the one that defines what "done" means.
-// Usage: bun scripts/spec-audit.ts [spec-path] [mission-path]
+// Usage: bun scripts/spec-audit.ts [spec-path]
+//
+// PATHS resolve against THIS SCRIPT's directory (import.meta.dir), never CWD —
+// an audit invoked from the repo root and from scripts/ must behave identically.
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-const specPath = Bun.argv[2] ?? "../packages/jarvis-upper-tier/jarvis_upper_tier_DPL1_SPEC.md";
-const missionPath = Bun.argv[3] ?? "../packages/jarvis-upper-tier/00-MISSION.md";
+const HERE = import.meta.dir;            // .../jarvis-upper/scripts
+const ROOT = dirname(HERE);              // .../jarvis-upper
+const specPath = Bun.argv[2] ?? join(ROOT, "../packages/jarvis-upper-tier/jarvis_upper_tier_DPL1_SPEC.md");
 // THE EXIT-2 CONTRACT (L9): a gate that cannot measure says so — it never
 // crashes with a raw ENOENT, and it never silently passes. In CI the spec
 // lives OUTSIDE the repo (../packages/...), so its absence is EXPECTED there.
 if (!existsSync(specPath)) {
   console.error(`SPEC-AUDIT-ERROR:spec-missing:${specPath}`);
-  console.error("  the spec is not reachable from this cwd — the audit cannot measure.");
+  console.error("  the spec is not reachable — the audit cannot measure.");
   console.error("  exit 2 (UNMEASURED) — never 0, never 1.");
   process.exit(2);
 }
 const spec = readFileSync(specPath, "utf8");
-const mission = existsSync(missionPath) ? readFileSync(missionPath, "utf8") : "";
 
 const lines = spec.split("\n");
 const findSection = (startRe: RegExp, endRe: RegExp): string => {
@@ -27,7 +31,10 @@ const findSection = (startRe: RegExp, endRe: RegExp): string => {
 };
 const criteria = findSection(/^#+ .*SUCCESS CRITERIA/i, /^#+ /i) || findSection(/^#+ §7/i, /^#+ §8/i);
 const scope = findSection(/^#+ .*SCOPE/i, /^#+ /i) || findSection(/^#+ §6/i, /^#+ §7/i);
-const checklist = findSection(/^#+ .*COMPLETION CHECKLIST/i, /$^/) || spec;
+// FAIL-CLOSED: a missing COMPLETION CHECKLIST section is "" — never the whole
+// spec. Re-testing the whole spec here would re-test the GS-1 subset, so a
+// spec with no checklist could never fail GS-6 (fail-open).
+const checklist = findSection(/^#+ .*COMPLETION CHECKLIST/i, /$^/) || "";
 
 let fails = 0;
 const check = (id: string, ok: boolean, detail: string) => {
@@ -51,7 +58,9 @@ check("GS-2", liveLines.length === 0 || stubProof.length === liveLines.length,
   liveLines.length === 0 ? "no live-named criteria to prove"
   : `${stubProof.length}/${liveLines.length} live-named criteria carry a non-stub requirement`);
 
-// GS-3 NOUN COVERAGE — the mission's nouns appear as scope items
+// GS-3 NOUN COVERAGE — the mission's nouns appear as scope items.
+// NOUNS is a PINNED contract (reviewed against 00-MISSION.md when the mission
+// changes) — it is read from no file at runtime, so it cannot drift silently.
 const NOUNS = ["graph", "comms", "filepaths", "guardrail"];
 const missingNouns = NOUNS.filter((n) => !new RegExp(n, "i").test(scope));
 check("GS-3", missingNouns.length === 0,
@@ -59,9 +68,9 @@ check("GS-3", missingNouns.length === 0,
   : `SCOPE-NOUN-LOST:${missingNouns.join(",")}`);
 
 // GS-4 SHAPE FREEZE — declared test ids vs implemented
-const declared = (spec.match(/(?:bun test -t |-t )([a-z_]+)/g) ?? []).map((m) => m.replace(/.*-t /, ""));
-const dt = (spec.match(/DT[123]/g) ?? []);
-const impl = existsSync("tests") ? readdirSync("tests").map((f) => f.replace(/\.test\.ts$/, "")) : [];
+const declared = (spec.match(/(?:bun test -t |-t )([a-z0-9_-]+)/g) ?? []).map((m) => m.replace(/.*-t /, ""));
+const dt = (spec.match(/DT[_-]?[0-9]+/g) ?? []).map((m) => m.replace(/_/g, "-").replace(/^DT-?([0-9]+)$/, "DT$1"));
+const impl = existsSync(join(ROOT, "tests")) ? readdirSync(join(ROOT, "tests")).map((f) => f.replace(/\.test\.ts$/, "")) : [];
 const drift = [...new Set([...declared, ...dt])].filter((id) => !impl.some((f) => f.includes(id.replace("DT", "dt").toLowerCase()) || f === id));
 check("GS-4", drift.length === 0, drift.length === 0 ? "every declared test id is implemented"
   : drift.map((d) => `TEST-SHAPE-DRIFT:${d}`).join(" "));

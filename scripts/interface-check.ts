@@ -15,13 +15,62 @@ const RULESET = join(ROOT, "ruleset.json");
 if (!existsSync(CONTRACT)) { console.error("INTERFACE-ERROR:contract-missing:" + CONTRACT); process.exit(2); }
 if (!existsSync(RULESET))  { console.error("INTERFACE-ERROR:ruleset-missing:" + RULESET);  process.exit(2); }
 
-const mod = await import(CONTRACT) as { REQUIRED_CONTEXTS: readonly string[] };
-const expected: string[] = [...mod.REQUIRED_CONTEXTS];
-const ruleset = JSON.parse(await Bun.file(RULESET).text());
+// THE EXIT-2 CONTRACT: a missing export, a syntax error, or invalid JSON is
+// UNMEASURED (exit 2) — never conflated with disagreement (exit 1).
+// DYNAMIC-IMPORT EXCEPTION (project rule ts-no-dynamic-import): a static import
+// of the contract cannot work here — a loader-time failure (missing file,
+// syntax error, missing export) surfaces as an UNCAUGHT loader error, which
+// cannot be mapped to the documented exit 2. Only await import() lets this
+// gate catch the failure and say "cannot measure" instead of crashing.
+interface ContractShape { REQUIRED_CONTEXTS?: unknown; }
+let expected: string[] = [];
+let ruleset: unknown = null;
+try {
+  const mod = (await import(CONTRACT)) as ContractShape;
+  if (!Array.isArray(mod.REQUIRED_CONTEXTS) || !mod.REQUIRED_CONTEXTS.every((c) => typeof c === "string")) {
+    throw new Error("REQUIRED_CONTEXTS missing or not a string array in " + CONTRACT);
+  }
+  expected = [...mod.REQUIRED_CONTEXTS];
+  ruleset = JSON.parse(await Bun.file(RULESET).text());
+} catch (e) {
+  console.error("INTERFACE-ERROR:unreadable:" + (e instanceof Error ? e.message : String(e)));
+  process.exit(2);
+}
 
-const got: string[] = (ruleset.rules ?? [])
-  .filter((r: any) => r.type === "required_status_checks")
-  .flatMap((r: any) => (r.parameters?.required_status_checks ?? []).map((c: any) => c.context));
+// Narrow unknown -> string contexts (mirrors tests/interface_match.test.ts):
+// a malformed rule (null, missing parameters) is SKIPPED, never projected as
+// an undefined entry that would cause false MISSING/EXTRA.
+const got: string[] = [];
+if (typeof ruleset === "object" && ruleset !== null && "rules" in ruleset && Array.isArray(ruleset.rules)) {
+  for (const r of ruleset.rules) {
+    if (typeof r !== "object" || r === null) continue;
+    if (!("type" in r) || r.type !== "required_status_checks") continue;
+    if (!("parameters" in r)) continue;
+    const params: unknown = r.parameters;
+    if (typeof params !== "object" || params === null) continue;
+    if (!("required_status_checks" in params)) continue;
+    const checks: unknown = params.required_status_checks;
+    if (!Array.isArray(checks)) continue;
+    for (const c of checks) {
+      if (typeof c !== "object" || c === null) continue;
+      if (!("context" in c)) continue;
+      if (typeof c.context === "string") got.push(c.context);
+    }
+  }
+} else {
+  console.error("INTERFACE-ERROR:ruleset-shape:ruleset.json has no rules array");
+  process.exit(2);
+}
+
+// CARDINALITY: set-equality is not enough — a duplicated context in the
+// ruleset (the same context listed under multiple rules) must not report
+// MATCH. Duplicates fail closed with exit 1.
+const seenDupes: string[] = got.filter((c, i) => got.indexOf(c) !== i);
+const dupes: string[] = seenDupes.filter((c, i) => seenDupes.indexOf(c) === i);
+if (dupes.length > 0) {
+  for (const d of dupes) console.log("INTERFACE-DUPLICATE:" + d);
+  process.exit(1);
+}
 
 const missing = expected.filter((c) => !got.includes(c));
 const extra   = got.filter((c) => !expected.includes(c));

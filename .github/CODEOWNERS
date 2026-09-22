@@ -1,8 +1,14 @@
 # .github/CODEOWNERS
-# Ownership routing. Enforced with Pro (require_code_owner_review).
-# On free the file is advisory; it is still worth landing now.
+# Ownership routing. ADVISORY ONLY: ruleset.json sets
+# require_code_owner_review=false, so owner review is NOT a blocking control.
+# Do not rely on this file to block a merge until the ruleset flag is true.
 # Source: GITHUB_ENFORCEMENT_MAP.md section 8.
 # Point: a PR that weakens enforcement must not ride in on a normal approval.
+# NOTE (single-owner risk, ocr W2): every entry below routes to the single
+# handle @leviathan-devops. If that handle is renamed, inactive, or
+# compromised, enabling require_code_owner_review would block merges or allow
+# unilateral approval. Remediation needs an operator decision (a team handle
+# or second owner) — no handle is invented here.
 
 *                       @leviathan-devops
 
@@ -14,6 +20,5 @@
 
 # THE GOVERNANCE SURFACE — only the operator edits the rules
 /.github/               @leviathan-devops
-/CODEOWNERS             @leviathan-devops
 /ruleset.json           @leviathan-devops
 /.githooks/             @leviathan-devops

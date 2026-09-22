@@ -14,8 +14,11 @@ SPEC="../packages/jarvis-upper-tier/jarvis_upper_tier_DPL1_SPEC.md"
 FREEZE="gates/shape_freeze.sha16"
 
 # The pre-written identifiers: `-t <id>` names + the DT ids, read from the spec.
-DECLARED=$(grep -oE '(bun test -t [a-z_]+|-t [a-z_]+|DT[123])' "$SPEC" 2>/dev/null \
-           | sed -E 's/.*-t //' | tr '_' '-' | sed -E 's/^DT-?([123])$/DT\1/' | sort -u)
+# The DT pattern is IDENTICAL on both sides (DECLARED here, IMPLEMENTED in
+# DT_IDS below): DT[_-]?[0-9]+ catches DT1/DT-1/DT_1/DT4+ alike, and -t ids
+# allow digits/hyphens (a bare [a-z_] silently drops `my-test-01`).
+DECLARED=$(grep -oE '(bun test -t [a-z0-9_-]+|-t [a-z0-9_-]+|DT[_-]?[0-9]+)' "$SPEC" 2>/dev/null \
+           | sed -E 's/.*-t //' | tr '_' '-' | sed -E 's/^DT-?([0-9]+)$/DT\1/' | sort -u)
 if [ -z "$DECLARED" ]; then
   echo "SHAPE-ERROR:no declared test ids found in $SPEC"
   exit 2
@@ -25,8 +28,8 @@ fi
 # declared shape may be a TEST FILE (`-t dt_shapes`) or a shape id INSIDE a job's
 # test (DT-1/DT-2/DT-3 live in the worker's jobs/*/tests). Normalize DT-1|DT_1|DT1
 # to one token so the two sides of `comm` speak the same alphabet.
-FACTORY=$(ls tests/*.test.ts 2>/dev/null | xargs -r -n1 basename | sed 's/\.test\.ts$//')
-JOBS=$(ls jobs/*/*.test.ts 2>/dev/null | xargs -r -n1 basename | sed 's/\.test\.ts$//')
+FACTORY=$(for f in tests/*.test.ts; do [ -e "$f" ] || continue; basename "$f" .test.ts; done | sort -u)
+JOBS=$(for f in jobs/*/*.test.ts; do [ -e "$f" ] || continue; basename "$f" .test.ts; done | sort -u)
 # A claimed job's shapes live in the WORKER'S worktree (the deliverable), not here.
 # Discover every AO worktree so the default denominator is honest without an env var.
 if [ -z "${DT_WORKTREE:-}" ]; then
@@ -34,8 +37,8 @@ if [ -z "${DT_WORKTREE:-}" ]; then
 else
   DT_WORKTREES="${DT_WORKTREE}/tests"
 fi
-DT_IDS=$(grep -rhoE 'DT[_-]?[123]' tests/ jobs/ $DT_WORKTREES 2>/dev/null \
-         | tr '_' '-' | sed -E 's/^DT-?([123])$/DT\1/' | sort -u)
+DT_IDS=$(grep -rhoE 'DT[_-]?[0-9]+' tests/ jobs/ $DT_WORKTREES 2>/dev/null \
+         | tr '_' '-' | sed -E 's/^DT-?([0-9]+)$/DT\1/' | sort -u)
 IMPL=$(printf '%s\n%s\n%s\n' "$FACTORY" "$JOBS" "$DT_IDS" | sed '/^$/d' | sort -u)
 
 sha16() { printf '%s' "$1" | sha256sum | cut -c1-16; }

@@ -29,8 +29,8 @@ export interface VerifyResult {
 }
 
 export const APPROVING_VERDICTS = ["approved", "approve", "lgtm", "pass", "passed"] as const;
-export const FENCE_DEFAULT = "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py";
-export const LEDGER_DEFAULT = "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl";
+export const FENCE_DEFAULT = process.env.FENCE2_BIN ?? "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py";
+export const LEDGER_DEFAULT = process.env.FENCE2_LEDGER ?? "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl";
 
 export interface VerifyOpts {
   jobDir: string;
@@ -56,7 +56,8 @@ async function defaultRunFence(argv: string[]): Promise<{ code: number; stdout: 
 }
 
 async function defaultFetchReviews(sessionId: string): Promise<unknown> {
-  const res = await fetch(`http://localhost:3001/api/v1/sessions/${sessionId}/reviews`, {
+  const daemon = process.env.AO_DAEMON ?? 'http://localhost:3001';
+  const res = await fetch(`${daemon}/api/v1/sessions/${sessionId}/reviews`, {
     signal: AbortSignal.timeout(6000),
   });
   if (!res.ok) throw new Error(`reviews HTTP ${res.status}`);
@@ -64,13 +65,23 @@ async function defaultFetchReviews(sessionId: string): Promise<unknown> {
 }
 
 /** the ledger's last row for a job-id substring, parsed; null when absent. */
-export function ledgerRowFor(ledgerPath: string, jobNeedle: string): { verdict: string | null; evidence: string | null; sha16: string | null } | null {
+export function ledgerRowFor(ledgerPath: string, jobNeedle: string | undefined): { verdict: string | null; evidence: string | null; sha16: string | null } | null {
   if (!existsSync(ledgerPath)) return null;
+  // An absent jobDir segment means there is no needle to match — return null
+  // (the caller handles it). Explicit, not a silent default.
+  if (jobNeedle === undefined) return null;
   const lines = readFileSync(ledgerPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
   for (let i = lines.length - 1; i >= 0; i--) {
-    if (!lines[i].includes(jobNeedle)) continue;
+    // F28: try exact JSON job-id match first, fallback to substring
+    let parsed: { job?: string; verdict?: string; evidence?: string } | null = null;
+    try { parsed = JSON.parse(lines[i]); } catch { continue; }
+    if (parsed && typeof parsed.job === 'string') {
+      if (parsed.job !== jobNeedle) continue;
+    } else if (!lines[i].includes(jobNeedle)) {
+      continue;
+    }
     try {
-      const row = JSON.parse(lines[i]) as { verdict?: string; evidence?: string };
+      const row = parsed as { verdict?: string; evidence?: string };
       const ev = row.evidence ?? "";
       const m = ev.match(/^([0-9a-f]{16})/);
       return { verdict: row.verdict ?? null, evidence: ev || null, sha16: m ? m[1] : null };
@@ -97,12 +108,12 @@ export function artifactBoundToHead(jobDir: string, headSha: string): { ok: bool
   // the artifact in the job dir must be byte-identical to the head's committed copy
   const specDir = jobDir;
   try {
-    const spec = require("node:fs").readFileSync(`${specDir}/SPEC.md`, "utf8") as string;
+    const spec = readFileSync(`${specDir}/SPEC.md`, "utf8");
     const m = spec.match(/artifact:\s*(\S+)/);
     if (m && m[1].startsWith("/")) {
       const rel = m[1].slice(top.out.length + 1);
       const committed = run(["git", "-C", top.out, "show", `HEAD:${rel}`]);
-      const onDisk = require("node:fs").readFileSync(m[1], "utf8") as string;
+      const onDisk = readFileSync(m[1], "utf8");
       if (committed.code === 0 && committed.out.length > 0 && !onDisk.startsWith(committed.out.slice(0, 64))) {
         return { ok: false, reason: "FENCE-ARTIFACT-DRIFT: the job artifact != the head's committed copy", worktree: top.out };
       }
@@ -120,6 +131,10 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   const fetchReviews = opts.fetchReviews ?? defaultFetchReviews;
   const bind = opts.bind ?? artifactBoundToHead;
   const reasons: string[] = [];
+  if (!opts.headSha || opts.headSha.length < 40) {
+    reasons.push('HEAD-SHA-INVALID');
+    return { verdict: 'UNVERIFIED', sources: { fence: { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: 'HEAD-SHA-INVALID' }, review: { ran: false, verdict: null, targetSha: null, harness: null, reason: 'HEAD-SHA-INVALID' } }, reasons };
+  }
 
   // ---- SOURCE 1: the fence, bound to the head sha -------------------------
   const fence: FenceSource = { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: "" };
@@ -129,16 +144,18 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     // here, then adjudicate against it.
     const inv = await runFence([fenceBin, "invariant-sha", opts.jobDir]);
     const invariant = inv.stdout.trim().split("\n").filter((l) => l.trim().length > 0).pop() ?? "";
+    if (!invariant) throw new Error("FENCE-NO-INVARIANT-SHA");
     const argv = [fenceBin, "adjudicate", opts.jobDir, "--expect-spec-sha", invariant];
     const r = await runFence(argv);
-    if (!invariant) throw new Error("FENCE-NO-INVARIANT-SHA");
     fence.ran = true;
     fence.exitCode = r.code;
   } catch (e) {
     fence.reason = `FENCE-NOT-RUN: ${String(e).slice(0, 120)}`;
     reasons.push(fence.reason);
   }
-  const row = ledgerRowFor(ledgerPath, opts.jobDir.split("/").filter(Boolean).pop() ?? "");
+  // The jobDir segment is passed through as-is (possibly undefined) and
+  // ledgerRowFor returns null for it — the null is handled below, not masked.
+  const row = ledgerRowFor(ledgerPath, opts.jobDir.split("/").filter(Boolean).pop());
   fence.ledgerVerdict = row?.verdict ?? null;
   if (fence.ran) {
     if (fence.exitCode !== 0) fence.reason = `FENCE-FAILED: exit ${fence.exitCode}`;
@@ -152,7 +169,8 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
       else fence.reason = "FENCE-GREEN";
     }
   }
-  if (fence.reason !== "FENCE-GREEN") reasons.push(fence.reason);
+  if (fence.reason !== "FENCE-GREEN" && !fence.reason.startsWith('FENCE-NOT-RUN')) reasons.push(fence.reason);
+  // F30: FENCE-NOT-RUN already pushed in catch block above
 
   // ---- SOURCE 2: the review, bound to the SAME head sha -------------------
   const review: ReviewSource = { ran: false, verdict: null, targetSha: null, harness: null, reason: "" };
@@ -164,7 +182,7 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     };
     review.ran = true;
     review.harness = payload.reviewerHarness ?? null;
-    const runs = payload.runs ?? [];
+    const runs = [...(payload.runs ?? []), ...(payload.reviews ?? []).map((r) => ({ verdict: r.status, targetSha: r.targetSha }))]; // merge reviews into runs shape
     const approving = runs.find((r) => r.verdict != null && (APPROVING_VERDICTS as readonly string[]).includes(String(r.verdict).toLowerCase()));
     if (runs.length === 0) review.reason = "REVIEW-NO-RUNS";
     else if (!approving) review.reason = `REVIEW-NOT-APPROVED: verdicts ${JSON.stringify(runs.map((r) => r.verdict ?? null))}`;

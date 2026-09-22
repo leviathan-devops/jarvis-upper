@@ -52,17 +52,20 @@ export async function guardrailRemote(
 ): Promise<RemoteEligibility> {
   const fetchFn = opts.fetchImpl ?? fetch;
   const base = (opts.baseUrl ?? "https://api.github.com").replace(/\/$/, "");
-  const url = `${base}/repos/${opts.owner}/${opts.repo}/commits/${opts.sha}/statuses`;
+  const safeSeg = /^[A-Za-z0-9._-]+$/;
+  if (!safeSeg.test(opts.owner) || !safeSeg.test(opts.repo)) throw new Error(`INVALID-OWNER-REPO:${opts.owner}/${opts.repo}`);
+  if (opts.sha.includes('/') || opts.sha.includes('..') || opts.sha.includes('\0')) throw new Error(`INVALID-SHA:${opts.sha.slice(0,12)}`);
+  const url = `${base}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/commits/${encodeURIComponent(opts.sha)}/statuses`;
   const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
   if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
-  const res = await fetchFn(url, { headers });
+  const res = await fetchFn(url, { headers, signal: AbortSignal.timeout(10000) });
   if (!res.ok) {
     return { ok: false, reasons: [`REMOTE-FETCH-FAILED:${res.status}`], missing: [...REQUIRED_CONTEXTS] };
   }
   const rows = (await res.json()) as StatusProbe[];
   const latest: Record<string, string> = {};
   for (const r of rows) {
-    if (!(r.context in latest)) latest[r.context] = r.state;
+    latest[r.context] = r.state; // last-wins: newer status overrides older
   }
   const reasons: string[] = [];
   const missing: string[] = [];

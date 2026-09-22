@@ -863,3 +863,18 @@ Add `Checkpoints/**` to every desk's do-not-touch list.
 | the desk's call site | `src/runtime.ts:233` |
 | the checkpoint protocol | `saving-checkpoints/SKILL.md` (STEP 10, the seal modes) |
 | the restore | `git checkout -- <the checkpoint's src/runtime.ts>` |
+
+## [2026-09-22T21:19:50Z] — the kernel's own ship gate FAILS on the kernel
+- SYMPTOM: `ocr review --from main --to HEAD` -> 128 comments / 40 files / 36 high. The gate the
+  repo uses to block every ship claim returned FAIL on the repo itself.
+- ROOT CAUSE (the 4 classes, verbatim from the ocr output): (1) DEAD GATES — `scan-phantom.sh` is
+  never sourced so W-3 never fires; `theatrical_verification_scanner.sh` is a shebang + duplicate
+  `set -e` that exits 0. (2) WRAP-TO-CLEAN — `return "$hits"` uncapped; 256 hits wraps to 0.
+  (3) OVER-FIRE — any `.includes("<Ident>")` in tests/*.ts rejects legit string-containment
+  assertions. (4) WORD-SPLIT / UNBOUND-VAR — `for f in $CHANGED`; `local f="$1"` before the
+  `${1:?}` guard under `set -u`.
+- FIX: the four waves above.
+- LESSON: a gate that never fires is a FALSE GREEN — worse than no gate, because it is BELIEVED. The
+  enforcement layer must be audited by its own standard, mechanically, before any ship claim.
+- EVIDENCE: `.trident/OCR_FINDINGS_DIGEST.md` · `.trident/findings/W{1..4}.md` · session_id
+  fc337185-e58e-46af-84d5-e2a20b017242.

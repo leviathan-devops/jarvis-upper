@@ -8,7 +8,7 @@
 # scan-silent.sh — SILENT-FALLBACK family scanner (Jev 119, highest count).
 # SOURCED library exporting `scan_silent <file>`.
 # Prints one `SILENT-FALLBACK:<file>:<line>:<matched text>` line per hit
-# to stdout and returns the hit count as the exit code (0 = clean).
+# to stdout and returns the hit count as the exit code (capped at 125).
 #
 # SCOPED: the caller (pre-commit) invokes this ONLY for staged
 # src/**/*.ts files. This library does NOT enforce scope itself — it scans
@@ -20,7 +20,7 @@
 # pure-bash line loop, so there is no stdin-consumption hang.
 
 # scan_silent <file> — scan one .ts/.js file for silent-fallback shapes.
-# Output: one SILENT-FALLBACK: line per hit. Exit code: hit count.
+# Output: one SILENT-FALLBACK: line per hit. Exit code: hit count (capped at 125).
 scan_silent() {
   local f="${1:?"scan_silent <file>"}"
   [ -f "$f" ] || return 0
@@ -56,8 +56,15 @@ scan_silent() {
               stripped="$(printf '%s' "$line" | sed -E 's|/\*.*\*/||g; s|//.*$||g' | tr -d '[:space:]{}' || true)"
               stripped_nocatch="$(printf '%s' "$stripped" | sed -E 's/^.*catch//' || true)"
               if [ -n "$stripped_nocatch" ]; then
-                printf 'SILENT-FALLBACK:%s:%d:%s\n' "$f" "$start" "catch with comment-only body (no rethrow/log)"
-                hits=$((hits + 1))
+                # FIXED 2026-09-23 (audit DEFECT F): a comment that NAMES the
+                # reason is a DOCUMENTED ignore, not a silent swallow. Measured:
+                # `catch { /* already dead */ }` on a best-effort kill.
+                if [[ "$line" =~ (already|expected|intentional|best.?effort|no.?op|deliberate|consumed|by.design|on.purpose|benign|idempotent|harmless) ]]; then
+                  : # named reason -> documented ignore
+                else
+                  printf 'SILENT-FALLBACK:%s:%d:%s\n' "$f" "$start" "catch with comment-only body (no rethrow/log)"
+                  hits=$((hits + 1))
+                fi
               fi
             fi
           fi
@@ -74,7 +81,7 @@ ${line}"
         if [[ "$code" != *throw* && "$code" != *console.* && "$code" != *logger.* && "$code" != *report* && "$code" != *rethrow* ]]; then
           stripped="$(printf '%s' "$code" | tr -d '[:space:]{}();' || true)"
           stripped_nocatch="$(printf '%s' "$stripped" | sed -E 's/^.*catch//' || true)"
-          if [ -z "$stripped_nocatch" ]; then
+          if [ -z "$stripped_nocatch" ] && ! [[ "$body" =~ (already|expected|intentional|best.?effort|no.?op|deliberate|consumed|by.design|on.purpose|benign|idempotent|harmless) ]]; then
             : # truly empty multi-line catch — still silent; flag it (rule 1
               # only sees one-line shapes, so no double count here)
             printf 'SILENT-FALLBACK:%s:%d:%s\n' "$f" "$start" "empty catch body spanning lines (no rethrow/log)"
@@ -91,37 +98,115 @@ ${line}"
   done < "$f"
 
   # 3. `?? <literal>` masking a failure inside a check/verify/gate function.
-  #    Shape: a function name containing check|verify|gate|assert|validate|
-  #    ensure AND a `?? 0` / `?? []` / `?? ""` / `?? ''` / `?? {}` literal.
-  if grep -qE 'function[[:space:]]+[a-zA-Z0-9_]*(check|verify|gate|assert|validate|ensure)[a-zA-Z0-9_]*' "$f" 2>/dev/null; then
-    while IFS= read -r line; do
-      printf 'SILENT-FALLBACK:%s:%s\n' "$f" "$line"
-      hits=$((hits + 1))
-    done < <(grep -nE '\?\?[[:space:]]*(0|""|'"''"'|\[\]|\{\})' "$f" 2>/dev/null || true)
-  fi
+  #    FIXED: scoped to the CURRENT function body, not file-wide. If the
+  #    `??` literal appears outside a check-function, it's a legitimate
+  #    default (e.g. `opts.fetchFn ?? fetch`).
+  local RE_QQ='\?\?[[:space:]]*(0|""|'"''"'|\[\]|\{\})'
+  local -a LINES=()
+  mapfile -t LINES < "$f"
+  local in_func=0 func_name="" check_func=0 func_brace=0
+  lineno=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    if [ "$in_func" -eq 0 ]; then
+      if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?(async[[:space:]]+)?function[[:space:]]+([a-zA-Z0-9_]+) ]]; then
+        in_func=1; func_name="${BASH_REMATCH[3]}"
+        # Check if this function name matches the check/verify pattern.
+        if [[ "$func_name" =~ (check|verify|gate|assert|validate|ensure) ]]; then
+          check_func=1
+        else
+          check_func=0
+        fi
+        func_brace=$(_brace_depth "$line")
+      fi
+    else
+      func_brace=$((func_brace + $(_brace_depth "$line")))
+      if [ "$func_brace" -le 0 ]; then
+        in_func=0; check_func=0
+      fi
+    fi
+    # Only flag ?? if we're inside a check-function's body.
+    # FIXED 2026-09-23: the INLINE form `=~ ...(0|""|''|...)` is a bash trap —
+    # inside `[[ =~ ]]` the pattern is UNQUOTED, so `""` and `''` are stripped to
+    # empty strings, giving the alternation two EMPTY branches that match
+    # anything -> `?? FENCE_DEFAULT` fired. Putting the pattern in a VARIABLE
+    # preserves the quote characters. (Proven: inline matched `?? x` for all x;
+    # variable matches only the literals.)
+    # FIXED 2026-09-23 (the audit's DEFECT E): a `?? <literal>` that is
+    # IMMEDIATELY followed by LOUD handling is NOT a silent fallback. Measured:
+    # `const invariant = ...pop() ?? ""; if (!invariant) throw new Error(...)` —
+    # the default is a sentinel the next line converts into a loud error. The
+    # rule now LOOKS AHEAD one non-empty line and skips when that line throws /
+    # rejects / records a reason / tests emptiness. (Proven by adjudicating
+    # src/verdict.ts:143,153,180 — all three are followed by loud handling.)
+    # FIXED: skip comment-only lines — a comment that mentions `?? ""` is prose,
+    # not a silent fallback (measured: a doc-comment tripped the rule).
+    if [[ "$line" =~ ^[[:space:]]*(//|/\*|\*) ]]; then
+      :
+    elif [ "$check_func" -eq 1 ] && [[ "$line" =~ $RE_QQ ]]; then
+      NEXT="${LINES[$lineno]:-} ${LINES[$((lineno + 1))]:-} ${LINES[$((lineno + 2))]:-}"
+      if [[ "$NEXT" =~ (throw|REJECT|reason[[:space:]]*=|!\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\)|\.length[[:space:]]*(===|==|>)[[:space:]]*0|return[[:space:]]+new[[:space:]]+Error) ]]; then
+        : # loud handling follows — NOT a silent fallback
+      else
+        printf 'SILENT-FALLBACK:%s:%s\n' "$f" "$line"
+        hits=$((hits + 1))
+      fi
+    fi
+  done < "$f"
 
   # 4. `|| true` following a command-shaped call.
+  #    FIXED: only flag when the LHS looks like a command (not a comment
+  #    or a variable assignment in boolean context like `flag || true`).
   while IFS= read -r line; do
-    printf 'SILENT-FALLBACK:%s:%s\n' "$f" "$line"
-    hits=$((hits + 1))
+    # Skip comment-only lines.
+    [[ "$line" =~ ^[[:space:]]*(//|\*) ]] && continue
+    # Require a command-like token before || (alphanumeric followed by
+    # whitespace/args, not just `identifier || true` which is boolean).
+    if [[ "$line" =~ [a-zA-Z_][a-zA-Z0-9_]*[[:space:]]+\|\|[[:space:]]*true ]]; then
+      printf 'SILENT-FALLBACK:%s:%s\n' "$f" "$line"
+      hits=$((hits + 1))
+    fi
   done < <(grep -nE '\|\|[[:space:]]*true' "$f" 2>/dev/null || true)
 
   # 5. Pass-shaped literal returned on an error path:
   #    `return { ok: true ...}` / `return { success: true ...}` with a catch
   #    present in the file.
-  if grep -qE 'catch[[:space:]]*(\([^)]*\))?[[:space:]]*\{' "$f" 2>/dev/null; then
-    while IFS= read -r line; do
-      printf 'SILENT-FALLBACK:%s:%s\n' "$f" "$line"
-      hits=$((hits + 1))
-    done < <(grep -nE 'return[[:space:]]*\{[^}]*(ok[[:space:]]*:[[:space:]]*true|success[[:space:]]*:[[:space:]]*true)' "$f" 2>/dev/null || true)
-  fi
+  #    FIXED: scoped to returns INSIDE the catch body (tracked by rule 2's
+  #    state machine). File-wide correlation caused false positives.
+  #    We re-scan tracking catch blocks; any return {ok/success:true} inside
+  #    a catch is flagged.
+  local in_catch_r=0 depth_r=0
+  lineno=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    if [ "$in_catch_r" -eq 0 ]; then
+      if [[ "$line" =~ catch[[:space:]]*(\([^\)]*\))?[[:space:]]*\{ ]]; then
+        in_catch_r=1
+        depth_r=$(_brace_depth "$line")
+      fi
+    else
+      depth_r=$((depth_r + $(_brace_depth "$line")))
+      # Flag return { ok/success: true } inside a catch body.
+      if [[ "$line" =~ return[[:space:]]*\{[^}]*(ok[[:space:]]*:[[:space:]]*true|success[[:space:]]*:[[:space:]]*true) ]]; then
+        printf 'SILENT-FALLBACK:%s:%s\n' "$f" "$line"
+        hits=$((hits + 1))
+      fi
+      if [ "$depth_r" -le 0 ]; then
+        in_catch_r=0
+      fi
+    fi
+  done < "$f"
 
-  # cap: exit codes wrap above 255; callers use stdout lines as the record.
+  # cap: exit codes wrap above 255; cap at 125 (callers use stdout lines
+  # as the record, but the exit code must be reliable).
   if [ "$hits" -gt 125 ]; then hits=125; fi
   return "$hits"
 }
 
 # _brace_depth <line> — net `{` minus `}` count on one line (helper).
+# NOTE: counts braces in strings/comments too — an acceptable approximation
+# for the silent-fallback scanner (the catch state machine tracks depth
+# across lines, so per-line noise averages out).
 _brace_depth() {
   local l="${1:-}"
   local opens=0 closes=0

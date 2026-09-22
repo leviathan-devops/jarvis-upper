@@ -43,12 +43,13 @@ export async function publishStatus(
   const token = opts.token ?? process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN ?? "";
   const fetchFn = opts.fetchImpl ?? fetch;
   const description = payload.description.slice(0, MAX_DESCRIPTION);
-  const url = `${baseUrl}/repos/${opts.owner}/${opts.repo}/statuses/${opts.sha}`;
+  const url = `${baseUrl}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/statuses/${encodeURIComponent(opts.sha)}`;
   const body = { context: payload.context, state: payload.state, description };
   let res: Response;
   try {
     res = await fetchFn(url, {
       method: "POST",
+      signal: AbortSignal.timeout(15000),
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/vnd.github+json",
@@ -87,15 +88,17 @@ export async function publishVerdict(
   opts: PublishOpts,
   v: VerdictInput,
 ): Promise<PublishResult[]> {
-  const fence2 = await publishStatus(opts, {
-    context: STATUS_CONTEXTS.fence2,
-    state: v.fence2Ok ? "success" : "failure",
-    description: v.description ?? (v.fence2Ok ? "fence2: pass" : "fence2: fail"),
-  });
-  const verdict = await publishStatus(opts, {
-    context: STATUS_CONTEXTS.verdict,
-    state: v.verdictOk ? "success" : "failure",
-    description: v.description ?? (v.verdictOk ? "verdict: approved" : "verdict: not approved"),
-  });
+  const [fence2, verdict] = await Promise.all([
+    publishStatus(opts, {
+      context: STATUS_CONTEXTS.fence2,
+      state: v.fence2Ok ? "success" : "failure",
+      description: v.description ?? (v.fence2Ok ? "fence2: pass" : "fence2: fail"),
+    }),
+    publishStatus(opts, {
+      context: STATUS_CONTEXTS.verdict,
+      state: v.verdictOk ? "success" : "failure",
+      description: v.description ?? (v.verdictOk ? "verdict: approved" : "verdict: not approved"),
+    }),
+  ]);
   return [fence2, verdict];
 }

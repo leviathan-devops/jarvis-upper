@@ -211,3 +211,17 @@ End of DECISION_CHAIN.
 - **VERDICT: VERIFIED** — fence PASS `spec_bound:true` + review `approved`, SAME sha
 - **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green · jfm 8/0
 - **jfm wave w0:** the desk `upper-tier-job` closed, `unverdicted: []`
+
+## [2026-09-22T21:20:02Z] — RULING: W-1 stays SCOPED; the CLAIM gets fixed (not the code)
+- THE QUESTION: the zero-trust audit flagged W-1 as "scoped off but sold as PROVEN" (A1).
+- THE EVIDENCE: `.githooks/pre-commit:70-88` carries a DELIBERATE, documented scope: the predicate
+  was derived from the GI kernel (`src/ -> extensions/<plugin>/index.js`); a repo with no
+  `extensions/` dir has no dist step, so the gate can never pass and would refuse every src/
+  commit forever — "a gate that gets bypassed, worse than no gate". It fires only when
+  `[ -d extensions ]`.
+- THE RULING: KEEP the gate as scoped. The code is CORRECT — it is a valid deploy-freshness gate in
+  a repo that has a dist step, and a no-op otherwise. The DEFECT is the CLAIM: the P5 sweep's table
+  listed it among "8 gates, both halves", but it cannot be exercised here.
+- THE FIX (a DOC fix, W5): every doc must say **7 gates proven + 1 correctly scoped-off
+  (untestable here)** — never "8 gates both halves".
+- COST IF WRONG: a reader believes W-1 was runtime-proven; it was not. Low severity, real.

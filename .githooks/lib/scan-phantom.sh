@@ -13,72 +13,69 @@
 #
 # ARTIFACT CLASS: a pushed commit range (the diff under inspection).
 #
-# USAGE: scan_phantom.sh [commit_range]
-#   commit_range: a git revision range (default: all remote branches)
+# USAGE: source this file, then call scan_phantom <commit_range>
+#   commit_range: a git revision range (e.g. origin/main..HEAD)
 #   Outputs one PHANTOM-DIFF:<sha>:<subject> line per hit, exit 0 always
 #   (the caller decides whether to reject).
-set -uo pipefail
 
-COMMIT_RANGE="${1:-}"
+# scan_phantom <commit_range> — scan a commit range for phantom completions.
+scan_phantom() {
+  local COMMIT_RANGE="${1:?"scan_phantom <commit_range> required"}"
 
-# If no range given, use all reachable commits. In tests / ad-hoc use this
-# may be a single branch tip; the caller is expected to pass the range.
-if [ -z "$COMMIT_RANGE" ]; then
-  COMMIT_RANGE=$(git rev-parse HEAD 2>/dev/null || true)
-  if [ -z "$COMMIT_RANGE" ]; then
-    exit 0
-  fi
-fi
+  # Regex for completion / creation claims in the subject line.
+  # FIRING 008 / FIXED (2026-09-22): allow claim word ANYWHERE after the
+  # semantic prefix (not just immediately after the colon).
+  local CLAIM_RE='^[a-z]+(\([^)]*\))?:[[:space:]].*(complete[d]?|done|finished|implemented|added|built|landed|shipped|delivered)'
 
-# Resolve the range into individual commit SHAs.
-SHAS=$(git rev-list "$COMMIT_RANGE" 2>/dev/null) || {
-  # If rev-list fails (bad range), try treating it as a single sha.
-  SHAS="$COMMIT_RANGE"
-}
+  # Regex for "created <file>" / "added <file>" / "wrote <file>" in the body.
+  local FILE_CLAIM_RE='(created|added|wrote|built|deployed)[[:space:]]+([^ ]+\.[a-z]{1,4})'
 
-# Regex for completion / creation claims in the subject line.
-# FIRING 008 / FIXED (2026-09-22): the old regex used ^[^:]* which consumed
-# the type prefix and STOPPED at the colon — so a claim word after the colon
-# (the only legal position under the semantic-prefix gate) could never match.
-# Fix: match the semantic prefix, then look for the claim word anywhere after.
-CLAIM_RE='^[a-z]+(\([^)]*\))?:[[:space:]]*(complete[d]?|done|finished|implemented|added|built|landed|shipped|delivered)'
+  local ORPHANS=0
 
-# Regex for "created <file>" / "added <file>" / "wrote <file>" in the body.
-FILE_CLAIM_RE='(created|added|wrote|built|deployed)[[:space:]]+([^ ]+\.[a-z]{1,4})'
+  # Resolve the range into individual commit SHAs.
+  local SHAS
+  SHAS=$(git rev-list "$COMMIT_RANGE" 2>/dev/null) || {
+    # If rev-list fails (bad range), try treating it as a single sha.
+    SHAS="$COMMIT_RANGE"
+  }
 
-ORPHANS=0
+  local SHA SUBJECT STAT BODY
 
-for SHA in $SHAS; do
-  SUBJECT=$(git log -1 --format='%s' "$SHA" 2>/dev/null) || continue
+  for SHA in $SHAS; do
+    SUBJECT=$(git log -1 --format='%s' "$SHA" 2>/dev/null) || continue
 
-  # --- CHECK 1: completion claim with empty diff ---
-  if printf '%s\n' "$SUBJECT" | grep -qiE "$CLAIM_RE"; then
-    # FIRING 009 / FIXED (2026-09-22): git diff --root is NOT a valid flag
-    # and silently returns empty, making every commit look like a phantom.
-    # git show --stat is correct for root commits (no parent), normal commits,
-    # and empty commits alike.
-    STAT=$(git show --stat --format="" "$SHA" 2>/dev/null)
-    if [ -z "$STAT" ]; then
-      printf 'PHANTOM-DIFF:%s:%s\n' "$SHA" "$SUBJECT"
-      ORPHANS=$((ORPHANS + 1))
-    fi
-  fi
-
-  # --- CHECK 2: claimed file creation but file does not exist ---
-  # Only scan the commit BODY (not subject) for file claims.
-  BODY=$(git log -1 --format='%b' "$SHA" 2>/dev/null) || continue
-  if printf '%s\n' "$BODY" | grep -qiE "$FILE_CLAIM_RE"; then
-    # Extract each claimed filename and check it exists at this commit.
-    printf '%s\n' "$BODY" | grep -oiE "$FILE_CLAIM_RE" | while IFS= read -r match; do
-      # The filename is the last whitespace-delimited token.
-      CLAIMED_FILE=$(printf '%s' "$match" | awk '{print $NF}')
-      # Verify the file exists in the tree at this commit.
-      if ! git cat-file -e "$SHA:$CLAIMED_FILE" 2>/dev/null; then
-        printf 'PHANTOM-DIFF:%s:%s (claimed %s does not exist)\n' "$SHA" "$SUBJECT" "$CLAIMED_FILE"
+    # --- CHECK 1: completion claim with empty diff ---
+    if printf '%s\n' "$SUBJECT" | grep -qiE "$CLAIM_RE"; then
+      # FIRING 009 / FIXED (2026-09-22): git diff --root is NOT a valid flag
+      # and silently returns empty, making every commit look like a phantom.
+      # git show --stat is correct for root commits (no parent), normal commits,
+      # and empty commits alike.
+      STAT=$(git show --stat --format="" "$SHA" 2>/dev/null)
+      if [ -z "$STAT" ]; then
+        printf 'PHANTOM-DIFF:%s:%s\n' "$SHA" "$SUBJECT"
         ORPHANS=$((ORPHANS + 1))
       fi
-    done
-  fi
-done
+    fi
 
-exit 0
+    # --- CHECK 2: claimed file creation but file does not exist ---
+    BODY=$(git log -1 --format='%b' "$SHA" 2>/dev/null) || continue
+    if printf '%s\n' "$BODY" | grep -qiE "$FILE_CLAIM_RE"; then
+      # Use process substitution to avoid subshell ORPHANS loss.
+      while IFS= read -r match; do
+        local CLAIMED_FILE
+        CLAIMED_FILE=$(printf '%s' "$match" | awk '{print $NF}')
+        if ! git cat-file -e "$SHA:$CLAIMED_FILE" 2>/dev/null; then
+          printf 'PHANTOM-DIFF:%s:%s (claimed %s does not exist)\n' "$SHA" "$SUBJECT" "$CLAIMED_FILE"
+          ORPHANS=$((ORPHANS + 1))
+        fi
+      done < <(printf '%s\n' "$BODY" | grep -oiE "$FILE_CLAIM_RE")
+    fi
+  done
+
+  return 0
+}
+
+# Main guard: only run when executed directly, not when sourced.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  scan_phantom "${1:?scan_phantom.sh: commit_range required}"
+fi

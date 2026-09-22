@@ -27,7 +27,7 @@ export async function executePlan(
   if (!opts.confirm) throw new Error("UNCONFIRMED-PLAN");
   const v = orderMerges(db);
   if (v.kind !== "ok") throw new Error("CYCLE");
-  const planId = opts.planId ?? `plan:${Date.now()}`;
+  const planId = opts.planId ?? `plan:${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
   const exec: PlanExecution = { planId, merged: [], haltedAt: null, haltReason: null };
   for (const pr of v.order) {
     const g = guardrail(db, pr);
@@ -42,7 +42,7 @@ export async function executePlan(
       exec.haltReason = "PUBLISH-CALL-FAILED";
       return exec;
     }
-    db.query("UPDATE pr_node SET state='merge_ordered', merged_at=strftime('%s','now') WHERE id = ?").run(pr);
+    db.query("UPDATE pr_node SET state='merge_ordered' WHERE id = ?").run(pr);
     exec.merged.push(pr);
   }
   return exec;

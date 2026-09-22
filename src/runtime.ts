@@ -27,6 +27,7 @@ export interface RuntimeDeps {
   listPrs?: () => Promise<PrRow[]>;
   rails?: (db: Database, root: string) => Promise<RailCapture>;
   now?: () => Date;
+  tickMs?: number;
   // W5 — the publish target. When present, the tick publishes the two
   // factory/* statuses for every eligible PR (sha/headSha are per-PR).
   publishOpts?: Omit<PublishVerdictForPrOpts, "sha" | "headSha">;
@@ -71,7 +72,7 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     const lastSeq = parsed.length > 0 ? Math.max(...parsed.map((e) => e.seq)) : 0;
     if (parsed.length > 0) {
       // the wire-capture artifact: proof the adapter carried REAL bytes
-      Bun.write(wireCapturePath(root), JSON.stringify({ ts: new Date().toISOString(), parsedFrames: parsed.length, newlyProcessed: frames.length, bytes: buf.length, lastSeq }, null, 2) + "\n");
+      await Bun.write(wireCapturePath(root), JSON.stringify({ ts: new Date().toISOString(), parsedFrames: parsed.length, newlyProcessed: frames.length, bytes: buf.length, lastSeq }, null, 2) + "\n");
     }
     return { frames: parsed.length, bytes: buf.length, lastSeq };
   } catch { return { frames: 0, bytes: 0, lastSeq: 0 }; }
@@ -168,6 +169,7 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
   const root = opts.root;
   const db = opts.db ?? openStore();
   const deps = opts.deps ?? {};
+  const tickMs = deps.tickMs ?? Number(process.env.UPPER_TICK_MS ?? 15000);
   const probe = deps.probe ?? defaultProbe;
   // EN-010: the default is the REAL adapter. A daemon tick that silently syncs
   // zero PRs is a wrong answer wearing a green light — so the default pulls AO.
@@ -178,7 +180,7 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
   // a caller supplies it, so a bare runtime tick never POSTs to GitHub).
   const publishOpts = deps.publishOpts;
 
-  const state = { running: false, tick: 0 };
+  const state = { running: false, tick: 0, inFlight: false };
   let last: RuntimeStatus | null = null;
   let timer: NodeJS.Timeout | null = null;
 
@@ -220,25 +222,27 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
     // NEVER crash the tick: it is logged into errors[] and the tick continues.
     // Only eligible PRs publish (an ineligible PR has nothing to certify yet).
     if (publishOpts) {
-      for (const r of readyRows) {
-        if (!guardrail(db, r.id).ok) continue;
-        const headSha = r.head_sha ?? "";
-        if (!headSha) { errors.push(`publish:${r.id}:NO-HEAD-SHA`); continue; }
-        // sessionId travels from the PR row (verify's review source keys off
-        // it); the jobDir defaults to publishOpts.jobDir. Per-PR publishOpts
-        // may carry a jobDirFor(id) resolver (tests inject it).
-        const jobDir = typeof publishOpts.jobDirFor === "function" ? publishOpts.jobDirFor(r.id) : publishOpts.jobDir;
-        if (!jobDir) { errors.push(`publish:${r.id}:NO-JOBDIR`); continue; }
-        try {
-          const results = await publishVerdictForPr({ ...publishOpts, sha: headSha, headSha, sessionId: r.session_id ?? "", jobDir });
-          // Transport failure (POST unconfirmed: ok:false) is logged, never thrown.
-          // A posted red verdict (ok:true, state failure/error) is a SUCCESSFUL
-          // publish — nothing to log. The tick always continues.
-          const bad = results.filter((rr) => !rr.ok);
-          if (bad.length > 0) errors.push(`publish:${r.id}:${bad.map((b) => b.reason).join(";").slice(0, 60)}`);
-        } catch (e) {
-          errors.push(`publish:${r.id}:${String(e).slice(0, 60)}`);
-        }
+      const guardrailCache = new Map<string, boolean>();
+      const isEligible = (id: string) => { if (!guardrailCache.has(id)) guardrailCache.set(id, guardrail(db, id).ok); return guardrailCache.get(id)!; };
+      const publishable = readyRows.filter((r) => isEligible(r.id) && r.head_sha);
+      // F23: bounded parallel publish (max 4 concurrent)
+      const PUB_CONC = 4;
+      for (let i = 0; i < publishable.length; i += PUB_CONC) {
+        const batch = publishable.slice(i, i + PUB_CONC);
+        const batchResults = await Promise.allSettled(batch.map(async (r) => {
+          const headSha = r.head_sha!;
+          const jobDir = typeof publishOpts.jobDirFor === "function" ? publishOpts.jobDirFor(r.id) : publishOpts.jobDir;
+          if (!jobDir) return `publish:${r.id}:NO-JOBDIR`;
+          try {
+            const results = await publishVerdictForPr({ ...publishOpts, sha: headSha, headSha, sessionId: r.session_id ?? "", jobDir });
+            const bad = results.filter((rr) => !rr.ok);
+            if (bad.length > 0) return `publish:${r.id}:${bad.map((b) => b.reason).join(";").slice(0, 60)}`;
+          } catch (e) {
+            return `publish:${r.id}:${String(e).slice(0, 60)}`;
+          }
+          return null;
+        }));
+        for (const r of batchResults) { if (r.status === 'fulfilled' && r.value) errors.push(r.value); else if (r.status === 'rejected') errors.push(`publish:${String(r.reason).slice(0,60)}`); }
       }
     }
 
@@ -264,8 +268,9 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
     start() {
       if (state.running) return;
       state.running = true;
-      void tick();
-      timer = setInterval(() => { void tick(); }, TICK_MS);
+      const safeTick = () => { if (state.inFlight) return; state.inFlight = true; tick().catch((e) => { console.error(`tick-error: ${String(e).slice(0,120)}`); }).finally(() => { state.inFlight = false; }); };
+      safeTick();
+      timer = setInterval(safeTick, tickMs);
     },
     async stop() {
       state.running = false;

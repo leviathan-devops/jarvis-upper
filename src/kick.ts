@@ -33,26 +33,30 @@ export async function kick(
   const md = await deps.readFile(`${input.dossierPath}/dossier.md`);
   const oj = await deps.readFile(`${input.dossierPath}/origin.json`);
   const sha = dossierSha16(md, oj);
-  void 0; // dossier hash is checked against manifest.sha16 below (DOSSIER-TAMPER on mismatch)
   const row = db.query("SELECT id FROM bug_record WHERE id = ?").get(input.bugId) as { id: string } | null;
   if (!row) throw new Error(`BUG-UNKNOWN:${input.bugId}`);
   const dossierRow = db.query(
     "SELECT dossier_path AS p FROM bug_record WHERE id = ?").get(input.bugId) as { p: string } | null;
-  const manifestPath = `${dossierRow?.p ?? input.dossierPath}/manifest.sha16`;
+  // F17: canonicalize — always use input.dossierPath (the caller-provided path)
+  if (dossierRow && dossierRow.p !== input.dossierPath) throw new Error('DOSSIER-PATH-MISMATCH');
+  const manifestPath = `${input.dossierPath}/manifest.sha16`;
   let recordedSha = "";
   try { recordedSha = (await deps.readFile(manifestPath)).trim(); } catch { /* missing = tamper */ }
   if (recordedSha !== sha) throw new Error("DOSSIER-TAMPER");
-  const origin = JSON.parse(oj);
+  let origin: unknown;
+  try { origin = JSON.parse(oj); } catch { throw new Error('DOSSIER-CORRUPT:origin.json'); }
   const brief = fixBrief(input.bugId, input.originCommit, origin);
   const mode: KickMode = input.mode
-    ?? ((input.originSession && await deps.sessionAlive(input.originSession)) ? "live" : "spawn");
+    ?? ((input.originSession && await deps.sessionAlive(input.originSession).catch(() => false)) ? "live" : "spawn");
   if (mode === "live") {
-    const r = await deps.send(input.originSession!, brief);
+    const sessionId = input.originSession;
+    if (!sessionId) throw new Error('KICK-NO-SESSION');
+    const r = await deps.send(sessionId, brief);
     if (!r.ok) throw new Error("KICK-SEND-FAILED");
     db.query(`INSERT INTO kick(id, bug_record, mode, target_session, dossier_path, dossier_sha16, sent_at, outcome)
               VALUES (?,?,?,?,?,?,strftime('%s','now'),'delivered')`)
       .run(`kick:${input.bugId}:${Date.now()}`, input.bugId, mode, input.originSession, input.dossierPath, sha);
-    return { mode, target: input.originSession!, dossierSha16: sha };
+    return { mode, target: sessionId, dossierSha16: sha };
   }
   if (mode === "spawn") {
     const r = await deps.spawn({ projectId: input.projectId, brief, attachments: [`${input.dossierPath}/dossier.md`, `${input.dossierPath}/origin.json`] });

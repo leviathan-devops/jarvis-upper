@@ -59,11 +59,11 @@ export const GATE_TO_CONTEXT = {
   fence2: [STATUS_CONTEXTS.fence2],
 } as const;
 
-export type StatusContext = (typeof STATUS_CONTEXTS)[keyof typeof STATUS_CONTEXTS];
+export type StatusContext = (typeof REQUIRED_CONTEXTS)[number];
 export type PublishState = "success" | "failure" | "error";
 
 export interface PublishPayload {
-  context: string; // one of REQUIRED_CONTEXTS
+  context: StatusContext;
   state: PublishState;
   description: string; // <= 140 chars
 }

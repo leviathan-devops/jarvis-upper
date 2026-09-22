@@ -319,3 +319,21 @@ DOC CONTRACT, `BLOCKED` is never `PASS`.
 
 **THE ANCHORS:** `.trident/RUNTIME_LEDGER.md:1` · `.trident/P5_ADVERSARIAL_SWEEP.md:1` ·
 `.githooks/lib/scan-phantom.sh:44` · `tests/gate_header.test.ts:1`
+
+---
+
+## [2026-09-22T21:20:54Z] — CORRECTION to the prior entry (the W-1 overclaim — audit finding A1)
+
+**THE PRIOR CLAIM (line 305 above):** *"VERIFIED CLEAN: 8 gates, both halves."*
+**THE MEASURED REALITY:** **7 gates proven + 1 correctly scoped-off (untestable in this repo).**
+
+W-1 (deploy-freshness) is guarded by `[ -d extensions ]` at `.githooks/pre-commit:85`. This repo
+has NO `extensions/` directory (measured: `ls -d extensions` -> absent). The scope is DELIBERATE and
+documented at `.githooks/pre-commit:70-75` — the predicate came from the GI kernel's
+`src/ -> extensions/<plugin>/index.js` layout; a repo with no dist step would have W-1 refuse every
+src/ commit forever, "a gate that gets bypassed -- worse than no gate". **The code is CORRECT.**
+
+**THE DEFECT IS THE CLAIM.** No input shape can make W-1 fire here, so it was never probed in either
+half. The honest statement is **7 proven + 1 correctly scoped-off**. The correction is recorded here
+rather than by editing the prior entry (the append-only law). Independently confirmed by the
+zero-context auditor (agent://IndependentAuditor, verdict REFUTED on exactly this wording).

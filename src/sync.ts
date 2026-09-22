@@ -19,7 +19,9 @@ export function upsertPr(db: Database, r: PrRow): void {
             base_sha, source_branch, target_branch, state, worker_hint, minted_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s','now'))
             ON CONFLICT(id) DO UPDATE SET state=excluded.state,
-            head_sha=excluded.head_sha, worker_hint=excluded.worker_hint`)
+            head_sha=excluded.head_sha, worker_hint=excluded.worker_hint,
+            base_sha=excluded.base_sha, source_branch=excluded.source_branch,
+            target_branch=excluded.target_branch`)
     .run(`pr:${r.session_id}:${r.pr_number}`, r.project, r.pr_number,
       r.session_id, r.head_sha, r.base_sha ?? null,
       r.source_branch ?? null, r.target_branch ?? null, r.state,
@@ -28,7 +30,7 @@ export function upsertPr(db: Database, r: PrRow): void {
 
 export async function syncPrs(db: Database, list: () => Promise<PrRow[]>): Promise<{ rows: number }> {
   const rows = await list();
-  for (const r of rows) upsertPr(db, r);
-  const count = db.query("SELECT COUNT(*) AS n FROM pr_node").get() as { n: number };
-  return { rows: count.n };
+  const tx = db.transaction(() => { for (const r of rows) upsertPr(db, r); });
+  tx();
+  return { rows: rows.length };
 }

@@ -153,3 +153,12 @@ anchor.** The anchors below are in the format the gate reads:
 | the arm command | `W6_ARM_COMMAND.sh:1` |
 
 **18 anchors, every one verified this turn.**
+
+---
+
+## CORRECTION [2026-09-22T21:20:54Z] — the W-1 row was overclaimed
+
+The §1 table lists W-1 as **CORRECT (scoped)** among a set summarized as "8 gates, each with both
+halves". **W-1 was never probed in either half** — its predicate (`[ -d extensions ]`) is FALSE in
+this repo, so it cannot fire. The honest count is **7 gates proven + 1 correctly scoped-off**. The
+code is correct (a deliberate, documented scope at `.githooks/pre-commit:70-75`); the CLAIM was not.

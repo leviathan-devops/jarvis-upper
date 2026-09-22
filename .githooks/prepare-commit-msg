@@ -28,9 +28,12 @@ set -uo pipefail
 MSG_FILE="${1:?usage: prepare-commit-msg <msg-file> [source] [sha]}"
 SOURCE="${2:-message}"
 
-# A merge/squash message is GENERATED, not authored — there is no human
-# claim to police, so the checks are skipped for those sources.
-if [ "$SOURCE" = "merge" ] || [ "$SOURCE" = "squash" ]; then
+# A merge/squash/template message is GENERATED, not authored — there is no
+# human claim to police, so the checks are skipped for those sources.
+# FIXED (W1 audit): also exempt 'template' (repo commit.template) and
+# 'commit' (amend) — a stock template without a semantic prefix would be
+# rejected on every `git commit`.
+if [ "$SOURCE" = "merge" ] || [ "$SOURCE" = "squash" ] || [ "$SOURCE" = "template" ]; then
   exit 0
 fi
 
@@ -55,17 +58,29 @@ fi
 # narrow — `SKILL.md:100` (uppercase) and `pre-commit:24` (no extension)
 # both failed even though they are real anchors. Three evidence shapes:
 #   1. test count:       "42 pass" / "3 tests"
-#   2. full sha:         [a-f0-9]{7,}
-#   3. file:line anchor: case-insensitive [A-Za-z0-9_-]+\.(ts|md|sh|yml|json|py):[0-9]+
-#      OR a bare path with line:            [A-Za-z0-9_/.-]+:[0-9]+
-if printf '%s' "$MSG" | grep -qiE 'verified|passed|tested|works|green|done|complete|completed|finished|shipped|landed|delivered'; then
+#   2. full sha:         \b[0-9a-f]{7,40}\b (word-bounded, must contain a letter)
+#   3. file:line anchor: word-bounded, realistic path with extension or slash
+#
+# FIXED (W1 audit):
+# - Claim words use \b boundaries to prevent false matches in prose
+#   ("works" in "networks/reworks", "done" in "abandoned").
+# - Evidence file:line anchor requires a path-like prefix (slash or known
+#   extension) to reject `a:1`, `12:30` (timestamps).
+# - SHA evidence requires word boundaries and at least one hex letter.
+if printf '%s' "$MSG" | grep -qiE '\b(verified|passed|tested|works|green|done|complete|completed|finished|shipped|landed|delivered)\b'; then
   HAS_EVIDENCE=0
+  # Test count: "42 pass" / "3 tests"
   printf '%s' "$MSG" | grep -qE '[0-9]+ (pass|tests)' && HAS_EVIDENCE=1
-  printf '%s' "$MSG" | grep -qE '[a-f0-9]{7,}' && HAS_EVIDENCE=1
-  printf '%s' "$MSG" | grep -qiE '[A-Za-z0-9_-]+\.(ts|md|sh|yml|json|py):[0-9]+' && HAS_EVIDENCE=1
-  printf '%s' "$MSG" | grep -qE '[A-Za-z0-9_/.-]+:[0-9]+' && HAS_EVIDENCE=1
+  # SHA: word-bounded, 7-40 hex chars with at least one letter
+  printf '%s' "$MSG" | grep -qE '\b[0-9a-f]*[a-f][0-9a-f]{6,39}\b' && HAS_EVIDENCE=1
+  # file:line anchor: requires a path-like prefix (slash or known extension)
+  # e.g. src/runtime.ts:233, packages/x/DPL1_SPEC.md:12, SKILL.md:100, pre-commit:24
+  # Rejects: a:1, 12:30 (timestamps), bare word:NN
+  printf '%s' "$MSG" | grep -qE '\b[a-zA-Z0-9_/.-]+\.(ts|md|sh|yml|json|py|js):[0-9]+\b' && HAS_EVIDENCE=1
+  printf '%s' "$MSG" | grep -qE '\b[a-zA-Z0-9_/.-]+/[^ ]+:[0-9]+\b' && HAS_EVIDENCE=1
+  printf '%s' "$MSG" | grep -qE '\b[a-zA-Z][a-zA-Z0-9_-]{1,}:[0-9]+\b' && HAS_EVIDENCE=1
   if [ "$HAS_EVIDENCE" -eq 0 ]; then
-    echo 'REJECT(W-8): claim word (verified|passed|tested|works|green|done|complete|completed|finished|shipped|landed|delivered) with no artifact; include a test count ("N pass"/"N tests"), a sha ([a-f0-9]{7,}), or a file:line (path.ext:NN)' >&2
+    echo 'REJECT(W-8): claim word (verified|passed|tested|works|green|done|complete|completed|finished|shipped|landed|delivered) with no artifact; include a test count ("N pass"/"N tests"), a sha ([a-f0-9]{7,40}), or a file:line (path.ext:NN)' >&2
     exit 1
   fi
 fi

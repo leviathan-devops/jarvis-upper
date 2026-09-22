@@ -11,7 +11,7 @@ export function renderGraph(db: Database, opts: { bugs?: boolean } = {}): string
     .all() as { f: string; t: string }[];
   const mark: Record<string, string> = {};
   if (opts.bugs) {
-    const bugs = db.query("SELECT origin_commit, origin_session FROM bug_record WHERE status != 'fixed'")
+    const bugs = db.query("SELECT origin_commit, origin_session FROM bug_record WHERE COALESCE(status,'') != 'fixed'")
       .all() as { origin_commit: string | null; origin_session: string | null }[];
     for (const b of bugs) {
       for (const n of nodes) {

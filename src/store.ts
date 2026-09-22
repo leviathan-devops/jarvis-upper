@@ -34,8 +34,9 @@ const MIGRATIONS: string[] = [
      source TEXT PRIMARY KEY, last_seq INTEGER NOT NULL, updated_at INTEGER);`,
 ];
 
-export function openStore(path: string = STORE_PATH): Database {
-  const db = new Database(path, { create: true });
+export function openStore(path?: string): Database {
+  const resolved = path ?? (process.env.UPPER_STORE ?? new URL("../store.sqlite", import.meta.url).pathname);
+  const db = new Database(resolved, { create: true });
   db.exec("PRAGMA journal_mode=WAL;");
   db.exec("PRAGMA foreign_keys=ON;");
   for (const sql of MIGRATIONS) db.exec(sql);

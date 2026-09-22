@@ -166,3 +166,11 @@ is BLOCKED. **`BLOCKED` is never `PASS`.** The goal remains OPEN.
 | the commits | 25 ahead of origin | `git rev-list --count` |
 | the checkpoint | 115 files | `find <ck> -type f | wc -l` |
 | the disk | 72 GB free | `df -h` |
+
+---
+
+## CORRECTION [2026-09-22T21:20:54Z] — the gate count
+
+The line above reads "8 gates, both halves". The honest count is **7 gates proven + 1 correctly
+scoped-off (W-1, untestable here — `[ -d extensions ]` is FALSE)**. See
+`.trident/ZERO_TRUST_AUDIT.md` FRAUD C and the TESTING_LOG correction of the same date.

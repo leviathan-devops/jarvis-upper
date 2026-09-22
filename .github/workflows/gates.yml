@@ -1,7 +1,7 @@
 name: gates
 
-# Plan B unbypassable anchor: five jobs whose names become the required
-# status contexts. Only the plain pull_request trigger is used here — the
+# Plan B unbypassable anchor: six jobs whose names become the required
+# status contexts. Only pull_request + merge_group triggers are used here — the
 # _target trigger variant must never appear in this file (it hands secrets
 # to fork PRs). Every job below fails closed with exit 1.
 "on": [pull_request, merge_group]
@@ -21,9 +21,14 @@ jobs:
           if [ -n "$HITS" ]; then echo "$HITS"; exit 1; fi
           echo "anti-theatrical-grep: clean"
       - name: every commit subject in the PR range conforms
+        env: { BASE: '${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}' }
         run: |
           set -e
-          BAD=$(git log --no-merges --format='%s' origin/${{ github.base_ref }}..HEAD | grep -vE '^(feat|fix|docs|test|build|refactor|blueprint|goal|chore|spec|perf)(\([^)]+\))?: ' || true)
+          # F10: github.base_ref is EMPTY on merge_group, so origin/<base>..HEAD
+          # fails under set -e. The base comes from the event payload; when
+          # neither side is present we REFUSE LOUDLY instead of guessing.
+          [ -n "${BASE}" ] || { echo "no base ref (neither pull_request.base.sha nor merge_group.base_sha present) — refusing to guess"; exit 1; }
+          BAD=$(git log --no-merges --format='%s' "${BASE}..HEAD" | grep -vE '^(feat|fix|docs|test|build|refactor|blueprint|goal|chore|spec|perf)(\([^)]+\))?: ' || true)
           if [ -n "$BAD" ]; then echo "$BAD"; exit 1; fi
           echo "commit-subjects: clean"
 
@@ -47,6 +52,23 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: every spec item maps to a changed file
         run: bun run scripts/spec-diff.ts || exit 1
+      - name: provision the fence ledger path (empty if absent — never fabricated)
+        run: |
+          set -e
+          # F12: in a fresh checkout .trident/verdicts.jsonl is absent and
+          # fence-check.py exits 2 ledger-missing (unmeasured), which the next
+          # step turns into a failure. Provision an EMPTY ledger path so the
+          # check reports the NAMED verdict NO-PASS-ROW (exit 1) instead.
+          # This step NEVER writes verdict rows — only the fence produces them.
+          # Do NOT commit a ledger to satisfy this gate.
+          LEDGER="${FENCE_LEDGER:-.trident/verdicts.jsonl}"
+          if [ ! -f "$LEDGER" ]; then
+            echo "FENCE-PROVISION: no ledger at $LEDGER — creating an EMPTY file (NO-PASS-ROW, named) instead of ledger-missing (exit 2, unmeasured)"
+            mkdir -p "$(dirname "$LEDGER")"
+            : > "$LEDGER"
+          else
+            echo "FENCE-PROVISION: ledger present at $LEDGER"
+          fi
       - name: the fence must hold a PASS row for this sha
         run: python3 gates/fence-check.py "${{ github.sha }}" || exit 1
 
@@ -58,11 +80,24 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - name: refuse an unbudgeted diff
+        env:
+          BASE: '${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}'
+          LABELS: '${{ toJSON(github.event.pull_request.labels.*.name) }}'
+          EVENT: '${{ github.event_name }}'
         run: |
           set -e
-          L=$(git diff --numstat origin/${{ github.base_ref }}..HEAD | awk '{s+=$1+$2} END{print s+0}')
+          # F10: github.base_ref is EMPTY on merge_group — refuse loudly, never guess.
+          [ -n "${BASE}" ] || { echo "no base ref (neither pull_request.base.sha nor merge_group.base_sha present) — refusing to guess"; exit 1; }
+          L=$(git diff --numstat "${BASE}..HEAD" | awk '{s+=$1+$2} END{print s+0}')
           echo "lines=$L"
-          if [ "$L" -gt 800 ] && ! echo '${{ toJSON(github.event.pull_request.labels.*.name) }}' | grep -q oversized; then
+          # pull_request.labels is undefined on merge_group, so the oversized
+          # escape hatch exists ONLY on pull_request. An over-budget
+          # merge_group run fails closed with a named reason.
+          OVERSIZED=0
+          if [ "$EVENT" = "pull_request" ] && echo "$LABELS" | grep -q oversized; then OVERSIZED=1; fi
+          if [ "$L" -gt 800 ] && [ "$OVERSIZED" -ne 1 ]; then
+            if [ "$EVENT" = "merge_group" ]; then
+              echo "over budget on merge_group with no label escape hatch (pull_request labels unavailable)"; exit 1; fi
             echo "over budget without the oversized label"; exit 1; fi
 
   test:
@@ -96,30 +131,47 @@ jobs:
     name: gates/theatrical-verification
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: { contents: read }
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - name: scan changed test files for the theatrical-verification family
-        env: { BASE: '${{ github.base_ref }}' }
+        env: { BASE: '${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}' }
         run: |
           set -e
+          # F10: github.base_ref is EMPTY on merge_group — refuse loudly, never guess.
+          [ -n "${BASE}" ] || { echo "no base ref (neither pull_request.base.sha nor merge_group.base_sha present) — refusing to guess"; exit 1; }
           FAIL=0
-          CHANGED=$(git diff --name-only "origin/${BASE}..HEAD" -- 'tests/**/*.test.ts' || true)
+          CHANGED=$(git diff --name-only "${BASE}..HEAD" -- 'tests/**/*.test.ts' || true)
           if [ -z "$CHANGED" ]; then
             echo "theatrical-verification: no changed test files"
             exit 0
           fi
 
-          for f in $CHANGED; do
+          NL=$'\n'
+          # Newline-safe loop: `for f in $CHANGED` splits paths on spaces.
+          # Herestring (not a pipe) so FAIL propagates out of the loop.
+          while IFS= read -r f || [ -n "$f" ]; do
+            [ -n "$f" ] || continue
             [ -f "$f" ] || continue
             HITS=""
-            NL=$'\n'
-            MOCK=$(grep -nEi 'jest\.mock\(|jest\.spyOn\(|vi\.mock\(|vi\.spyOn\(' "$f" 2>/dev/null | grep -Ei 'expect\(' | head -20 || true)
-            if [ -n "$MOCK" ]; then HITS="${HITS}${NL}  mock-only: ${MOCK}"; fi
+            # F11: FILE-LEVEL co-occurrence. The normal theatrical shape is a
+            # mock setup at the top of the file with expects lines later —
+            # same-line adjacency (grep mock | grep expect) misses it.
+            HAS_MOCK=$(grep -nEi 'jest\.mock\(|jest\.spyOn\(|vi\.mock\(|vi\.spyOn\(' "$f" 2>/dev/null || true)
+            HAS_EXPECT=$(grep -nE 'expect\(' "$f" 2>/dev/null || true)
+            if [ -n "$HAS_MOCK" ] && [ -n "$HAS_EXPECT" ]; then
+              MOCK_AT=$(printf '%s\n' "$HAS_MOCK" | head -20)
+              EXPECT_N=$(printf '%s\n' "$HAS_EXPECT" | grep -c . || true)
+              HITS="${HITS}${NL}  mock-only: mock setup with expects in file: ${MOCK_AT} (+${EXPECT_N} expect( lines)"
+            fi
             SYMBOL=$(grep -nE "includes\(['\"]Symbol['\"]|includes\([\"']Symbol[\"']\)" "$f" 2>/dev/null || true)
             if [ -n "$SYMBOL" ]; then HITS="${HITS}${NL}  source-string-assert: ${SYMBOL}"; fi
             WIRING=$(grep -nE "(test|it|describe)\([^)]*(wiring|wired)" "$f" 2>/dev/null || true)
             if [ -n "$WIRING" ]; then
+              # Adjudicated: the quoted `^[import|from|require]` char-class shape
+              # is NOT present — this already uses a real alternation. Kept as-is.
               HAS_IMPORT=$(grep -E "^[[:space:]]*(import|from|require)\b" "$f" 2>/dev/null | wc -l || true)
               if [ "$HAS_IMPORT" -eq 0 ]; then
                 HITS="${HITS}${NL}  wiring-name-no-import: ${WIRING}"
@@ -132,7 +184,7 @@ jobs:
               printf '%s\n' "$HITS"
               FAIL=1
             fi
-          done
+          done <<< "$CHANGED"
 
           if [ "$FAIL" -ne 0 ]; then
             exit 1

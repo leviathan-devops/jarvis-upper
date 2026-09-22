@@ -24,9 +24,9 @@ interface Proc {
   run(cmd: string[], cwd: string, timeoutMs?: number): Promise<{ code: number; stdout: string; stderr: string }>;
 }
 
-const sh = (cmd: string, cwd: string, timeoutMs = 15000): Promise<{ code: number; stdout: string; stderr: string }> =>
+const defaultRun = (cmd: string[], cwd: string, timeoutMs = 15000): Promise<{ code: number; stdout: string; stderr: string }> =>
   new Promise((resolve) => {
-    const p = Bun.spawn(["sh", "-c", cmd], { cwd, stdout: "pipe", stderr: "pipe" });
+    const p = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
     const killer = setTimeout(() => { try { p.kill(9); } catch { /* already dead */ } }, timeoutMs);
     p.exited.then(async (code) => {
       clearTimeout(killer);
@@ -34,15 +34,10 @@ const sh = (cmd: string, cwd: string, timeoutMs = 15000): Promise<{ code: number
       resolve({ code, stdout: o, stderr: e });
     });
   });
-
-function q(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
 export async function candidatesForFiles(
   repo: string,
   files: string[],
-  proc: Proc = { run: (c, cwd) => sh(c.join(" "), cwd) },
+  proc: Proc = { run: defaultRun },
 ): Promise<Map<string, string[]>> {
   // commit -> files it touched (bounded to the flagged set)
   const hit = new Map<string, string[]>();
@@ -62,7 +57,7 @@ export async function blameLines(
   repo: string,
   files: string[],
   lines: Record<string, number[]> | undefined,
-  proc: Proc = { run: (c, cwd) => sh(c.join(" "), cwd) },
+  proc: Proc = { run: defaultRun },
 ): Promise<Map<string, string[]>> {
   const hit = new Map<string, string[]>();
   for (const f of files) {
@@ -93,16 +88,13 @@ export async function attributeBug(
   const flagged = [...new Set(input.files)];
   const logHits = await candidatesForFiles(input.repo, flagged, proc);
   const blameHits = await blameLines(input.repo, flagged, input.lines, proc);
-  const perFile: Record<string, string[]> = {};
-  for (const f of flagged) perFile[f] = [];
-  for (const [sha, fs] of logHits) for (const f of fs) perFile[f]?.push(sha);
-  for (const [sha, fs] of blameHits) for (const f of fs) perFile[f]?.push(sha);
+  // perFile removed: scoring uses logHits/blameHits/scored directly
 
   // merge commits: only first-parent line counts, capped 0.55 (below the
   // blame floor, so a merge can never outrank an exact blame match)
   const scored: { commit: string; files: string[]; score: number }[] = [];
   for (const [sha, fs] of logHits) {
-    const r = await (proc ?? { run: (c: string[], cwd: string) => sh(c.join(" "), cwd) })
+    const r = await (proc ?? { run: defaultRun })
       .run(["git", "log", "--format=%P", "-1", sha], input.repo);
     const parents = r.code === 0 ? r.stdout.trim().split(/\s+/).filter(Boolean) : [];
     const isMerge = parents.length > 1;

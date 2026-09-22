@@ -316,3 +316,18 @@ issue. The cause: the job IDs contain a slash. See **EN-101**.
 | the hooks | 4 + `lib/pattern-header.sh` (the W1 standard) |
 | W1 | DONE — the gate-header standard landed |
 | W2/W3/W4 | IN FLIGHT |
+
+## [2026-09-22T21:19:50Z] — P3 DISPATCH: the four hardening waves (the ocr-FAIL campaign)
+- WHAT: dispatched W1-W4 as four PARALLEL subagents on DISJOINT file sets. W1 `.githooks/**` (33
+  findings) · W2 `.github/**` (7) · W3 `src/*.ts` (61 deduped) · W4 `scripts/**`+`gates/**`+
+  `W6_ARM_COMMAND.sh`+the stub+`.gitignore` (27). Total 128 findings.
+- WHY: the ocr ship gate — the gate this repo's doctrine says blocks every ship claim — returned
+  FAIL (36 high / 77 medium / 15 low, session_id fc337185). The kernel enforces verification and had
+  never been verified by its own standard.
+- HOW: each desk got its findings file (`.trident/findings/W<n>.md`), the fix contracts
+  (MASTER_PROMPT §17-18), the adjudicate-both-sides law, the contract freeze, and the
+  no-Checkpoints-edit law. Verification: `bash -n` + `bunx tsc --noEmit` + `bun test` 78/0.
+- EVIDENCE: baseline re-measured THIS turn — 78 pass / 0 fail / 335 expects · tsc exit 0 · ocr
+  FAIL 36 high (`.trident/ocr-findings-e9ff02b.json`).
+- NEXT: audit the four returns per-hunk; re-run the combined battery + tsc; re-run the ocr gate at
+  the wave boundary (the DONE condition is ocr PASS 0 critical/0 high).

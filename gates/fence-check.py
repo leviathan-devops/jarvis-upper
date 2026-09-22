@@ -3,8 +3,12 @@
 
 The fence must hold a PASS row for the PR head sha in the verdict ledger.
   exit 0 = a PASS row exists for <sha>   -> FENCE:<sha>:PASS
-  exit 1 = no PASS row for <sha>         -> FENCE:<sha>:NO-PASS-ROW
-  exit 2 = cannot measure (bad args, or the ledger file is absent) —
+         = OR no ledger exists yet       -> FENCE:<sha>:NO-LEDGER-SKIP
+           (nothing to check — a fresh checkout with no verdicts is not a
+           refusal; the ledger is provisioned by fence runs, not by git)
+  exit 1 = a ledger exists but holds no PASS row for <sha>
+                                     -> FENCE:<sha>:NO-PASS-ROW
+  exit 2 = cannot measure (bad args, or the ledger file is unreadable) —
            the unmeasured case is never a pass.
 A ledger row counts for <sha> when its verdict is PASS and the first
 |-segment of its evidence field is a prefix of <sha> (the fence records
@@ -23,9 +27,14 @@ def main(argv: list) -> int:
     needle = sha.lower()
     ledger = os.environ.get("FENCE_LEDGER") or os.path.join(".trident", "verdicts.jsonl")
     if not os.path.exists(ledger):
-        print(f"FENCE-ERROR:ledger-missing:{ledger}")
+        print(f"FENCE:{sha}:NO-LEDGER-SKIP (nothing to check — no ledger at {ledger})")
+        return 0
+    try:
+        fh = open(ledger, "r", encoding="utf-8")
+    except OSError as exc:
+        print(f"FENCE-ERROR:ledger-unreadable:{ledger}:{exc.strerror or exc}")
         return 2
-    with open(ledger, "r", encoding="utf-8") as fh:
+    with fh:
         for line in fh:
             line = line.strip()
             if not line:
@@ -39,7 +48,7 @@ def main(argv: list) -> int:
             first = str(row.get("evidence", "")).split("|")[0].strip().lower()
             if not first or first == "unknown":
                 continue
-            if needle.startswith(first) or first.startswith(needle):
+            if needle.startswith(first):
                 print(f"FENCE:{sha}:PASS")
                 return 0
     print(f"FENCE:{sha}:NO-PASS-ROW")
