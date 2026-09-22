@@ -325,3 +325,34 @@ of appending a correctly-formed entry.
 | the CI workflow | `.github/workflows/gates.yml:26` |
 
 **15 anchors, every one verified this turn.**
+
+## [2026-09-22T22:41:18Z] — EN-111..EN-117: THE SIX DEFECTS THE DESKS' REPORTS DID NOT SURVIVE
+- SYMPTOM: after the four hardening waves returned "COMPLETE", my own runs on the combined tree
+  found SIX defects — every one claimed FIXED by its desk.
+- ROOT CAUSE (the six, each with its mechanism):
+  1. **W-3 unwired.** The desk made `scan-phantom.sh` a proper library and never sourced it in
+     `pre-push`. W-3 never fired. A gate on disk that never fires is a FALSE GREEN.
+  2. **★ THE IFS BUG (the deepest).** `while IFS= read -r local_ref local_sha remote_ref remote_sha`
+     — with an EMPTY IFS bash does NOT field-split: the WHOLE line lands in `local_ref` and the
+     other three are EMPTY. So `[ -z "$remote_sha" ]` was always true → every ref `continue`d →
+     **W-2 AND W-3 NEVER FIRED.** The entire pre-push gate was dead. Introduced by a "fix" for
+     F7/F8 — **not in the ocr report at all.** Measured: `IFS= read -r a b c d` on
+     `"x y x z"` → `a="x y x z"`, b/c/d empty.
+  3. **New refs skipped.** The `remote_sha == 0000` guard (meant for "the empty ref that closes the
+     pipe") also skipped every NEW branch — a first push was never checked.
+  4. **W-6 over-fire.** "Narrowed to PascalCase" still matched `Timeout`, `SomeSymbol`, `FireGate`
+     — the desk's own doc-comment asserted the false claim.
+  5. **★ THE `=~` QUOTING BUG.** `[[ "$line" =~ \?\?[[:space:]]*(0|""|''|\[\]|\{\}) ]]` — inside
+     `[[ =~ ]]` the pattern is UNQUOTED, so `""` and `''` are stripped to EMPTY STRINGS, giving
+     the alternation two empty branches that match ANYTHING → `?? FENCE_DEFAULT` fired. Proven:
+     the inline form matched `?? x` for every x; a VARIABLE pattern matches only the literals.
+  6. **W-13 shape gaps.** `catch{ /* ignore */ }` (no paren binding) stripped to a bare `catch`
+     and escaped BOTH rules; a documented best-effort ignore was flagged as a swallow.
+- FIX: the six fixes above, each re-proven by RUNNING (a real `git push` of a new branch with a
+  phantom → REJECT(W-3) rc=1; a real orphan → REJECT(W-2); W-6 both halves; W-13 on all four catch
+  shapes + the two negatives).
+- LESSON: **A DESK'S "COMPLETE" IS A CLAIM. THE GATE'S BEHAVIOR IS THE TRUTH.** Six claims, six
+  refutations, all from running the thing — and the deepest defect (the IFS bug) was introduced by
+  a fix and was invisible to reading. The ocr report was the ENTRY point, never the end.
+- EVIDENCE: `.trident/wave-audit/ORCHESTRATOR-AUDIT.md` · `.trident/p5_corpus2.sh` ·
+  `.trident/ct/ct-results.json` · `.githooks/pre-push:61` · `.githooks/lib/scan-silent.sh:119`

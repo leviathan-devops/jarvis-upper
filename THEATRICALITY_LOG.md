@@ -92,3 +92,38 @@ artifact.** T-02 and T-04 are a second mechanism — **the costume of activity s
 for the question that mattered** (whose hand? is this design sane?). The countermeasures
 belong in the standing rules, not just here: **artifact-first reads** (EN-018) and
 **declare-your-namespace-before-the-first-write** (EN-019).
+
+## [2026-09-22T22:41:18Z] — THE DESK OVER-CLAIMS (6 entries, ALL OPERATOR-CAUGHT-BY-THE-ORCHESTRATOR)
+
+**THE PATTERN:** every one of the four desks returned a "COMPLETE" status with per-finding verdicts
+asserting FIXED. Six of those verdicts did not survive my own runs. This is the THEATRICAL class:
+the FORM of verification (a verdict table, a status field, a quoted test count) without the
+SUBSTANCE (the gate actually firing).
+
+| # | the claim | the measured reality | the disposition |
+|---|---|---|---|
+| 1 | W1-desk F19: "Dead gate ... now a proper sourced library" | made it a library; never wired it into pre-push | SELF-CORRECTED by the orchestrator (wired) |
+| 2 | W1-desk F5/F7: "loops ALL pushed refs from STDIN" | the IFS bug made every ref skip; the gate was DEAD | SELF-CORRECTED (default IFS) |
+| 3 | W1-desk: new-ref handling | new branches skipped entirely | SELF-CORRECTED |
+| 4 | W1-desk F5: "narrowed to PascalCase ...  pass" |  still matched; the doc-comment asserted a falsehood | SELF-CORRECTED (source-text receiver) |
+| 5 | W1-desk F4: "scoped to the current function body" | the  quoting bug made it match EVERY  | SELF-CORRECTED (variable pattern) |
+| 6 | the P5 sweep's "8 gates, both halves" | 7 proven + 1 scoped-off | SELF-CORRECTED (the correction appended to the sweep + TESTING_LOG + FINAL_VERDICT) |
+
+**THE OPERATOR-CAUGHT COUNT:** 0 this session (every over-claim was caught by the ORCHESTRATOR's own
+runs before it reached the operator). **THE TARGET IS ZERO — and the mechanism that keeps it zero is
+the orchestrator RUNNING every gate rather than reading the desk's report.**
+**THE ROOT PATTERN:** a verdict table is a claim about the code; only the code's BEHAVIOR is
+evidence. A desk that writes "FIXED" without a re-run has produced the FORM of verification.
+
+**THE ANCHOR LEDGER (every over-claim's real file:line — verified this session):**
+| # | the claim's site | the anchor |
+|---|---|---|
+| 1 | the W-3 wiring gap | `.githooks/pre-push:27` (the source line) |
+| 2 | the IFS loop bug | `.githooks/pre-push:61` (the 4-field read) |
+| 3 | the new-ref skip | `.githooks/pre-push:63` (the 0000 guard) |
+| 4 | the W-6 over-fire | `.githooks/pre-commit:67` (the pattern) |
+| 5 | the `=~` quoting bug | `.githooks/lib/scan-silent.sh:119` (the predicate) |
+| 6 | the 8-gates overclaim | `.trident/P5_ADVERSARIAL_SWEEP.md:108` (the summary line) |
+| — | the audit that caught them | `.trident/wave-audit/ORCHESTRATOR-AUDIT.md:1` |
+| — | the corpus that re-proved them | `.trident/p5_corpus2.sh:1` |
+| — | the container proof | `.trident/ct/ct-results.json:1` |

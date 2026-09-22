@@ -337,3 +337,36 @@ src/ commit forever, "a gate that gets bypassed -- worse than no gate". **The co
 half. The honest statement is **7 proven + 1 correctly scoped-off**. The correction is recorded here
 rather than by editing the prior entry (the append-only law). Independently confirmed by the
 zero-context auditor (agent://IndependentAuditor, verdict REFUTED on exactly this wording).
+
+---
+
+## [2026-09-22T22:41:18Z] — THE P5 ADVERSARIAL CORPUS + THE CONTAINER TEST (the ocr-hardening campaign)
+
+### THE P5 CORPUS — 13 scenarios, both halves, ZERO failures
+`bash .trident/p5_corpus2.sh` @ `dd5c15f` → **13 pass / 0 fail**, no residue.
+| the gate | the POSITIVE (must fire) | the NEGATIVE (must not) |
+|---|---|---|
+| W-8 | `fix: everything works great` → REJECT; `fix: done a:1` → REJECT (fake path); `feat: done` → REJECT (the prior session's gap, now closed) | `fix: verified, 78 pass, src/runtime.ts:233` → PASS |
+| W-6 | a source-text fake-wiring `srcText.includes("FireGate")` → REJECT | `err.includes("Timeout")` → PASS (the over-fire closed) |
+| W-13 | `catch{}` → REJECT; `catch{ /* ignore */ }` → REJECT (the no-paren gap closed) | a real rethrow → PASS; a NAMED-reason ignore → PASS |
+| W-9 | a thin authored .md → REJECT | a `.trident/*` working artifact → exempt |
+| W-14 | `return { stubbed: true }` → REJECT | — |
+| W-2 | an orphan module → REJECT **via a REAL `git push`** | a wired module → PASS |
+| W-3 | a phantom claim → REJECT **via a REAL `git push`** | a real commit → PASS |
+
+### THE CONTAINER TEST — `jarvis-upper-ct` on `omp-ct:master` (the L3/L4 tier)
+The prior session's residual #6 ("no container test exists") is CLOSED. The rig was stood up, the
+repo deployed to `/workspace/repo`, the FIXED hooks run in a CLEAN environment (git 2.39.5, no host
+state, no warm shell). `.trident/ct/ct-results.json` — 11 scenarios, overall PASS.
+**★ THE CONTAINER REPRODUCED THE BASELINE DEFECTS AND CONFIRMED THE FIXES:**
+- BASELINE: S5 (a legit `err.includes("Timeout")`) → **REJECTED** (the W-6 over-fire, F5, in a clean room).
+- POST-FIX: S5 → **`PRE-COMMIT: PASS`**.
+- BASELINE: `scan-stub.sh` + `scan-silent.sh` both returned uncapped (`return "$hits"`).
+- POST-FIX: both cap (255 / 125).
+- BASELINE: W-3 never fired (unwired).
+- POST-FIX: a phantom → `REJECT(W-3)`; an orphan → `REJECT(W-2)`.
+
+### THE AUDIT GATE
+**`AUDIT GATE: FAIL (0 critical, 36 high)`** at the baseline (`session_id` fc337185). The re-run after
+the hardening is IN FLIGHT; the verdict lands here when it completes. **A degraded/absent run is
+BLOCKED, never PASS.**
