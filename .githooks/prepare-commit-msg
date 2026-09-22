@@ -58,14 +58,14 @@ fi
 #   2. full sha:         [a-f0-9]{7,}
 #   3. file:line anchor: case-insensitive [A-Za-z0-9_-]+\.(ts|md|sh|yml|json|py):[0-9]+
 #      OR a bare path with line:            [A-Za-z0-9_/.-]+:[0-9]+
-if printf '%s' "$MSG" | grep -qiE 'verified|passed|tested|works|green'; then
+if printf '%s' "$MSG" | grep -qiE 'verified|passed|tested|works|green|done|complete|completed|finished|shipped|landed|delivered'; then
   HAS_EVIDENCE=0
   printf '%s' "$MSG" | grep -qE '[0-9]+ (pass|tests)' && HAS_EVIDENCE=1
   printf '%s' "$MSG" | grep -qE '[a-f0-9]{7,}' && HAS_EVIDENCE=1
   printf '%s' "$MSG" | grep -qiE '[A-Za-z0-9_-]+\.(ts|md|sh|yml|json|py):[0-9]+' && HAS_EVIDENCE=1
   printf '%s' "$MSG" | grep -qE '[A-Za-z0-9_/.-]+:[0-9]+' && HAS_EVIDENCE=1
   if [ "$HAS_EVIDENCE" -eq 0 ]; then
-    echo 'REJECT(W-8): claim word (verified|passed|tested|works|green) with no artifact; include a test count ("N pass"/"N tests"), a sha ([a-f0-9]{7,}), or a file:line (path.ext:NN)' >&2
+    echo 'REJECT(W-8): claim word (verified|passed|tested|works|green|done|complete|completed|finished|shipped|landed|delivered) with no artifact; include a test count ("N pass"/"N tests"), a sha ([a-f0-9]{7,}), or a file:line (path.ext:NN)' >&2
     exit 1
   fi
 fi
