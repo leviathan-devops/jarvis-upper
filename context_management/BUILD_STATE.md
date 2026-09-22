@@ -259,3 +259,82 @@ End of BUILD_STATE.
 - **VERDICT: VERIFIED** — fence PASS `spec_bound:true` + review `approved`, SAME sha
 - **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green · jfm 8/0
 - **jfm wave w0:** the desk `upper-tier-job` closed, `unverdicted: []`
+
+---
+
+# §APPEND — THE PARALLEL BUILD (2026-09-22, the hydra-mode session)
+
+**Superseded-by-nothing.** This section ADDS the two-plan build state; the W4 sections above
+remain the record of that era.
+
+## THE TWO PLANS
+
+| plan | the subject | waves | the ship target |
+|---|---|---|---|
+| **A — the factory** | the control plane (`src/`, 19 modules, 1388 L) | 4 | the factory publishes two statuses the ruleset consumes |
+| **B — the github brain** | the enforcement surface (hooks + CI + ruleset) | 4 | a theatrical PR gets `mergeStateStatus: BLOCKED` |
+
+## THE FROZEN INTERFACE CONTRACT (the keystone of the whole build)
+
+`src/status-contract.ts` — exports the 7 required status contexts (verified `count: 7`):
+
+```
+gates/anti-theatrical · gates/issue-link · gates/spec-gate ·
+gates/diff-budget · gates/test · factory/fence2 · factory/verdict
+```
+
+**Why it exists:** `src/guardrail.ts:10` named 4 INTERNAL gates (`ci_green`, `audit`,
+`hardened`, `fence2`) while the ruleset requires 7 EXTERNAL contexts. **Zero spelling
+overlap.** A publisher POSTing `fence2` while the ruleset waits for `factory/fence2` leaves
+the merge button dead forever with every check green.
+
+## WAVE STATUS (as of this append)
+
+| wave | the deliverable | status |
+|---|---|---|
+| A-1 | `src/status-contract.ts` + the rewire | **DONE** — 7 contexts verified; `guardrail.ts:11` derives; tsc exit 0 |
+| A-2 | `src/publish.ts` | in flight |
+| A-3 | `src/guardrail.ts` + `src/execute.ts` | in flight |
+| A-4 | `src/verdict.ts` -> the two statuses | blocked on A-2+A-3 |
+| B-1 | `.githooks/` (4 hooks) + `core.hooksPath` | **DONE** — keystone 7/7 adversarial PASS |
+| B-2 | `.github/workflows/gates.yml` + 2 scripts | in flight |
+| B-3 | `ruleset.json` + governance | blocked on A-1+B-2 (the only serial point) |
+| B-4 | `.github/workflows/drift.yml` | blocked on B-2 |
+
+## THE NEW SHAS (append to the W4 chain above)
+
+| Artifact | SHA | Context | Date |
+|----------|-----|---------|------|
+| the parallel-build spec | `fe28b19` | `docs/code-review-tools` | 2026-09-22 |
+| the preflight (wave plans + interface check) | `d75407b` | same | 2026-09-22 |
+| A-1 + B-1 landed (through the hooks) | `70c9906` | same | 2026-09-22 |
+
+## ★ THE FIRST LIVE FIRING
+
+The enforcement system blocked its own orchestrator **twice** — see
+`.trident/firings/FIRING-001.md`:
+
+```
+REJECT(W-9): .trident/plan-A/wave-audit/A-1.md has 36 lines (< 100)
+REJECT(W-9): .trident/plan-B/wave-audit/B-1.md has 28 lines (< 100)
+REJECT(W-9): .trident/firings/FIRING-001.md has 36 lines (< 100)
+REJECT(W-1): staged src/ change with no staged extensions/ change
+```
+
+W-9 was CORRECT (the docs were thin; they were rewritten). W-1 was FLAWED (ported from the GI
+kernel without this repo's layout — `extensions/` does not exist here) and is now scoped with a
+directory guard.
+
+## THE ANCHOR LEDGER (the new artifacts)
+
+| the artifact | the path |
+|---|---|
+| the contract | `src/status-contract.ts:33` (`REQUIRED_CONTEXTS`) |
+| the derivation | `src/guardrail.ts:11` (`Object.keys(GATE_TO_CONTEXT)`) |
+| the keystone hook | `.githooks/prepare-commit-msg:39` (the prefix check) |
+| the claim gate | `.githooks/prepare-commit-msg:47` (the claim-word detection) |
+| the doc floor | `.githooks/pre-commit:21` (`if [ "$LINES" -lt 100 ]`) |
+| the interface check | `scripts/interface-check.ts:1` |
+| the wave plans | `.trident/plan-A/wave-plan.md:3` · `.trident/plan-B/wave-plan.md:3` |
+| the firing record | `.trident/firings/FIRING-001.md:1` |
+| the wave audits | `.trident/plan-A/wave-audit/A-1.md` · `.trident/plan-B/wave-audit/B-1.md` |

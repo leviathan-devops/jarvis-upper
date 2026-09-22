@@ -240,3 +240,51 @@ End of NEXT_STEPS.
 - **VERDICT: VERIFIED** — fence PASS `spec_bound:true` + review `approved`, SAME sha
 - **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green · jfm 8/0
 - **jfm wave w0:** the desk `upper-tier-job` closed, `unverdicted: []`
+
+---
+
+# §APPEND — THE PARALLEL BUILD QUEUE (2026-09-22)
+
+The W4→W5 queue above remains open. This appends the parallel build's live queue.
+
+## THE ACTIVE LOOP
+
+```
+POLL -> AUDIT -> TODO BOARD -> CANON DOCS
+```
+
+## IN FLIGHT (at this append)
+
+| the desk | the wave | the files |
+|---|---|---|
+| `DeskA2Publisher` | A-2 | `src/publish.ts` + `tests/publish_shape.test.ts` |
+| `DeskA3Guardrail` | A-3 | `src/guardrail.ts` + `src/execute.ts` + 2 tests |
+| `DeskB2CI` | B-2 | `.github/workflows/gates.yml` + `gates/fence-check.py` + `scripts/spec-diff.ts` |
+| `D1MigrationMap` | D1 | `reports/D1_Migration_Map_v1.md` |
+
+## THE IMMEDIATE QUEUE
+
+| # | the action | the trigger |
+|---|---|---|
+| 1 | audit A-2 + A-3 on their returns | both desks idle |
+| 2 | audit B-2 on its return | desk-b2 idle |
+| 3 | fire the T2 gate: A-2+A-3 -> A-4 | A-2 and A-3 GREEN |
+| 4 | fire the T1 gate: A-1+B-2 -> B-3 | B-2 GREEN + the contract on disk |
+| 5 | harvest the D1 migration map | `D1MigrationMap` idle |
+| 6 | the QC integration audit | all 8 waves green |
+| 7 | the DOC loop | every completed todo |
+
+## THE OPERATOR-ACTION ITEMS
+
+| # | the action | why | the anchor |
+|---|---|---|---|
+| 1 | **UPGRADE to GitHub Pro ($4/mo)** | nothing arms without it | `gh api repos/.../rulesets` -> 403 |
+| 2 | ratify the D1 phasing | the migration map governs the workspace rollout | `reports/D1_Migration_Map_v1.md` |
+
+## NEW RISKS (append to the register above)
+
+| # | Risk | Likelihood | Impact | Mitigation | Linked |
+|---|---|---|---|---|---|
+| R14 | A gate ported without checking the target's layout fires on everything | Proven | High | scope the predicate to the layout (`W-1`'s `[ -d extensions ]` guard) | FIRING-001 |
+| R15 | The canon docs are overwritten instead of appended (destroying the W4 record) | Proven (this session) | High | state docs are UPDATED, logs APPEND; restore from git + append, never thin-replace | this append |
+| R16 | `src/store.ts`'s SQL CHECK is a second source of truth for the gate names | Certain | Medium | keep the SQL list in sync with `GATE_TO_CONTEXT`'s keys; annotate the site | A-1 audit |
