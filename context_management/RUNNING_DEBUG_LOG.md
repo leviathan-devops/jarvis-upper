@@ -712,3 +712,54 @@ rather than assuming the measurement is possible.
 | the exit-2 contract | `scripts/spec-diff.ts:19` (the same pattern) |
 | the CI job | `.github/workflows/gates.yml:1` (the test job) |
 | the battery | `tests/spec_audit.test.ts:1` |
+
+
+---
+
+## [2026-09-22] EN-108 · THE SEVENTH INSTANCE — A HOST-ABSOLUTE PATH IN A TEST
+
+**THE FINDING (the CI's `test` job, run 35775146449):**
+```
+(fail) ship_manifest: wave A assembles manifest; real fence2 adjudicates PASS spec_bound:true
+  76 pass / 1 fail
+```
+
+**THE ROOT CAUSE — `tests/ship_manifest.test.ts:7`:**
+```ts
+const F2 = "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py";
+```
+**A HOST-ABSOLUTE path.** `fence2.py` and its `verdicts.jsonl` live on THIS host, NOT in a CI
+checkout. The test hard-required them.
+
+**THE CLASS — THE SEVENTH INSTANCE:**
+
+| # | the instance | the predicate | what was wrong |
+|---|---|---|---|
+| 1 | W-1 | `find src -newer dist` | the repo LAYOUT |
+| 2 | W-9 | `wc -l` on a `.md` | the artifact CLASS |
+| 3 | W-9 | `wc -l` on a `.md` | the artifact CLASS |
+| 4 | the job id | the `name:` list | the KEY |
+| 5 | the shebang | the 5 header lines | the INTERPRETER |
+| 6 | the phantom gate | the claim + the stat | the COMMIT SHAPE (both halves) |
+| **7** | **the ship_manifest test** | the fence's presence | **THE ENVIRONMENT** |
+| 7b | the spec_audit test | the spec's presence | **THE ENVIRONMENT** |
+
+**THE FIX (both the tool and the test):**
+- `scripts/spec-audit.ts` — the exit-2 contract (EN-107)
+- `tests/spec_audit.test.ts` — branches on `existsSync(SPEC)` (EN-107)
+- `tests/ship_manifest.test.ts` — **`test.skipIf(!FENCE_AVAILABLE)`**: the test declares itself
+  **SKIPPED** when the real adjudicator is absent. **A skip is VISIBLE — neither a false pass nor a
+  false fail.** The ledger path became a const.
+
+**THE LESSON:** **a test that reads a host path tests the HOST, not the code.** The two-sided fix:
+the TOOL loud-fails when it cannot measure; the TEST declares itself skipped when the measurement is
+impossible. Never a silent pass, never a spurious fail.
+
+**THE ANCHORS:**
+| the claim | the anchor |
+|---|---|
+| the fixed test | `tests/ship_manifest.test.ts:7` |
+| the skip condition | `tests/ship_manifest.test.ts:1` |
+| the spec fix | `scripts/spec-audit.ts:9` |
+| the CI job | `.github/workflows/gates.yml:1` |
+| the battery | `tests/ship_manifest.test.ts:1` |
