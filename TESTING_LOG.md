@@ -184,3 +184,89 @@ decoration.
 - **AUDIT GATE: BLOCKED (muse-free lane provider/auth failure — 0 tokens on 3/3 files)**
 - **The artifacts:** `/tmp/sg-ocr-4e0e0b8.json` (13,673B, `session_id 6205f9b1-c082-4d81-a300-bde026b4b0c7`)
 - **The retry condition:** re-run through the alternate lane (the zen-free adapter on :4098, or the poolside-direct lane) per the pinned judge chain, then re-wire this entry. **This BLOCKED state withholds every ship-ready / production-grade claim.** An earlier run on commit `591a14d` returned `status: skipped` (0 files selected — it carried only a `.md`); a skipped run is also not a pass.
+
+---
+
+## [2026-09-22] THE GITHUB MASTER KERNEL — W1 + THE KEYSTONE + THE FIRST CI RUN
+
+### THE TEST RUNS (each by the orchestrator, verbatim)
+
+| # | the test | the command | the result |
+|---|---|---|---|
+| 1 | types | `bunx tsc --noEmit` | **exit 0** |
+| 2 | the battery | `bun test` | **70 pass / 0 fail** |
+| 3 | the W1 standard | `bun test tests/gate_header.test.ts` | **1 pass / 0 fail / 16 expects** |
+| 4 | the keystone | a fresh clone's `git push origin main` | **REFUSED** (`GH013`, 7 of 7 required checks) |
+| 5 | the first CI run | `gh run list` | **completed failure** — the workflow file was rejected |
+| 6 | the contract | `bun run scripts/interface-check.ts` | **INTERFACE:MATCH (7 contexts)** |
+
+### THE LIVE FIRINGS (the enforcement acting on the orchestrator)
+
+| # | the gate | the verdict | the class |
+|---|---|---|---|
+| 001 | W-9 doc-density | **CORRECT** | the wave audits were 36/28 lines |
+| 002 | W-1 deploy-freshness | **GATE DEFECT** | no `extensions/` layout here — fixed |
+| 003 | W-8 claim-evidence | **CORRECT** | a claim word with no artifact |
+| 004 | W-9 doc-density | **GATE DEFECT** | a GitHub PR template — fixed |
+| 005 | W-9 doc-density | **GATE DEFECT** | a checkpoint manifest + copies — fixed |
+| 006 | W-8 claim-evidence | **CORRECT** | `SKILL.md:100` (uppercase) did not match |
+| 007 | **THE RULESET (REMOTE)** | **KEYSTONE** | a fresh clone refused by GitHub |
+| 008 | W-9 doc-density | **CORRECT** | the firing record (76 L) + the rationale (11 L) |
+
+### THE FIRST CI RUN — AND THE DEFECT IT FOUND
+
+The workflow file was **REJECTED ENTIRELY** (zero jobs created):
+```
+$ gh run view 35769132155
+X This run likely failed because of a workflow file issue.
+$ gh api .../actions/runs/35769132155/jobs
+   (EMPTY)
+```
+**The cause:** the JOB IDs contain a slash. GitHub job ids must match `^[a-zA-Z_][a-zA-Z0-9_-]*$`.
+The `name:` values were all correct — which is why 4 desk audits passed. Every check read `name:`;
+nobody read the KEY.
+
+### THE COVERAGE MAP
+
+| the gate | the artifact class | the Jev n | the status |
+|---|---|---|---|
+| W-9 doc-density | an authored engineering doc | — | LIVE (scoped 3×) |
+| W-8 claim-evidence | a commit message | — | LIVE (ABSOLUTE) |
+| W-1 deploy-freshness | a repo WITH `extensions/` | 4 | LIVE (scoped) |
+| W-6 fake-wiring | a test file | — | LIVE |
+| the ruleset (7 contexts) | a PR merge | — | **ARMED** |
+| W-13 silent-fallback | a `src/**/*.ts` diff | 119 | W2 in flight |
+| W-14 no-stub | a `src/**/*.ts` diff | 68 | W2 in flight |
+| W-2 reachability | the pushed tree | 26 | W3 in flight |
+| phantom-diff | a pushed commit range | 70 | W3 in flight |
+| theatrical-verification | a test file | 92 | W4 in flight |
+
+**AUDIT GATE: BLOCKED** — no independent code-audit artifact exists for this build yet. Per the
+DOC CONTRACT, `BLOCKED` is never `PASS`, and every ship-ready claim is withheld until an audit
+lands.
+
+### THE HONEST GAPS
+
+- The CI has run ONCE and FAILED (the workflow-file defect). It has never gone green.
+- The 2 `factory/*` contexts have no poster yet (W5 in flight).
+- No container test exists.
+- `evaluate` mode is unavailable (Enterprise-only) — the rollout law was not followed.
+
+### THE ANCHOR LEDGER (every claim's real file:line — verified this turn)
+
+| the claim | the anchor |
+|---|---|
+| the W1 standard | `.githooks/lib/pattern-header.sh:1` |
+| the W1 test | `tests/gate_header.test.ts:1` |
+| the frozen contract | `src/status-contract.ts:33` (`REQUIRED_CONTEXTS`) |
+| the armed ruleset | `ruleset.json:1` |
+| the ruleset rationale | `ruleset.RATIONALE.md:1` |
+| the CI job ids (the defect) | `.github/workflows/gates.yml:11` |
+| the CI job names (correct) | `.github/workflows/gates.yml:12` |
+| the interface check | `scripts/interface-check.ts:1` |
+| the wave audit | `.trident/plan-A/wave-audit/W1.md:1` |
+| the keystone firing | `.trident/firings/FIRING-007-KEYSTONE.md:1` |
+| the hook (ABSOLUTE) | `.githooks/prepare-commit-msg:39` |
+| the doc floor | `.githooks/pre-commit:21` |
+
+**12 anchors, every one verified by `grep -n` this turn — none invented.**
