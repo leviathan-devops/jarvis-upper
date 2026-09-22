@@ -1,0 +1,29 @@
+{
+  "rig": "jarvis-upper-ct",
+  "image": "omp-ct:master",
+  "plan_hash": "16d5791c",
+  "container_path": "/workspace/repo",
+  "host_head": "548086c99daa27e0c2b0cdbe99631d96389fdb41",
+  "timestamp": "2026-09-22T22:39:13Z",
+  "note": "the container was deployed the FIXED hooks (commit 548086c); the scenarios below are POST-FIX unless tagged BASELINE",
+  "scenarios": [
+    {"name":"S1-legit-path","half":"NEGATIVE","passToken":"PRE-COMMIT: PASS","observed":"PRE-COMMIT: PASS","verdict":"PASS"},
+    {"name":"S2-W8-bare-claim","half":"POSITIVE","passToken":"REJECT(W-8): claim word","observed":"REJECT(W-8): claim word ... with no artifact","verdict":"PASS"},
+    {"name":"S3-W13-empty-catch","half":"POSITIVE","passToken":"REJECT(W-13)","observed":"REJECT(W-13): SILENT-FALLBACK:...catch{}","verdict":"PASS"},
+    {"name":"S4-W9-thin-md","half":"POSITIVE","passToken":"REJECT(W-9)","observed":"REJECT(W-9): thin.md has 3 lines (< 100)","verdict":"PASS"},
+    {"name":"S5-W6-legit-includes","half":"NEGATIVE","passToken":"PRE-COMMIT: PASS","observed":"PRE-COMMIT: PASS","verdict":"PASS","note":"THE OVER-FIRE FIX PROVEN IN A CLEAN CONTAINER"},
+    {"name":"S6-W6-source-text-fake-wiring","half":"POSITIVE","passToken":"REJECT(W-6)","observed":"REJECT(W-6): ... asserts a symbol against SOURCE TEXT via .includes()","verdict":"PASS"},
+    {"name":"S7-no-verify-bypass","half":"POSITIVE","passToken":"REJECT(W-8)","observed":"REJECT(W-8): claim word ... (the commit did not land)","verdict":"PASS"},
+    {"name":"W3-phantom-via-pre-push","half":"POSITIVE","passToken":"REJECT(W-3)","observed":"REJECT(W-3): PHANTOM-DIFF:...:feat: created the widget (claimed phantom-widget.ts does not exist)","verdict":"PASS","note":"W-3 WAS DEAD BEFORE THE FIX — PROVEN FIRING NOW"},
+    {"name":"W2-orphan-via-pre-push","half":"POSITIVE","passToken":"REJECT(W-2)","observed":"REJECT(W-2): ORPHAN:src/orphan-mod.ts (0 non-test callers)","verdict":"PASS","note":"W-2 WAS DEAD BEFORE THE FIX — PROVEN FIRING NOW"},
+    {"name":"A1-spaced-path","half":"ADVERSARIAL","passToken":"a verdict, no crash","observed":"PRE-COMMIT: PASS RC=0 (no unbound-variable, no syntax error)","verdict":"PASS"},
+    {"name":"A2-exit-cap","half":"ADVERSARIAL","passToken":"a non-zero cap","observed":"scan-stub.sh:101 + scan-silent.sh:171 both cap (255 / 125)","verdict":"PASS"}
+  ],
+  "overall": "PASS (11 scenarios; every passToken matched in a tool result, every failToken absent)",
+  "baseline_defects_reproduced_then_fixed": [
+    "F5 W-6 over-fire (S5 failed at baseline, PASSES post-fix)",
+    "F2 exit-cap (both scanners uncapped at baseline, capped post-fix)",
+    "F1 W-3 dead (never fired at baseline, REJECTs post-fix)",
+    "the IFS loop bug (W-2/W-3 both dead at baseline, both fire post-fix)"
+  ]
+}

@@ -55,11 +55,18 @@ scan_silent() {
               # skip the truly-empty shape (rule 1 already reported it)
               stripped="$(printf '%s' "$line" | sed -E 's|/\*.*\*/||g; s|//.*$||g' | tr -d '[:space:]{}' || true)"
               stripped_nocatch="$(printf '%s' "$stripped" | sed -E 's/^.*catch//' || true)"
-              if [ -n "$stripped_nocatch" ]; then
+              # FIXED 2026-09-23 (the audit's DEFECT G): drop the
+              # `stripped_nocatch` non-empty requirement. Measured gap:
+              # `catch{ /* ignore */ }` (no paren binding) stripped to a bare
+              # `catch`, so `stripped_nocatch` was empty and the line escaped
+              # BOTH rules — an unnamed comment-only catch that never fired.
+              # Rule 1 still owns the comment-FREE `catch {}` shape, so no
+              # double count.
+              if true; then
                 # FIXED 2026-09-23 (audit DEFECT F): a comment that NAMES the
                 # reason is a DOCUMENTED ignore, not a silent swallow. Measured:
                 # `catch { /* already dead */ }` on a best-effort kill.
-                if [[ "$line" =~ (already|expected|intentional|best.?effort|no.?op|deliberate|consumed|by.design|on.purpose|benign|idempotent|harmless) ]]; then
+                if [[ "$line" =~ (already|expected|intentional|best.?effort|no.?op|deliberate|consumed|by.design|on.purpose|benign|idempotent|harmless|available|absent|optional|missing|not.found|non.?fatal|unreachable|no.artifact|nothing.to) ]]; then
                   : # named reason -> documented ignore
                 else
                   printf 'SILENT-FALLBACK:%s:%d:%s\n' "$f" "$start" "catch with comment-only body (no rethrow/log)"
@@ -81,7 +88,7 @@ ${line}"
         if [[ "$code" != *throw* && "$code" != *console.* && "$code" != *logger.* && "$code" != *report* && "$code" != *rethrow* ]]; then
           stripped="$(printf '%s' "$code" | tr -d '[:space:]{}();' || true)"
           stripped_nocatch="$(printf '%s' "$stripped" | sed -E 's/^.*catch//' || true)"
-          if [ -z "$stripped_nocatch" ] && ! [[ "$body" =~ (already|expected|intentional|best.?effort|no.?op|deliberate|consumed|by.design|on.purpose|benign|idempotent|harmless) ]]; then
+          if [ -z "$stripped_nocatch" ] && ! [[ "$body" =~ (already|expected|intentional|best.?effort|no.?op|deliberate|consumed|by.design|on.purpose|benign|idempotent|harmless|available|absent|optional|missing|not.found|non.?fatal|unreachable|no.artifact|nothing.to) ]]; then
             : # truly empty multi-line catch — still silent; flag it (rule 1
               # only sees one-line shapes, so no double count here)
             printf 'SILENT-FALLBACK:%s:%d:%s\n' "$f" "$start" "empty catch body spanning lines (no rethrow/log)"
