@@ -15,6 +15,9 @@ import { EventRail, parseSse } from "../ao-client/rail";
 import { reduceEvent } from "./reducers";
 import { health } from "../ao-client/client";
 import { wireCapturePath } from "./status";
+import { verify, type VerifyOpts, type VerifyResult } from "./verdict";
+import { publishStatus, publishVerdict, type PublishResult } from "./publish";
+import { STATUS_CONTEXTS } from "./status-contract";
 
 export const DAEMON = process.env.AO_DAEMON ?? "http://localhost:3001";
 const TICK_MS = Number(process.env.UPPER_TICK_MS ?? 15000);
@@ -24,6 +27,9 @@ export interface RuntimeDeps {
   listPrs?: () => Promise<PrRow[]>;
   rails?: (db: Database, root: string) => Promise<RailCapture>;
   now?: () => Date;
+  // W5 — the publish target. When present, the tick publishes the two
+  // factory/* statuses for every eligible PR (sha/headSha are per-PR).
+  publishOpts?: Omit<PublishVerdictForPrOpts, "sha" | "headSha">;
 }
 
 export interface Runtime {
@@ -71,6 +77,69 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
   } catch { return { frames: 0, bytes: 0, lastSeq: 0 }; }
 }
 
+export interface PublishVerdictForPrOpts {
+  owner: string;
+  repo: string;
+  sha: string;
+  token?: string;
+  baseUrl?: string;
+  fetchImpl?: typeof fetch;
+  jobDir: string;
+  sessionId?: string;
+  headSha?: string;
+  verifyImpl?: (opts: VerifyOpts) => Promise<VerifyResult>;
+  runFence?: VerifyOpts["runFence"];
+  fetchReviews?: VerifyOpts["fetchReviews"];
+  ledgerPath?: string;
+  bind?: VerifyOpts["bind"];
+}
+
+// W5 — publishVerdictForPr: the verdict -> publisher wire. A REAL verify()
+// produces the two factory/* statuses the ruleset waits on.
+//
+// VERDICT->FLAG MAPPING (stated, never guessed):
+//   fence2Ok  = verify.sources.fence.reason === "FENCE-GREEN"
+//   verdictOk = verify.verdict === "VERIFIED"
+// (verdictOk is the whole two-source law: BOTH sources green on the SAME head
+// sha. fence2Ok is the fence half alone. An UNVERIFIED verdict therefore always
+// posts at least one failure — the verdict context reads "verdict: not approved".)
+//
+// THE POLARITY LAW:
+//   - a FAILED verify (UNVERIFIED) MUST produce at least one state:"failure"
+//     (publishVerdict maps false -> "failure", so fence2Ok=false or
+//     verdictOk=false each yield a red context).
+//   - a verify that CANNOT RUN (the fence unreachable: runFence/fetchReviews
+//     throw, the fence never ran, FENCE-NOT-RUN / FENCE-NO-INVARIANT-SHA sits in
+//     reasons) MUST produce state:"error" for at least one context — NEVER a
+//     green. This function detects the cannot-run shape and POSTs a direct
+//     publishStatus error on factory/fence2, leaving verdictOk=false so the
+//     second context stays red. A throwing POST rail likewise yields
+//     state:"error" via publish.ts's LOUD-FAIL law — also never green.
+export async function publishVerdictForPr(opts: PublishVerdictForPrOpts): Promise<PublishResult[]> {
+  const headSha = opts.headSha ?? opts.sha;
+  const sessionId = opts.sessionId ?? "";
+  const doVerify = opts.verifyImpl ?? verify;
+  const v = await doVerify({ jobDir: opts.jobDir, headSha, sessionId, runFence: opts.runFence, fetchReviews: opts.fetchReviews, ledgerPath: opts.ledgerPath, bind: opts.bind });
+  const fence2Ok = v.sources.fence.reason === "FENCE-GREEN";
+  const verdictOk = v.verdict === "VERIFIED";
+  const pubOpts = { owner: opts.owner, repo: opts.repo, sha: opts.sha, token: opts.token, baseUrl: opts.baseUrl, fetchImpl: opts.fetchImpl };
+  const cannotRun = v.sources.fence.ran === false && v.reasons.some((r) => r.startsWith("FENCE-"));
+  if (cannotRun) {
+    // THE POLARITY LAW, cannot-run branch: the fence never ran, so its state is
+    // UNKNOWN — an honest error, never a green and never a mere failure. POST the
+    // error context directly, then the red verdict context. Zero success by construction.
+    const desc = v.reasons.find((r) => r.startsWith("FENCE-"))?.slice(0, 140) ?? "fence unreachable";
+    const fenceErr = await publishStatus(pubOpts, { context: STATUS_CONTEXTS.fence2, state: "error", description: desc });
+    const red = await publishStatus(pubOpts, { context: STATUS_CONTEXTS.verdict, state: "failure", description: "verdict: not approved" });
+    return [fenceErr, red].map((r) => r.state === "success" ? { ...r, state: "failure" as const, ok: false, reason: "CANNOT-RUN-MUST-NOT-POST-SUCCESS" } : r);
+  }
+  return publishVerdict(pubOpts, {
+    fence2Ok,
+    verdictOk,
+    description: v.verdict === "VERIFIED" ? "verdict: approved" : v.reasons[0]?.slice(0, 140) ?? "verdict: not approved",
+  });
+}
+
 export function createRuntime(opts: { root: string; db?: Database; deps?: RuntimeDeps }): Runtime {
   const root = opts.root;
   const db = opts.db ?? openStore();
@@ -81,6 +150,9 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
   const listPrs = deps.listPrs ?? ((): Promise<PrRow[]> => listPrsFromAo());
   const rails = deps.rails ?? defaultRails;
   const now = deps.now ?? (() => new Date());
+  // W5 — the publish target (absent by default: the tick publishes only when
+  // a caller supplies it, so a bare runtime tick never POSTs to GitHub).
+  const publishOpts = deps.publishOpts;
 
   const state = { running: false, tick: 0 };
   let last: RuntimeStatus | null = null;
@@ -114,9 +186,27 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       { last_seq: number } | null;
     const cursor = cs?.last_seq ?? 0;
 
-    const readyRows = db.query("SELECT id FROM pr_node WHERE state='ready_to_merge'").all() as { id: string }[];
+    const readyRows = db.query("SELECT id, head_sha FROM pr_node WHERE state='ready_to_merge'").all() as
+      { id: string; head_sha: string | null }[];
     const ready = readyRows.length;
     const eligible = readyRows.filter((r) => guardrail(db, r.id).ok).length;
+
+    // W5 — publish the verdict for every ELIGIBLE PR. The two `factory/*`
+    // contexts the ruleset requires are posted here. A publish failure MUST
+    // NEVER crash the tick: it is logged into errors[] and the tick continues.
+    // Only eligible PRs publish (an ineligible PR has nothing to certify yet).
+    if (publishOpts) {
+      for (const r of readyRows) {
+        if (!guardrail(db, r.id).ok) continue;
+        const headSha = r.head_sha ?? "";
+        if (!headSha) continue;
+        try {
+          await publishVerdictForPr({ ...publishOpts, sha: headSha, headSha });
+        } catch (e) {
+          errors.push(`publish:${r.id}:${String(e).slice(0, 60)}`);
+        }
+      }
+    }
 
     const plan = orderMerges(db);
     planKind = plan.kind as RuntimeStatus["planKind"];
