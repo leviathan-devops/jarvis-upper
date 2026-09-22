@@ -52,6 +52,14 @@ gate_pass() {
 # header_ok <a gate file> — exit 0 iff the file carries all 5 header lines,
 # exit 1 otherwise (missing file included).
 header_ok() {
+  # A HOOK WITHOUT A SHEBANG IS BROKEN: git invokes it via the shebang's
+  # interpreter; with none, `sh` runs it and `set -o pipefail` fails.
+  # This check exists because W3 dropped the shebang from two hooks and
+  # NOTHING CAUGHT IT until a real git commit failed.
+  local f="$1"
+  [ -f "$f" ] || return 1
+  head -1 "$f" | grep -q '^#!' || return 1
+
   local f="${1:?"header_ok <gate-file>"}"
   [ -f "$f" ] || return 1
   grep -qE '^# GATE ' "$f" || return 1

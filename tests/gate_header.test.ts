@@ -41,7 +41,10 @@ test("test_gate_header_standard", () => {
   // 4. header_ok: exit 0 on a file carrying all 5 lines, exit 1 on one missing a line.
   const dir = mkdtempSync(join(tmpdir(), "gate-header-"));
   const good = join(dir, "good.sh");
-  writeFileSync(good, h.out);
+  // a REAL gate carries a shebang first (git uses it to pick the interpreter);
+  // header_ok now requires it — a hook without one runs under `sh` and
+  // `set -o pipefail` fails. The fixture must match the real shape.
+  writeFileSync(good, "#!/usr/bin/env bash\n" + h.out);
   const okGood = sh(`header_ok "${good}"; echo "exit=$?"`);
   expect(okGood.out).toContain("exit=0");
 

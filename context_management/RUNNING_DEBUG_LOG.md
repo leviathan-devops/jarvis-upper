@@ -483,3 +483,59 @@ runtime-grade law, proven in the field.
 | the armed ruleset | `ruleset.json:1` |
 | the same class locally | `.githooks/prepare-commit-msg:27` |
 | the firing record | `.trident/firings/FIRING-010-CI-ALIVE.md:1` |
+
+---
+
+## EN-104 · ★ TWO HOOKS LOST THEIR SHEBANGS — AND NOTHING CAUGHT IT (2026-09-22)
+
+**THE FINDING:** W3's edit to `.githooks/prepare-commit-msg` and `.githooks/pre-push` **replaced
+the shebang line with the W1 header comment.** Both hooks became non-executable-as-bash.
+
+**THE EVIDENCE:**
+```
+$ head -1 .githooks/prepare-commit-msg
+# GATE W-8 — claim-evidence        <- THE SHEBANG IS GONE
+
+$ git commit -m "..."
+.githooks/prepare-commit-msg: 25: set: Illegal option -o pipefail
+   (the commit DID NOT LAND)
+
+$ head -1 .githooks/pre-push
+# GATE W-2 — reachability          <- THE SHEBANG IS GONE
+```
+
+**THE MECHANISM:** a hook's shebang is what tells git which interpreter to use. With no shebang,
+git falls back to `/bin/sh` — **and `sh` (dash) has no `set -o pipefail`.** The hook exits 2
+before doing any work. **The ABSOLUTE keystone hook was broken.**
+
+**WHY NOTHING CAUGHT IT:**
+- The battery was GREEN (72 pass) — no test exercised a real `git commit`.
+- `header_ok` checked the 5 header lines but **NOT the shebang.**
+- The desk's own tests invoked the hooks with `bash <path>` explicitly — **which ignores the
+  shebang**, so they passed.
+
+**THE THIRD DEFECT CLASS:** this is the same family again — **a check that validates the thing it
+looks at, not the thing that is wrong.**
+| the check | what it validated | what was wrong |
+|---|---|---|
+| 4 desk audits | the YAML `name:` fields | the job KEY |
+| `header_ok` (before) | the 5 header lines | the shebang |
+| the desk's tests | `bash <hook>` | git's actual invocation path |
+
+**THE FIXES (all three):**
+1. `prepare-commit-msg` — shebang restored at line 1
+2. `pre-push` — shebang restored at line 1
+3. **`header_ok` now REQUIRES a shebang** — the structural fix, so the class cannot recur
+4. the W1 test's `good` fixture now carries a shebang (it must match the real shape)
+
+**THE BATTERY AFTER: 73 pass / 0 fail.**
+
+**THE ANCHORS:**
+| the claim | the anchor |
+|---|---|
+| the keystone hook | `.githooks/prepare-commit-msg:1` (`#!/usr/bin/env bash`) |
+| the pre-push hook | `.githooks/pre-push:1` |
+| the shebang check | `.githooks/lib/pattern-header.sh` (`header_ok`) |
+| the test fixture | `tests/gate_header.test.ts:44` |
+| the unowned hook | `.githooks/commit-msg:1` (has a shebang, no header — no desk owns it) |
+| the failing commit | the `set: Illegal option -o pipefail` output above |
