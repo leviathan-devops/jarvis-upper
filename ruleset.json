@@ -32,6 +32,9 @@
             "context": "gates/test"
           },
           {
+            "context": "gates/theatrical-verification"
+          },
+          {
             "context": "factory/fence2"
           },
           {

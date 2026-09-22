@@ -539,3 +539,81 @@ looks at, not the thing that is wrong.**
 | the test fixture | `tests/gate_header.test.ts:44` |
 | the unowned hook | `.githooks/commit-msg:1` (has a shebang, no header — no desk owns it) |
 | the failing commit | the `set: Illegal option -o pipefail` output above |
+
+---
+
+## EN-105 · ★ THE PHANTOM GATE HAD *BOTH* HALVES BROKEN (2026-09-22)
+
+**THE FINDING:** the W3 phantom-diff gate (Jev 70) had two defects — one that made it NEVER fire
+and one that made it fire on EVERYTHING. The desk's own test caught both.
+
+### DEFECT A — THE GATE COULD NEVER FIRE (under-firing)
+
+```bash
+CLAIM_RE="^[^:]*(complete[d]?|done|finished|implemented|added|built|landed|shipped|delivered)"
+```
+
+**MEASURED:**
+```
+$ printf 'feat: implemented the thing\n' | grep -qiE "$CLAIM_RE"  -> *** DOES NOT MATCH ***
+$ printf 'feat: implemented the thing\n' | grep -oiE "^[^:]*"      -> feat
+```
+
+**THE MECHANISM:** `^[^:]*` consumes the TYPE PREFIX and **stops at the first colon.** The claim
+word then must appear BEFORE the colon — but this repo's convention puts the type before the colon
+(`feat:`) and the claim AFTER it. **The regex could never match a real commit in this repo.**
+
+**A GATE THAT NEVER FIRES IS WORSE THAN NO GATE.** It looks like enforcement and does nothing.
+
+**THE FIX:**
+```bash
+CLAIM_RE='^[a-z]+(\([^)]*\))?:[[:space:]]*(complete[d]?|done|finished|implemented|added|built|landed|shipped|delivered)'
+```
+
+### DEFECT B — THE GATE FIRED ON EVERYTHING (over-firing)
+
+```bash
+STAT=$(git diff --stat "$SHA"^.."$SHA" 2>/dev/null || git diff --stat --root "$SHA" 2>/dev/null)
+```
+
+**MEASURED (a scratch repo, all three commit shapes):**
+```
+git diff --stat "$SHA"^.."$SHA"   -> error (a root commit has no parent)
+git diff --stat --root "$SHA"     -> EMPTY (silently — `--root` is NOT a valid `git diff` flag)
+  STAT=[]  -> [ -z "$STAT" ] is TRUE -> FIRES on every root commit
+```
+
+**`git diff --root` is not a valid flag for `git diff`.** It silently returns empty, so
+**every root commit looked like a phantom.**
+
+**THE FIX — one command, correct for all three shapes:**
+```bash
+STAT=$(git show --stat --format="" "$SHA" 2>/dev/null)
+```
+Verified: a root commit with a change -> `foo.ts | 1 +`; a normal commit -> `bar.ts | 1 +`; an
+empty commit -> `""` (correctly fires).
+
+### ★ THE SIXTH INSTANCE OF THE CLASS
+
+| # | the instance | the predicate | what was wrong |
+|---|---|---|---|
+| 1 | W-1 | `find src -newer dist` | the repo LAYOUT |
+| 2 | W-9 | `wc -l` on a `.md` | the artifact CLASS (a GitHub template) |
+| 3 | W-9 | `wc -l` on a `.md` | the artifact CLASS (a checkpoint manifest) |
+| 4 | the job id | the `name:` list | the KEY |
+| 5 | the shebang | the 5 header lines | the INTERPRETER |
+| 6 | **the phantom regex** | the claim word | **the COMMIT-MESSAGE SHAPE** |
+| 6b | **the phantom stat** | the diff | **the ROOT-COMMIT SHAPE** |
+
+**THE LAW, COMPLETE:** a gate is a **(predicate x artifact-class x author x shape)** tuple. Every
+axis that is not named is an axis the gate can be wrong about — and a gate wrong on any axis is
+either silent (and looks like enforcement) or deafening (and gets bypassed).
+
+**THE ANCHORS:**
+| the claim | the anchor |
+|---|---|
+| the claim regex | `.githooks/lib/scan-phantom.sh:44` |
+| the stat command | `.githooks/lib/scan-phantom.sh` (the STAT block) |
+| the test that caught both | `tests/gate_phantom_reach.test.ts:47` + `:58` |
+| the W1 standard | `.githooks/lib/pattern-header.sh:1` |
+| the firing record | `.trident/firings/FIRING-010-CI-ALIVE.md:1` |
