@@ -1,3 +1,16 @@
+// GATE-HEADER STANDARD (W1 interfaces wave) — status-contract.ts.
+// WHAT IT IS: the FROZEN status-context contract — the 7 external contexts the
+//   ruleset waits on (gates/anti-theatrical · gates/issue-link · gates/spec-gate ·
+//   gates/diff-budget · gates/test · factory/fence2 · factory/verdict), the
+//   internal->external GATE_TO_CONTEXT mapping, and the POST statuses shape.
+// JEV RATIONALE: derived, not invented — it closes the measured mismatch below
+//   (guardrail's 4 internal gate names vs the ruleset's 7 external contexts,
+//   ZERO spelling overlap). DPL1 §5 names the class: a predicate (the publisher
+//   POSTing a state) without its artifact class (the exact context strings the
+//   ruleset waits on) leaves the merge button dead with every check green.
+// ARTIFACT CLASS: a TypeScript module consumed by the hooks, the publisher,
+//   and the ruleset — scripts/interface-check.ts asserts it matches ruleset.json.
+// FROZEN: do not rename entries without updating the ruleset in lockstep.
 // status-contract.ts — FROZEN STATUS-CONTEXT CONTRACT (source of truth).
 //
 // WHY THIS FILE EXISTS — the mismatch:
