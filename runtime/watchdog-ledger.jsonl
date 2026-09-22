@@ -1161,3 +1161,9 @@
 {"ts": "2026-09-22T23:16:33Z", "ao_http": "000000", "tick_age_s": 5, "prNodes": "0", "problems": ["AO-DOWN:http-000000", "PRNODES-ZERO:railway-empty"]}
 {"ts": "2026-09-22T23:18:38Z", "ao_http": "000000", "tick_age_s": 11, "prNodes": "0", "problems": ["AO-DOWN:http-000000", "PRNODES-ZERO:railway-empty"]}
 {"ts": "2026-09-22T23:20:35Z", "ao_http": "000000", "tick_age_s": 7, "prNodes": "0", "problems": ["AO-DOWN:http-000000", "PRNODES-ZERO:railway-empty"]}
+{"ts": "2026-09-22T23:22:38Z", "ao_http": "000000", "tick_age_s": 10, "prNodes": "0", "problems": ["AO-DOWN:http-000000", "PRNODES-ZERO:railway-empty"]}
+{"ts": "2026-09-22T23:24:38Z", "ao_http": "000000", "tick_age_s": 10, "prNodes": "0", "problems": ["AO-DOWN:http-000000", "PRNODES-ZERO:railway-empty"]}
+{"ts": "2026-09-22T23:26:43Z", "ao_http": "000000", "tick_age_s": 0, "prNodes": "0", "problems": ["AO-DOWN:http-000000", "PRNODES-ZERO:railway-empty"]}
+{"ts": "2026-09-22T23:28:44Z", "ao_http": "000000", "tick_age_s": 1, "prNodes": "0", "problems": ["AO-DOWN:http-000000", "PRNODES-ZERO:railway-empty"]}
+{"ts": "2026-09-22T23:30:45Z", "ao_http": "000000", "tick_age_s": 2, "prNodes": "0", "problems": ["AO-DOWN:http-000000", "PRNODES-ZERO:railway-empty"]}
+{"ts": "2026-09-22T23:32:51Z", "ao_http": "000000", "tick_age_s": 8, "prNodes": "0", "problems": ["AO-DOWN:http-000000", "PRNODES-ZERO:railway-empty"]}

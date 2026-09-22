@@ -305,9 +305,3 @@ parallel waves hardened it (`.githooks/**` 33 findings · `.github/**` 7 · `src
 - **4 W3 findings deferred** (the reachability worktree-vs-pushed-tree nuance, the stub body parser,
   the brace-count approximation) — recorded in `.trident/wave-audit/W3-desk.md`.
 - **F2 (CODEOWNERS single owner)** deferred to the operator (no second handle exists).
-
-## [2026-09-22T23:34:40Z] — THE P7 CHECKPOINT SEALED
-`Checkpoints/github-master-kernel-ocr-hardened-20260922-232253` — Mode A (the full-tree copy: src 20 .ts · the 8 gates · the CI · the 11 canon docs · the 6
-ship docs · the build package · the wave audits · the container results). `DEPLOYED_SHA.txt` carries
-HEAD + the per-hook sha256. The manifest records the state, the verification at seal, and the 6
-honest gaps. HEAD at seal: b4d91c8.

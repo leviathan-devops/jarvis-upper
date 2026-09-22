@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# GATE W-2 — reachability
+# JEV COUNT: 26   (the measured occurrences in the 298-file corpus)
+# ARTIFACT CLASS: the pushed commit range's src tree
+# SURFACE: pre-push
+# PREDICATE READS: the pushed commit range's src tree — NEVER prose
+#
+# pre-push — local early-deny for the protected branch.
+#
+# CHECK 1: main is protected by the ruleset (later wave); this refuses the push
+# locally before it ever reaches the remote. Has no --no-verify escape.
+#
+# CHECK 2 (W-2 reachability, Jev 26): every src/**/*.ts module in the pushed
+# range must have at least ONE non-test reference (a file under src/, scripts/,
+# gates/, or bin/ that names the module's stem). A module with zero non-test
+# callers is an orphan — proof that the module is built but unreachable.
+# Derived from gates/orphan_scan.sh's scan() function.
+#
+# INPUT: $1 = remote name, $2 = remote url; stdin lines:
+#   <local-ref> <local-sha> <remote-ref> <remote-sha>
+set -uo pipefail
+
+source "$(dirname "$0")/lib/pattern-header.sh" 2>/dev/null || true
+# WIRED 2026-09-23 (ocr F1 / the audit DEFECT A): scan-phantom.sh existed as a
+# proper library but was NEVER sourced here, so W-3 never fired. A gate on disk
+# that never fires is a FALSE GREEN.
+source "$(dirname "$0")/lib/scan-phantom.sh" 2>/dev/null || true
+
+REMOTE="${1:-}"
+REMOTE_URL="${2:-}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# FIXED 2026-09-23: the 4-field ref line MUST use the default IFS. `IFS= read -r
+#   a b c d` assigns the WHOLE line to `a` and leaves b/c/d EMPTY -> the
+#   `[ -z "$remote_sha" ]` guard is always true -> every ref `continue`s ->
+#   W-2 and W-3 NEVER FIRE. (Found by RUNNING the hook, not reading it.)
+# --- CAPTURE STDIN ONCE (git sends the ref lines on stdin; a second read
+#     gets nothing — the bug that made this gate never fire) ---
+STDIN_LINES="$(cat)"
+
+# --- CHECK 1: refuse direct pushes to main ---
+while read -r local_ref _local_sha remote_ref _remote_sha; do
+  [ -z "${local_ref:-}" ] && continue
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    echo 'REJECT: direct pushes to main are not permitted; open a PR.' >&2
+    exit 1
+  fi
+done <<< "$STDIN_LINES"
+
+# --- CHECK 2: W-2 reachability gate ---
+# FIXED (W1 audit): loop ALL pushed refs (not just the first), derive
+# per-ref range from STDIN (<remote-sha>..<local-sha>), use NUL-safe
+# while loops, and anchor stem match with word boundaries.
+#
+# Strategy: for each pushed ref, compute the diff range, find changed
+# src/**/*.ts files, and check each has at least one non-test caller
+# using word-boundary grep.
+
+FAIL=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "${local_ref:-}" ] && continue
+  # Skip DELETEs only.
+  [ "$local_ref" = "DELETE" ] && continue
+  # FIXED 2026-09-23: the old guard `[ -z "$remote_sha" ] || [ "$remote_sha" =
+  # "000...0" ] && continue` ALSO skipped every NEW branch (git sends the all-zero
+  # remote sha for a new ref), so a first push of a branch was never checked.
+  # A new ref is a real push and MUST be scanned. (Same false-green class as the
+  # IFS bug above — found by pushing, not reading.)
+  if [ -z "${local_sha:-}" ] || [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+    continue   # the local ref was deleted; nothing to scan
+  fi
+  if [ -z "${remote_sha:-}" ] || [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+    RANGE="$local_sha"          # NEW ref: scan all commits reachable from it
+    NEW_REF=1
+  else
+    RANGE="${remote_sha}..${local_sha}"
+    NEW_REF=0
+  fi
+
+  # --- CHECK 3 (W-3 phantom-completion): a commit in this ref's range claims a
+  #     file was created/added, but that file does not exist at the commit.
+  PHANTOM_OUT="$(scan_phantom "$RANGE" 2>/dev/null || true)"
+  if [ -n "$PHANTOM_OUT" ]; then
+    printf 'REJECT(W-3): %s\n' "$PHANTOM_OUT" >&2
+    FAIL=1
+  fi
+
+  # Find changed src/**/*.ts files in this ref's range.
+  if [ "${NEW_REF:-0}" = "1" ]; then
+    CHANGED_SRC=$(git ls-tree -r --name-only "$local_sha" 2>/dev/null | grep '^src/.*\.ts$' || true)
+  else
+    CHANGED_SRC=$(git diff --name-only --diff-filter=ACM "$RANGE" 2>/dev/null | grep '^src/.*\.ts$' || true)
+  fi
+
+  [ -z "$CHANGED_SRC" ] && continue
+
+  # NUL-safe loop over filenames (no word-splitting).
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+
+    BASENAME=$(basename "$f" .ts)
+
+    # Skip known entry points (derived from gates/orphan_scan.sh).
+    case "$BASENAME" in
+      main|runtime|cli|status) continue ;;
+    esac
+
+    # Count non-test references using word-boundary grep.
+    # `\<$BASENAME\>` matches the stem as a whole word, preventing
+    # `run` from matching `runtime`, `plan` from matching `explain`.
+    REFS=$(grep -rlw --include='*.ts' --include='*.js' --include='*.sh' --include='*.json' \
+           -- "$BASENAME" src/ scripts/ gates/ bin/ 2>/dev/null \
+           | grep -v "^$f\$" | grep -v '^tests' | wc -l | tr -d ' ')
+
+    if [ "$REFS" = "0" ]; then
+      printf 'REJECT(W-2): ORPHAN:%s (0 non-test callers)\n' "$f" >&2
+      FAIL=1
+    fi
+  done <<< "$CHANGED_SRC"
+
+done <<< "$STDIN_LINES"
+
+[ "$FAIL" -eq 1 ] && exit 1
+exit 0
