@@ -55,7 +55,9 @@ test("test_gate_header_standard", () => {
   writeFileSync(bare, "#!/usr/bin/env bash\nset -uo pipefail\nFAIL=0\n");
   const okBare = sh(`header_ok "${bare}"; echo "exit=$?"`);
   expect(okBare.out).toContain("exit=1");
-  // the live case: pre-commit carries no header YET (W2/W3 add headers later).
+  // the live case: pre-commit NOW carries a header (W2 added it) — the assertion
+  // was a W1-era snapshot ("no header YET") and is updated to the new truth.
+  // The NEGATIVE half is preserved by the synthetic bare file above.
   const okPre = sh(`header_ok .githooks/pre-commit; echo "exit=$?"`);
-  expect(okPre.out).toContain("exit=1");
+  expect(okPre.out).toContain("exit=0");
 });

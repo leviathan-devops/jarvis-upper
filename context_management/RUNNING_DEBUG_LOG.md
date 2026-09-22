@@ -366,3 +366,61 @@ thing it was looking at, not the thing that was wrong.**
 | the contract | `src/status-contract.ts:33` (`REQUIRED_CONTEXTS`) |
 | the run | the `gh run list` output above (run 35769132155) |
 | the branch | `feat/github-master-kernel` |
+
+---
+
+## EN-102 · TWO DEFECTS THE BATTERY FOUND (2026-09-22)
+
+### DEFECT A — the round-zero checkpoint was missing CHECKPOINT_STRUCTURE.md
+
+**THE EVIDENCE:**
+```
+$ bun test
+(fail) docs_current: the MODE-B checkpoint is on disk with both floors and a spaceless token
+  Expected: true   Received: false
+      at tests/docs_current.test.ts:65:27
+```
+
+**THE ROOT CAUSE:** `tests/docs_current.test.ts:65` asserts the NEWEST checkpoint carries BOTH
+`CHECKPOINT_MANIFEST.md` (>= 40 lines) AND `CHECKPOINT_STRUCTURE.md` (>= 30 lines). My round-zero
+checkpoint had the manifest but **not the structure doc.** `saving-checkpoints/SKILL.md` lists
+`CHECKPOINT_STRUCTURE.md` in the mandatory structure — I skipped it.
+
+**THE FIX:** added `Checkpoints/round-zero-pre-w1-20260922-222831/CHECKPOINT_STRUCTURE.md`
+(93 lines) with the complete structure listing, the file counts, the state, and the honest gaps.
+
+**THE LESSON:** the checkpoint skill's structure list is MANDATORY, and an EXISTING TEST enforces
+it. Reading the skill's tree diagram would have caught it before the test did.
+
+### DEFECT B — a W1-era assertion went stale when W2 landed
+
+**THE EVIDENCE:**
+```
+(fail) tests/gate_header.test.ts
+  the assertion: header_ok .githooks/pre-commit -> exit=1 ("carries no header YET")
+  the new truth:  header_ok .githooks/pre-commit -> exit=0 (W2 added the header)
+```
+
+**THE ROOT CAUSE:** the W1 test asserted a SNAPSHOT of the state at W1 time ("pre-commit carries no
+header YET — W2/W3 add headers later"). W2 then added the header, which made the assertion false.
+**The test was correct when written and became wrong by design.** The W2 desk FLAGGED it rather
+than silently changing another desk's file — the correct move.
+
+**THE FIX:** the assertion updated to `exit=0`; the NEGATIVE half (a synthetic headerless file must
+return exit=1) is preserved, so the checker's discriminating power is still proven.
+
+**THE LESSON:** an assertion that encodes "X does not exist YET" is a TIME BOMB — it inverts the
+moment a later wave lands X. Write the negative case against a SYNTHETIC fixture, never against the
+live artifact that a sibling wave is about to change.
+
+**THE ANCHORS:**
+| the claim | the anchor |
+|---|---|
+| the checkpoint test | `tests/docs_current.test.ts:65` |
+| the checkpoint skill's structure | `saving-checkpoints/SKILL.md` (the structure tree) |
+| the fixed structure doc | `Checkpoints/round-zero-pre-w1-20260922-222831/CHECKPOINT_STRUCTURE.md:1` |
+| the stale assertion | `tests/gate_header.test.ts:58` |
+| the W2 scanners | `.githooks/lib/scan-silent.sh:1` · `.githooks/lib/scan-stub.sh:1` |
+| the W1 standard | `.githooks/lib/pattern-header.sh:1` |
+
+**THE BATTERY AFTER BOTH FIXES: 72 pass / 0 fail.**
