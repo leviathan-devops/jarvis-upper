@@ -10,9 +10,20 @@ STAGED="$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)"
 [ -z "$STAGED" ] && { echo 'PRE-COMMIT: PASS'; exit 0; }
 
 # W-9 doc-density: each staged *.md must be >= 100 lines AND carry
+#
+# SCOPED (2026-09-22, orchestrator fix): the floor is an ENGINEERING-DOC law
+# (architecture/spec/report/audit/log). GitHub's own .github/ artifacts --
+# pull_request_template.md, ISSUE_TEMPLATE/*.md -- are a DIFFERENT artifact
+# class: their length and structure are set by GitHub's UI, and a 100-line PR
+# template is unusable. The floor applies to docs; the templates are exempt.
+# This is the same defect class as W-1: a gate ported without checking the
+# artifact class it lands on.
 # >= 3 path.ext:NN anchors.
 while IFS= read -r f; do
   [ -z "$f" ] && continue
+  case "$f" in
+    .github/*) continue ;;   # GitHub-format templates: exempt (own format law)
+  esac
   case "$f" in
     *.md)
       if [ -f "$f" ]; then

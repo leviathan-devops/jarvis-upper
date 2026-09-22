@@ -1,10 +1,16 @@
 // interface-check.ts — the cross-plan boundary gate (hydra §0.3).
 // Asserts the 7 status contexts agree between Plan A's contract and Plan B's ruleset.
 // exit 0 = the two plans agree; exit 1 = they disagree (named); exit 2 = cannot measure.
+//
+// PATHS resolve against THIS SCRIPT's directory (import.meta.dir), never CWD —
+// a checker invoked from the repo root and from scripts/ must behave identically.
 import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-const CONTRACT = "./src/status-contract.ts";
-const RULESET = "./ruleset.json";
+const HERE = import.meta.dir;            // .../jarvis-upper/scripts
+const ROOT = dirname(HERE);              // .../jarvis-upper
+const CONTRACT = join(ROOT, "src", "status-contract.ts");
+const RULESET = join(ROOT, "ruleset.json");
 
 if (!existsSync(CONTRACT)) { console.error("INTERFACE-ERROR:contract-missing:" + CONTRACT); process.exit(2); }
 if (!existsSync(RULESET))  { console.error("INTERFACE-ERROR:ruleset-missing:" + RULESET);  process.exit(2); }

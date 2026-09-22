@@ -115,3 +115,68 @@ by two different gates.
 
 The remote half (the ruleset + CI blocking a PR) requires Phase 0's Pro upgrade and the B-3 wave.
 But the local half is now MEASURED, not claimed.
+
+---
+
+# FIRINGS 002-004 — THE HOOKS' SECOND, THIRD AND FOURTH LIVE FIRINGS
+
+All four firings hit the orchestrator. Two were correct; two were hook defects.
+
+## FIRING 002 — W-9 on the firing record itself
+```
+REJECT(W-9): .trident/firings/FIRING-001.md has 36 lines (< 100)
+REJECT(W-1): staged src/ change with no staged extensions/ change
+```
+W-9 was **correct** (the doc was thin). W-1 was a **hook defect** (see §7).
+
+## FIRING 003 — W-8 on my own commit message
+```
+REJECT(W-8): claim word (verified|passed|tested|works|green) with no artifact;
+             include a test count ("N pass"/"N tests"), a sha ([a-f0-9]{7,}), or a file:line
+```
+**Correct, and subtle.** My B-2 audit commit message said the scripts' branches were
+"verified" but carried no artifact in the MESSAGE BODY (the evidence was in the staged file,
+not the message). The gate reads the message. `src/status-contract.ts` style anchors:
+`scripts/spec-diff.ts:74`, `.githooks/prepare-commit-msg:47`, `tests/publish_shape.test.ts:1`.
+
+## FIRING 004 — W-9 on GitHub's own templates (a HOOK DEFECT)
+```
+REJECT(W-9): .github/ISSUE_TEMPLATE/task.md has 19 lines (< 100)
+REJECT(W-9): .github/pull_request_template.md has 22 lines (< 100)
+REJECT(W-9): .github/ISSUE_TEMPLATE/incident.md has 0 file:line anchors (< 3)
+```
+**The gate was WRONG.** W-9's floor is an ENGINEERING-DOC law (architecture/spec/report/audit/
+log). GitHub's `.github/` artifacts are a **different artifact class** — their length and
+structure are set by GitHub's UI, and a 100-line PR template is unusable.
+
+**Fix applied** at `.githooks/pre-commit:24`:
+```bash
+case "$f" in
+  .github/*) continue ;;   # GitHub-format templates: exempt (own format law)
+esac
+```
+Verified both directions: the templates now pass; a real thin doc is still flagged.
+
+## ★ THE PATTERN ACROSS ALL FOUR FIRINGS
+
+| # | the gate | the verdict | the class |
+|---|---|---|---|
+| 001 | W-9 | CORRECT | my docs were thin |
+| 002 | W-9 + W-1 | W-9 correct, **W-1 a defect** | the layout-port defect |
+| 003 | W-8 | CORRECT | my message lacked its artifact |
+| 004 | W-9 | **a defect** | the artifact-class defect |
+
+**Two of four firings were gate defects, not work defects.** Both defects are the same class:
+**a gate ported to an artifact class it was not derived for.**
+
+- **W-1** was derived from the GI kernel's `src/ -> extensions/` layout. `jarvis-upper` has no
+  `extensions/`, so the gate could never pass.
+- **W-9** was derived for engineering docs. `.github/` templates are a different class.
+
+**THE LAW THIS EARNS:** *a gate is a (predicate x artifact-class) pair.* The predicate is the
+easy half; naming the class it applies to is the half that gets skipped — and skipping it
+produces a gate that either fires on everything (and gets bypassed) or fires on nothing.
+
+**THE META-FINDING:** this was only discoverable by RUNNING the system on real work. A design
+review would not have found either defect — both required the gate to fire on an artifact its
+author did not picture. **The rollout-as-stress-test thesis is validated by its own defects.**
