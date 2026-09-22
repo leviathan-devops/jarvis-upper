@@ -1,13 +1,14 @@
 // Guardrail: merge eligibility = gates green + sha-bound + deps merged.
 // Blocking is the safe default; every block carries its reason rows.
 import { Database } from "bun:sqlite";
+import { GATE_TO_CONTEXT } from "./status-contract";
 
 export interface Eligibility {
   ok: boolean;
   reasons: string[];
 }
 
-const REQUIRED_GATES = ["ci_green", "audit", "hardened", "fence2"];
+const REQUIRED_GATES = Object.keys(GATE_TO_CONTEXT) as (keyof typeof GATE_TO_CONTEXT)[];
 
 export function guardrail(db: Database, prId: string): Eligibility {
   const reasons: string[] = [];

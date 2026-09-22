@@ -17,6 +17,7 @@ const MIGRATIONS: string[] = [
    CREATE TABLE IF NOT EXISTS gate_pass(
      id TEXT PRIMARY KEY, pr_node TEXT NOT NULL, gate TEXT NOT NULL,
      verdict TEXT NOT NULL, evidence TEXT, sha16 TEXT, at INTEGER,
+     -- Source of truth: GATE_TO_CONTEXT keys in src/status-contract.ts (internal gate names); keep this SQL list in sync.
      CHECK(gate IN ('ci_green','audit','hardened','fence2')));
    CREATE TABLE IF NOT EXISTS bug_record(
      id TEXT PRIMARY KEY, found_by TEXT, category TEXT, severity INTEGER,

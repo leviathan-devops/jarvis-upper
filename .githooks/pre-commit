@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# pre-commit — fast local checks. Each prints REJECT(<id>) and sets FAIL.
+# Deliberately dependency-free: no `bun test` here (keep it fast).
+# NOTE: bypassable with --no-verify; prepare-commit-msg is the anchor.
+set -uo pipefail
+
+FAIL=0
+
+STAGED="$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)"
+[ -z "$STAGED" ] && { echo 'PRE-COMMIT: PASS'; exit 0; }
+
+# W-9 doc-density: each staged *.md must be >= 100 lines AND carry
+# >= 3 path.ext:NN anchors.
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    *.md)
+      if [ -f "$f" ]; then
+        LINES="$(wc -l < "$f" | tr -d ' ')"
+        ANCHORS="$(grep -cE '[a-z-]+\.(ts|md|json|sh|yml):[0-9]+' "$f" 2>/dev/null || true)"
+        if [ "$LINES" -lt 100 ]; then
+          echo "REJECT(W-9): $f has $LINES lines (< 100)" >&2
+          FAIL=1
+        fi
+        if [ "$ANCHORS" -lt 3 ]; then
+          echo "REJECT(W-9): $f has $ANCHORS file:line anchors (< 3)" >&2
+          FAIL=1
+        fi
+      fi
+      ;;
+  esac
+done <<< "$STAGED"
+
+# W-6 source-string: no staged tests/*.ts may contain .includes("Symbol").
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    tests/*.ts)
+      if [ -f "$f" ] && grep -qF '.includes("Symbol")' "$f" 2>/dev/null; then
+        echo "REJECT(W-6): $f contains fake-wiring signature .includes(\"Symbol\")" >&2
+        FAIL=1
+      fi
+      ;;
+  esac
+done <<< "$STAGED"
+
+# W-1 deploy-freshness: a staged src/ change must ship with an
+# extensions/ change.
+#
+# SCOPED (2026-09-22, orchestrator fix): this predicate was derived from the
+# GI kernel, whose deploy layout is src/ -> extensions/<plugin>/index.js.
+# A repo WITHOUT an extensions/ dir has no dist step, so the gate can never
+# pass there and would refuse every src/ commit forever. That is a gate that
+# gets bypassed -- worse than no gate. The check therefore applies ONLY when
+# the repo actually has an extensions/ directory.
+SRC_TOUCHED=0
+EXT_TOUCHED=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    src/*) SRC_TOUCHED=1 ;;
+    extensions/*) EXT_TOUCHED=1 ;;
+  esac
+done <<< "$STAGED"
+if [ -d extensions ] && [ "$SRC_TOUCHED" -eq 1 ] && [ "$EXT_TOUCHED" -eq 0 ]; then
+  echo 'REJECT(W-1): staged src/ change with no staged extensions/ change' >&2
+  FAIL=1
+fi
+
+[ "$FAIL" -eq 0 ] && echo 'PRE-COMMIT: PASS' || exit 1
