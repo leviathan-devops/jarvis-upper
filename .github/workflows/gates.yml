@@ -1,0 +1,79 @@
+name: gates
+
+# Plan B unbypassable anchor: five jobs whose names become the required
+# status contexts. Only the plain pull_request trigger is used here — the
+# _target trigger variant must never appear in this file (it hands secrets
+# to fork PRs). Every job below fails closed with exit 1.
+"on": [pull_request, merge_group]
+
+jobs:
+  "gates/anti-theatrical":
+    name: gates/anti-theatrical
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: no empty catch, no bare task-marker comment, no AI disclaimers
+        run: |
+          set -e
+          HITS=$(grep -rnE 'except:[[:space:]]*pass|catch[[:space:]]*\{[[:space:]]*\}|[T]ODO|as an AI|implement later' src/ ao-client/ || true)
+          if [ -n "$HITS" ]; then echo "$HITS"; exit 1; fi
+          echo "anti-theatrical-grep: clean"
+      - name: every commit subject in the PR range conforms
+        run: |
+          set -e
+          BAD=$(git log --format='%s' origin/${{ github.base_ref }}..HEAD | grep -vE '^(feat|fix|docs|test|build|refactor|blueprint|goal|chore|spec|perf)(\([^)]+\))?: ' || true)
+          if [ -n "$BAD" ]; then echo "$BAD"; exit 1; fi
+          echo "commit-subjects: clean"
+
+  "gates/issue-link":
+    name: gates/issue-link
+    runs-on: ubuntu-latest
+    steps:
+      - name: the PR body must close an issue
+        env: { BODY: '${{ github.event.pull_request.body }}' }
+        run: |
+          set -e
+          echo "$BODY" | grep -qE '(Closes|Fixes) #[0-9]+' || { echo "no Closes/Fixes #N in PR body"; exit 1; }
+
+  "gates/spec-gate":
+    name: gates/spec-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: oven-sh/setup-bun@v2
+      - name: every spec item maps to a changed file
+        run: bun run scripts/spec-diff.ts || exit 1
+      - name: the fence must hold a PASS row for this sha
+        run: python3 gates/fence-check.py "${{ github.sha }}" || exit 1
+
+  "gates/diff-budget":
+    name: gates/diff-budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: refuse an unbudgeted diff
+        run: |
+          set -e
+          L=$(git diff --numstat origin/${{ github.base_ref }}..HEAD | awk '{s+=$1+$2} END{print s+0}')
+          echo "lines=$L"
+          if [ "$L" -gt 800 ] && ! echo '${{ toJSON(github.event.pull_request.labels.*.name) }}' | grep -q oversized; then
+            echo "over budget without the oversized label"; exit 1; fi
+
+  "gates/test":
+    name: gates/test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: oven-sh/setup-bun@v2
+      - name: install locked dependencies
+        run: bun install --frozen-lockfile || exit 1
+      - name: run the suite
+        run: bun test || exit 1
+      - name: typecheck
+        run: bunx tsc --noEmit || exit 1
+      - name: liveness receipt
+        run: bash gates/does_anything_run.sh . || exit 1
