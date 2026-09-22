@@ -424,3 +424,62 @@ live artifact that a sibling wave is about to change.
 | the W1 standard | `.githooks/lib/pattern-header.sh:1` |
 
 **THE BATTERY AFTER BOTH FIXES: 72 pass / 0 fail.**
+
+---
+
+## EN-103 · ★ THE CI IS ALIVE — AND IT FOUND TWO MORE REAL DEFECTS (2026-09-22)
+
+**THE RUN:** `35771345534`, event `pull_request`, PR #2.
+
+```
+gates/diff-budget             | failure
+gates/spec-gate               | failure
+gates/issue-link              | success
+gates/test                    | failure
+gates/theatrical-verification | success
+gates/anti-theatrical         | failure
+```
+
+**The job-id fix WORKED:** the first run created ZERO jobs; this one created SIX, all named
+correctly. **The runtime proved what four desk audits could not.**
+
+### FINDING 1 — the anti-theatrical scope defect (the FOURTH artifact-class instance)
+
+```
+BAD=$(git log --format='%s' origin/main..HEAD | grep -vE '^(feat|fix|docs|...): ' || true)
+Merge f2e83d413b05a59a9b3d5af29e83bc95d73f266b into 06333fa595b54cdaead2938b44aac70128f3c551
+##[error]Process completed with exit code 1.
+```
+
+The offending subject is a **MERGE COMMIT GITHUB ITSELF GENERATED.** The predicate (the
+semantic-prefix regex) is CORRECT. Its SCOPE is wrong: it applies to machine-generated text.
+
+**THE LAW, EXTENDED:** a gate is a **(predicate x artifact-class x author)** triple.
+
+**THE FIX:** `git log --no-merges` — the git-native exclusion. Steered to W4.
+
+### FINDING 2 — an environment dependency only the CI could expose
+
+`gates/test` -> `69 pass / 3 fail`. The three failures are `spec_audit` tests reading
+`../packages/jarvis-upper-tier/..._SPEC.md` — **a path OUTSIDE the repo.** It exists on the host,
+NOT in a CI checkout. **The test passes locally and fails in the real environment.**
+
+### THE PATTERN — EVERY DEFECT FOUND BY RUNNING
+
+| the defect | found by | NOT found by |
+|---|---|---|
+| the job-id slash | the first CI run | 4 desk audits + `yaml.safe_load` + `INTERFACE:MATCH` |
+| the merge-subject scope | the second CI run | every audit |
+| the spec-file dependency | the CI's environment | the local battery (green) |
+
+**The local battery was GREEN (72 pass / 0 fail) while the artifact was BROKEN.** That is the
+runtime-grade law, proven in the field.
+
+**THE ANCHORS:**
+| the claim | the anchor |
+|---|---|
+| the subject check | `.github/workflows/gates.yml:22` |
+| the job names | `.github/workflows/gates.yml:11` |
+| the armed ruleset | `ruleset.json:1` |
+| the same class locally | `.githooks/prepare-commit-msg:27` |
+| the firing record | `.trident/firings/FIRING-010-CI-ALIVE.md:1` |
