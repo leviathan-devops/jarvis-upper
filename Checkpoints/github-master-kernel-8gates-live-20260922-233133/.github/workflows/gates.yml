@@ -1,0 +1,129 @@
+name: gates
+
+# Plan B unbypassable anchor: five jobs whose names become the required
+# status contexts. Only the plain pull_request trigger is used here — the
+# _target trigger variant must never appear in this file (it hands secrets
+# to fork PRs). Every job below fails closed with exit 1.
+"on": [pull_request, merge_group]
+
+jobs:
+  anti_theatrical:
+    name: gates/anti-theatrical
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: no empty catch, no bare task-marker comment, no AI disclaimers
+        run: |
+          set -e
+          HITS=$(grep -rnE 'except:[[:space:]]*pass|catch[[:space:]]*\{[[:space:]]*\}|[T]ODO|as an AI|implement later' src/ ao-client/ || true)
+          if [ -n "$HITS" ]; then echo "$HITS"; exit 1; fi
+          echo "anti-theatrical-grep: clean"
+      - name: every commit subject in the PR range conforms
+        run: |
+          set -e
+          BAD=$(git log --no-merges --format='%s' origin/${{ github.base_ref }}..HEAD | grep -vE '^(feat|fix|docs|test|build|refactor|blueprint|goal|chore|spec|perf)(\([^)]+\))?: ' || true)
+          if [ -n "$BAD" ]; then echo "$BAD"; exit 1; fi
+          echo "commit-subjects: clean"
+
+  issue_link:
+    name: gates/issue-link
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: the PR body must close an issue
+        env: { BODY: '${{ github.event.pull_request.body }}' }
+        run: |
+          set -e
+          echo "$BODY" | grep -qE '(Closes|Fixes) #[0-9]+' || { echo "no Closes/Fixes #N in PR body"; exit 1; }
+
+  spec_gate:
+    name: gates/spec-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: oven-sh/setup-bun@v2
+      - name: every spec item maps to a changed file
+        run: bun run scripts/spec-diff.ts || exit 1
+      - name: the fence must hold a PASS row for this sha
+        run: python3 gates/fence-check.py "${{ github.sha }}" || exit 1
+
+  diff_budget:
+    name: gates/diff-budget
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: refuse an unbudgeted diff
+        run: |
+          set -e
+          L=$(git diff --numstat origin/${{ github.base_ref }}..HEAD | awk '{s+=$1+$2} END{print s+0}')
+          echo "lines=$L"
+          if [ "$L" -gt 800 ] && ! echo '${{ toJSON(github.event.pull_request.labels.*.name) }}' | grep -q oversized; then
+            echo "over budget without the oversized label"; exit 1; fi
+
+  test:
+    name: gates/test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: oven-sh/setup-bun@v2
+      - name: install locked dependencies
+        run: bun install --frozen-lockfile || exit 1
+      - name: run the suite
+        run: bun test || exit 1
+      - name: typecheck
+        run: bunx tsc --noEmit || exit 1
+      - name: liveness receipt
+        run: bash gates/does_anything_run.sh . || exit 1
+
+  theatrical_verification:
+    name: gates/theatrical-verification
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: scan changed test files for the theatrical-verification family
+        env: { BASE: '${{ github.base_ref }}' }
+        run: |
+          set -e
+          FAIL=0
+          CHANGED=$(git diff --name-only "origin/${BASE}..HEAD" -- 'tests/**/*.test.ts' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "theatrical-verification: no changed test files"
+            exit 0
+          fi
+
+          for f in $CHANGED; do
+            [ -f "$f" ] || continue
+            HITS=""
+            NL=$'\n'
+            MOCK=$(grep -nEi 'jest\.mock\(|jest\.spyOn\(|vi\.mock\(|vi\.spyOn\(' "$f" 2>/dev/null | grep -Ei 'expect\(' | head -20 || true)
+            if [ -n "$MOCK" ]; then HITS="${HITS}${NL}  mock-only: ${MOCK}"; fi
+            SYMBOL=$(grep -nE "includes\(['\"]Symbol['\"]|includes\([\"']Symbol[\"']\)" "$f" 2>/dev/null || true)
+            if [ -n "$SYMBOL" ]; then HITS="${HITS}${NL}  source-string-assert: ${SYMBOL}"; fi
+            WIRING=$(grep -nE "(test|it|describe)\([^)]*(wiring|wired)" "$f" 2>/dev/null || true)
+            if [ -n "$WIRING" ]; then
+              HAS_IMPORT=$(grep -E "^[[:space:]]*(import|from|require)\b" "$f" 2>/dev/null | wc -l || true)
+              if [ "$HAS_IMPORT" -eq 0 ]; then
+                HITS="${HITS}${NL}  wiring-name-no-import: ${WIRING}"
+              fi
+            fi
+            TAUT=$(grep -nE "expect\(true\)|expect\(1\)\.toBe\(1\)|expect\(\s*true\s*\)\.toBeTruthy|expect\(\s*true\s*\)\.toEqual\(true\)" "$f" 2>/dev/null || true)
+            if [ -n "$TAUT" ]; then HITS="${HITS}${NL}  tautology: ${TAUT}"; fi
+            if [ -n "$HITS" ]; then
+              echo "theatrical-verification hit in ${f}:"
+              printf '%s\n' "$HITS"
+              FAIL=1
+            fi
+          done
+
+          if [ "$FAIL" -ne 0 ]; then
+            exit 1
+          fi
+          echo "theatrical-verification: clean"

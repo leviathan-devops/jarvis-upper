@@ -1,0 +1,19 @@
+# .github/CODEOWNERS
+# Ownership routing. Enforced with Pro (require_code_owner_review).
+# On free the file is advisory; it is still worth landing now.
+# Source: GITHUB_ENFORCEMENT_MAP.md section 8.
+# Point: a PR that weakens enforcement must not ride in on a normal approval.
+
+*                       @leviathan-devops
+
+# THE DECISION MACHINERY — a change here changes enforcement
+/src/verdict.ts         @leviathan-devops
+/src/guardrail.ts       @leviathan-devops
+/src/execute.ts         @leviathan-devops
+/src/plan.ts            @leviathan-devops
+
+# THE GOVERNANCE SURFACE — only the operator edits the rules
+/.github/               @leviathan-devops
+/CODEOWNERS             @leviathan-devops
+/ruleset.json           @leviathan-devops
+/.githooks/             @leviathan-devops
