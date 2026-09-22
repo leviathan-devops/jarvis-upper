@@ -37,7 +37,7 @@ export async function verbOrder(root: string, arg?: string): Promise<VerbResult>
   if (arg !== "--confirm") {
     return emit(2, { ok: false, refused: "UNCONFIRMED-PLAN", hint: "capabilities execute in-process with {confirm:true}; no CLI merge path" });
   }
-  const adapter: MergeAdapter = { merge: async () => ({ ok: false }) };
+  const adapter: MergeAdapter = { publish: async () => ({ ok: false }) };
   const r = await executePlan(openStore(), adapter, { confirm: true });
   return emit(0, { ok: true, planId: r.planId, merged: r.merged, haltedAt: r.haltedAt });
 }

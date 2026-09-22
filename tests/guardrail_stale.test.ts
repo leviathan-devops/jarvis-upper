@@ -2,7 +2,8 @@
 import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import { openStore } from "../src/store";
-import { guardrail } from "../src/guardrail";
+import { guardrail, guardrailRemote } from "../src/guardrail";
+import { REQUIRED_CONTEXTS } from "../src/status-contract";
 
 function mem(): Database {
   const db = openStore(":memory:");
@@ -64,4 +65,17 @@ test("guardrail_blocks_stale: unknown PR is a hard block", () => {
   expect(e.ok).toBe(false);
   expect(e.reasons).toContain("PR-MISSING");
   db.close();
+});
+
+test("guardrail_remote: missing context yields ok:false with named reason", async () => {
+  const drop = REQUIRED_CONTEXTS[REQUIRED_CONTEXTS.length - 1] as string;
+  const rows = (REQUIRED_CONTEXTS as readonly string[])
+    .filter((c) => c !== drop)
+    .map((context) => ({ context, state: "success" }));
+  const fetchImpl = (async (_url: string | URL | Request, _init?: RequestInit) =>
+    new Response(JSON.stringify(rows), { status: 200 })) as typeof fetch;
+  const e = await guardrailRemote({ owner: "o", repo: "r", sha: "abc123", fetchImpl });
+  expect(e.ok).toBe(false);
+  expect(e.reasons).toContain(`REMOTE-GATE-MISSING:${drop}`);
+  expect(e.missing).toContain(drop);
 });

@@ -1,12 +1,15 @@
-// executePlan: the ONLY path to mergePR. Plan is printed, never executed,
+// executePlan: the ONLY path to ORDER merges. Plan is printed, never executed,
 // without {confirm:true}. Guardrail re-evaluated EVERY step; first
 // failure halts with partial state recorded (never auto-continues).
+// INVERSION (Plan A-3): GitHub decides MAY; the factory decides ORDER.
+// The factory NEVER merges — it orders and publishes. The human merges.
+// On publish success the PR lands in "merge_ordered", never "merged".
 import { Database } from "bun:sqlite";
 import { orderMerges } from "./plan";
 import { guardrail } from "./guardrail";
 
 export interface MergeAdapter {
-  merge(prId: string): Promise<{ ok: boolean }>;
+  publish(prId: string): Promise<{ ok: boolean }>;
 }
 
 export interface PlanExecution {
@@ -33,13 +36,13 @@ export async function executePlan(
       exec.haltReason = g.reasons.join(";");
       return exec;
     }
-    const r = await adapter.merge(pr);
+    const r = await adapter.publish(pr);
     if (!r.ok) {
       exec.haltedAt = pr;
-      exec.haltReason = "MERGE-CALL-FAILED";
+      exec.haltReason = "PUBLISH-CALL-FAILED";
       return exec;
     }
-    db.query("UPDATE pr_node SET state='merged', merged_at=strftime('%s','now') WHERE id = ?").run(pr);
+    db.query("UPDATE pr_node SET state='merge_ordered', merged_at=strftime('%s','now') WHERE id = ?").run(pr);
     exec.merged.push(pr);
   }
   return exec;
