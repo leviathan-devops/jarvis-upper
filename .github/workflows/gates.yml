@@ -23,7 +23,7 @@ jobs:
       - name: every commit subject in the PR range conforms
         run: |
           set -e
-          BAD=$(git log --format='%s' origin/${{ github.base_ref }}..HEAD | grep -vE '^(feat|fix|docs|test|build|refactor|blueprint|goal|chore|spec|perf)(\([^)]+\))?: ' || true)
+          BAD=$(git log --no-merges --format='%s' origin/${{ github.base_ref }}..HEAD | grep -vE '^(feat|fix|docs|test|build|refactor|blueprint|goal|chore|spec|perf)(\([^)]+\))?: ' || true)
           if [ -n "$BAD" ]; then echo "$BAD"; exit 1; fi
           echo "commit-subjects: clean"
 
