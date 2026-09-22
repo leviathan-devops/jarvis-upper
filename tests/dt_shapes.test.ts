@@ -42,11 +42,16 @@ const frame = (seq: number, type = "pr_state_changed"): string =>
   `id: ${seq}\nevent: ${type}\ndata: {"seq":${seq},"projectId":"p","sessionId":"s-1","type":"${type}","pr":{"number":${seq},"session_id":"s-1","state":"open","head_sha":"h${seq}"},"payload":{}}\n\n`;
 
 // argv-only process spawn: no shell interpolation, safe on paths with spaces.
+// Both pipes are drained concurrently (an unread stderr pipe can stall on output),
+// and failures report the stderr tail so git errors are diagnosable, not opaque.
 async function sh(...args: string[]): Promise<string> {
   const p = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
-  const out = await new Response(p.stdout).text();
+  const [out, err] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+  ]);
   const code = await p.exited;
-  if (code !== 0) throw new Error(`exit ${code}: ${args.join(" ")}`);
+  if (code !== 0) throw new Error(`exit ${code}: ${args.join(" ")}\nstderr: ${err.trim().slice(-500)}`);
   return out.trim();
 }
 
@@ -284,7 +289,7 @@ test("dt_shapes: DT-2 bug-loop seed→attribute→kick→observe→close status=
       },
     });
   } finally {
-    db.close();
+    try { db.close(); } catch { /* already closed — must not mask the test outcome */ }
     if (dir) rmSync(dir, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
@@ -385,5 +390,5 @@ test("dt_shapes: DT-1b the confirm gate REFUSES an unconfirmed plan (mutation ki
     expect(merges).toBe(0);
     const st = db.query("SELECT state FROM pr_node WHERE id = ?").get(prId) as { state: string };
     expect(st.state).toBe("ready_to_merge");
-  } finally { db.close(); }   // the handle closes even when an assertion throws
+  } finally { try { db.close(); } catch { /* already closed — must not mask an assertion */ } }
 });
