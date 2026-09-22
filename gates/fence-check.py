@@ -14,8 +14,6 @@ import json
 import os
 import sys
 
-LEDGER = "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl"
-
 
 def main(argv: list) -> int:
     if len(argv) != 2 or not argv[1].strip():
@@ -23,10 +21,11 @@ def main(argv: list) -> int:
         return 2
     sha = argv[1].strip()
     needle = sha.lower()
-    if not os.path.exists(LEDGER):
-        print(f"FENCE-ERROR:ledger-missing:{LEDGER}")
+    ledger = os.environ.get("FENCE_LEDGER") or os.path.join(".trident", "verdicts.jsonl")
+    if not os.path.exists(ledger):
+        print(f"FENCE-ERROR:ledger-missing:{ledger}")
         return 2
-    with open(LEDGER, "r", encoding="utf-8") as fh:
+    with open(ledger, "r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if not line:
