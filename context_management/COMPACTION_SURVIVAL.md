@@ -238,3 +238,27 @@ End of COMPACTION_SURVIVAL.
 - **VERDICT: VERIFIED** — fence PASS `spec_bound:true` + review `approved`, SAME sha
 - **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green · jfm 8/0
 - **jfm wave w0:** the desk `upper-tier-job` closed, `unverdicted: []`
+
+---
+
+## §APPEND — THE GITHUB MASTER KERNEL SESSION (2026-09-22)
+
+**The state at this append:** the enforcement layer is live at BOTH anchors.
+
+| the artifact | the anchor |
+|---|---|
+| the ABSOLUTE hook | `.githooks/prepare-commit-msg:1` |
+| the gate-header standard | `.githooks/lib/pattern-header.sh:1` |
+| the phantom scanner | `.githooks/lib/scan-phantom.sh:44` |
+| the frozen contract | `src/status-contract.ts:33` |
+| the armed ruleset | `ruleset.json:1` (id 23838059, 8 contexts) |
+| the CI workflow | `.github/workflows/gates.yml:26` |
+| the runtime ledger | `.trident/RUNTIME_LEDGER.md:1` |
+| the P5 sweep | `.trident/P5_ADVERSARIAL_SWEEP.md:1` |
+
+**THE RESUME POINT:** read `.trident/RUNTIME_LEDGER.md` first (the 6 numbered operations), then
+`.trident/P5_ADVERSARIAL_SWEEP.md` (the gate map + the 2 defects found), then the build package at
+`JARVIS-FACTORY/packages/github-master-kernel/`.
+
+**THE ONE-LINE STATE:** 8 gates live locally + 8 contexts armed remotely; 12 defects found by
+running (not reading); the battery is 77 pass / 0 fail; the CI has run twice and never gone green.

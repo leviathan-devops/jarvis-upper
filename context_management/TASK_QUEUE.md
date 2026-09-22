@@ -267,3 +267,34 @@ End of TASK_QUEUE.
 - **VERDICT: VERIFIED** — fence PASS `spec_bound:true` + review `approved`, SAME sha
 - **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green · jfm 8/0
 - **jfm wave w0:** the desk `upper-tier-job` closed, `unverdicted: []`
+
+---
+
+## §APPEND — THE GITHUB MASTER KERNEL QUEUE (2026-09-22)
+
+**DONE this session:**
+
+| # | the item | the evidence |
+|---|---|---|
+| 1 | the gate-header standard (W1) | `.githooks/lib/pattern-header.sh:1` |
+| 2 | the silent + stub gates (W2, Jev 119/68) | `.githooks/lib/scan-silent.sh:1` |
+| 3 | the claim + phantom + reachability gates (W3) | `.githooks/lib/scan-phantom.sh:44` |
+| 4 | the CI fix + the theatrical gate (W4) | `.github/workflows/gates.yml:26` |
+| 5 | the ruleset aligned to 8 contexts (W6) | `ruleset.json:1` |
+| 6 | the runtime seat (P4) | `.trident/RUNTIME_LEDGER.md:1` |
+| 7 | the adversarial sweep (P5) | `.trident/P5_ADVERSARIAL_SWEEP.md:1` |
+
+**OPEN:**
+
+| # | the item | the blocker |
+|---|---|---|
+| 1 | W5: the publisher wired into the tick loop | the call site is missing; the test has not landed |
+| 2 | the 2 `factory/*` contexts have no poster | W5 |
+| 3 | the CI has never gone green | 4 jobs fail on real findings |
+| 4 | the 3 `spec_audit` failures | a real env dependency (a path outside the repo) |
+| 5 | `commit-msg` has no W1 header | no desk owns it |
+| 6 | no container test exists | the rig has not been stood up |
+| 7 | the operator must rotate the GitHub token | it is in the chat transcript |
+
+**THE ANCHOR:** the build package is at `JARVIS-FACTORY/packages/github-master-kernel/` and the
+canon at `context_management/`.
