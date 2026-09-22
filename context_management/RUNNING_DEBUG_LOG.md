@@ -824,3 +824,42 @@ fabricated runtime state to pass — which is the THEATRE the whole build exists
 | the gitignored state | `.gitignore:1` (`runtime/ticks.log`) |
 | the local hook | `.githooks/pre-commit:1` |
 | the CI run | 35775366631 |
+
+---
+
+## [2026-09-22] EN-110 · A DESK WROTE INTO A SEALED CHECKPOINT
+
+**THE FINDING:** the W5 desk, completing late, wrote into
+`Checkpoints/github-master-kernel-8gates-live-20260922-233133/src/runtime.ts` — **a SEALED
+checkpoint's source tree.**
+
+**MEASURED:**
+```
+$ git diff --stat Checkpoints/github-master-kernel-8gates-live-.../src/runtime.ts
+   .../src/runtime.ts | 26 +++++++++++++++++++++-
+   1 file changed, 25 insertions(+), 1 deletion(-)
+```
+
+**THE MECHANISM:** the desk read its own file list, saw `src/runtime.ts` among its owned files, and
+wrote to BOTH the live `src/runtime.ts` AND the checkpoint's copy — because a recursive glob
+matched both paths.
+
+**THE LAW VIOLATED:** a checkpoint is a **SEALED SNAPSHOT**. Its contents must not drift. The
+`saving-checkpoints` skill's Mode B (no-lock) means the snapshot is *documented as a living
+snapshot* — it is refreshed **as a whole, deliberately**, never edited file-by-file by a desk.
+
+**THE FIX:** the checkpoint's `src/runtime.ts` restored to its sealed state, then the checkpoint
+**re-refreshed as a whole** from the current tree so its `src` and its manifest describe the SAME
+state.
+
+**THE LESSON:** **a recursive write must EXCLUDE the checkpoint dirs.** A desk that owns
+`src/runtime.ts` owns the LIVE one; the `Checkpoints/**` copy belongs to the checkpoint protocol.
+Add `Checkpoints/**` to every desk's do-not-touch list.
+
+**THE ANCHORS:**
+| the claim | the anchor |
+|---|---|
+| the violated snapshot | `Checkpoints/github-master-kernel-8gates-live-20260922-233133/CHECKPOINT_MANIFEST.md:1` |
+| the desk's call site | `src/runtime.ts:233` |
+| the checkpoint protocol | `saving-checkpoints/SKILL.md` (STEP 10, the seal modes) |
+| the restore | `git checkout -- <the checkpoint's src/runtime.ts>` |

@@ -656,3 +656,171 @@ APPENDING correctly-formed content — never by rewriting what is there.
 | this session's entries | `context_management/RUNNING_DEBUG_LOG.md:258` (EN-100) |
 | the append-only law | `canon-doc-update/SKILL.md` (the Standing Rules) |
 | the gate that prompted it | `context_management/RUNNING_DEBUG_LOG.md:1` (the U3 check) |
+
+---
+
+## [2026-09-22] EN-107 · THE CI'S `test` JOB FAILED ON AN ENVIRONMENT DEPENDENCY
+
+**THE FINDING (the first real CI run):**
+```
+gates/test | failure
+  69 pass / 3 fail
+  (fail) spec_audit: emits all eight GS verdicts with tokens
+  (fail) spec_audit: names the historical seam on the real spec
+```
+
+**THE ROOT CAUSE — TWO DEFECTS:**
+
+### A · `scripts/spec-audit.ts:9` had NO existence check
+```ts
+const spec = readFileSync(specPath, "utf8");   // <- ENOENT if the spec is absent
+```
+The spec lives at `../packages/jarvis-upper-tier/..._SPEC.md` — **OUTSIDE the repo.** It exists on
+the host, NOT in a CI checkout. The script **crashed with a raw ENOENT** instead of following the
+**exit-2 contract** (L9: a gate that cannot measure says so).
+
+**THE FIX:**
+```ts
+if (!existsSync(specPath)) {
+  console.error(`SPEC-AUDIT-ERROR:spec-missing:${specPath}`);
+  process.exit(2);
+}
+```
+**Verified:** with the spec absent -> `SPEC-AUDIT-ERROR:spec-missing:...` + exit 2.
+With the spec present -> the full audit, `VERDICT:REJECTED (fail=6)`.
+
+### B · the TEST assumed the spec is always present
+```ts
+test("spec_audit: ...", () => { const { out } = run(); expect(out).toContain("GS-1:"); });
+```
+**It passes locally and fails in CI** — the classic environment dependency.
+
+**THE FIX:** the test branches on `existsSync(SPEC)`:
+- spec present -> assert the 8 GS verdicts + `VERDICT:(APPROVED|REJECTED)` + the exit contract
+- spec ABSENT -> assert `SPEC-AUDIT-ERROR:spec-missing:` + **exit 2**
+- and in BOTH cases: `expect(out).not.toContain("VERDICT:APPROVED")` — **no phantom approval**
+
+**THE LESSON:** a test that reads a path outside the repo tests the HOST, not the code. The fix is
+two-sided: the tool must LOUD-FAIL when it cannot measure, and the test must ASSERT that failure
+rather than assuming the measurement is possible.
+
+**THE ANCHORS:**
+| the claim | the anchor |
+|---|---|
+| the fixed tool | `scripts/spec-audit.ts:9` |
+| the fixed test | `tests/spec_audit.test.ts:1` |
+| the exit-2 contract | `scripts/spec-diff.ts:19` (the same pattern) |
+| the CI job | `.github/workflows/gates.yml:1` (the test job) |
+| the battery | `tests/spec_audit.test.ts:1` |
+
+
+---
+
+## [2026-09-22] EN-108 · THE SEVENTH INSTANCE — A HOST-ABSOLUTE PATH IN A TEST
+
+**THE FINDING (the CI's `test` job, run 35775146449):**
+```
+(fail) ship_manifest: wave A assembles manifest; real fence2 adjudicates PASS spec_bound:true
+  76 pass / 1 fail
+```
+
+**THE ROOT CAUSE — `tests/ship_manifest.test.ts:7`:**
+```ts
+const F2 = "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py";
+```
+**A HOST-ABSOLUTE path.** `fence2.py` and its `verdicts.jsonl` live on THIS host, NOT in a CI
+checkout. The test hard-required them.
+
+**THE CLASS — THE SEVENTH INSTANCE:**
+
+| # | the instance | the predicate | what was wrong |
+|---|---|---|---|
+| 1 | W-1 | `find src -newer dist` | the repo LAYOUT |
+| 2 | W-9 | `wc -l` on a `.md` | the artifact CLASS |
+| 3 | W-9 | `wc -l` on a `.md` | the artifact CLASS |
+| 4 | the job id | the `name:` list | the KEY |
+| 5 | the shebang | the 5 header lines | the INTERPRETER |
+| 6 | the phantom gate | the claim + the stat | the COMMIT SHAPE (both halves) |
+| **7** | **the ship_manifest test** | the fence's presence | **THE ENVIRONMENT** |
+| 7b | the spec_audit test | the spec's presence | **THE ENVIRONMENT** |
+
+**THE FIX (both the tool and the test):**
+- `scripts/spec-audit.ts` — the exit-2 contract (EN-107)
+- `tests/spec_audit.test.ts` — branches on `existsSync(SPEC)` (EN-107)
+- `tests/ship_manifest.test.ts` — **`test.skipIf(!FENCE_AVAILABLE)`**: the test declares itself
+  **SKIPPED** when the real adjudicator is absent. **A skip is VISIBLE — neither a false pass nor a
+  false fail.** The ledger path became a const.
+
+**THE LESSON:** **a test that reads a host path tests the HOST, not the code.** The two-sided fix:
+the TOOL loud-fails when it cannot measure; the TEST declares itself skipped when the measurement is
+impossible. Never a silent pass, never a spurious fail.
+
+**THE ANCHORS:**
+| the claim | the anchor |
+|---|---|
+| the fixed test | `tests/ship_manifest.test.ts:7` |
+| the skip condition | `tests/ship_manifest.test.ts:1` |
+| the spec fix | `scripts/spec-audit.ts:9` |
+| the CI job | `.github/workflows/gates.yml:1` |
+| the battery | `tests/ship_manifest.test.ts:1` |
+
+
+---
+
+## [2026-09-22] EN-109 · THE EIGHTH INSTANCE — A HOST-LIVENESS GATE IN CI
+
+**THE FINDING (the CI's `test` job, run 35775366631):**
+```
+Run bash gates/does_anything_run.sh . || exit 1
+Q4:NO:wire-exercised:no runtime/wire_capture.json (the adapter has never carried live bytes)
+Q5:NO:heartbeat:no runtime/ticks.log (nothing has ever ticked)
+VERDICT:DOES-NOT-RUN
+```
+
+**THE ADJUDICATION — BOTH SIDES:**
+
+**Side A — is the gate wrong?** No. It reads `runtime/ticks.log` + `runtime/wire_capture.json`.
+**Both are GITIGNORED runtime state.** In a CI checkout nothing has ever ticked, so
+`DOES-NOT-RUN` is the TRUE answer.
+
+**Side B — is the SCOPE wrong?** **YES.** The gate's artifact class is **the LIVE HOST's runtime
+state**, not a CI checkout. It is a **HOST-LIVENESS gate**, and CI has no host.
+
+**VERDICT: a SCOPE defect (the EIGHTH instance), not a gate defect.** The gate is correct; it was
+asked a question that only makes sense on the host.
+
+**THE FIX:** the `gates/test` job's liveness step replaced with a DOCUMENTED skip:
+```yaml
+      - name: the host-liveness gate is NOT a CI gate (documented, not run)
+        run: |
+          echo "does_anything_run.sh is a HOST-LIVENESS gate (it reads gitignored runtime state)."
+          bash -n gates/does_anything_run.sh && echo "syntax: ok"
+```
+**The gate still runs locally** in `.githooks/pre-commit`, where the runtime exists — verified:
+`Q5:YES:heartbeat:runtime/ticks.log has 8674 row(s)` / `VERDICT:RUNS`.
+
+**★ THE KEY INSIGHT OF THIS INSTANCE:** the fix is NOT to make the gate pass in CI. It is to
+**name the artifact class and scope the gate to it.** A liveness gate in CI would have to be fed
+fabricated runtime state to pass — which is the THEATRE the whole build exists to kill.
+
+**THE EIGHT-INSTANCE TALLY:**
+
+| # | the instance | the axis that was wrong |
+|---|---|---|
+| 1 | W-1 | the repo LAYOUT |
+| 2 | W-9 (PR template) | the artifact CLASS |
+| 3 | W-9 (checkpoint manifest) | the artifact CLASS |
+| 4 | the CI job id | the KEY |
+| 5 | the hook shebang | the INTERPRETER |
+| 6 | the phantom gate | the COMMIT SHAPE (both halves) |
+| 7 | the ship_manifest test | the ENVIRONMENT |
+| 8 | the liveness gate in CI | the EXECUTION CONTEXT (host vs CI) |
+
+**THE ANCHORS:**
+| the claim | the anchor |
+|---|---|
+| the scoped job | `.github/workflows/gates.yml:1` (the test job) |
+| the local gate | `gates/does_anything_run.sh:1` |
+| the gitignored state | `.gitignore:1` (`runtime/ticks.log`) |
+| the local hook | `.githooks/pre-commit:1` |
+| the CI run | 35775366631 |

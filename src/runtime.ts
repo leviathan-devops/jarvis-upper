@@ -85,6 +85,7 @@ export interface PublishVerdictForPrOpts {
   baseUrl?: string;
   fetchImpl?: typeof fetch;
   jobDir: string;
+  jobDirFor?: (prId: string) => string;
   sessionId?: string;
   headSha?: string;
   verifyImpl?: (opts: VerifyOpts) => Promise<VerifyResult>;
@@ -119,10 +120,33 @@ export async function publishVerdictForPr(opts: PublishVerdictForPrOpts): Promis
   const headSha = opts.headSha ?? opts.sha;
   const sessionId = opts.sessionId ?? "";
   const doVerify = opts.verifyImpl ?? verify;
-  const v = await doVerify({ jobDir: opts.jobDir, headSha, sessionId, runFence: opts.runFence, fetchReviews: opts.fetchReviews, ledgerPath: opts.ledgerPath, bind: opts.bind });
+  const pubOpts = { owner: opts.owner, repo: opts.repo, sha: opts.sha, token: opts.token, baseUrl: opts.baseUrl, fetchImpl: opts.fetchImpl };
+  // THE POLARITY LAW, throw branch: verify itself threw (neither fence nor
+  // review could run — the state is UNKNOWN). Post an honest error on
+  // factory/fence2 and a red verdict on factory/verdict. NEVER a green.
+  let v: VerifyResult;
+  try {
+    v = await doVerify({ jobDir: opts.jobDir, headSha, sessionId, runFence: opts.runFence, fetchReviews: opts.fetchReviews, ledgerPath: opts.ledgerPath, bind: opts.bind });
+  } catch (e) {
+    // The throw-branch POSTs are themselves guarded: publishStatus LOUD-FAILs
+    // to state:"error" (never throws), but a defensive catch keeps the
+    // polarity promise even if the POST rail misbehaves. NEVER a green.
+    const desc = `VERIFY-THREW:${String(e).slice(0, 120)}`.slice(0, 140);
+    let pair: PublishResult[];
+    try {
+      const fenceErr = await publishStatus(pubOpts, { context: STATUS_CONTEXTS.fence2, state: "error", description: desc });
+      const red = await publishStatus(pubOpts, { context: STATUS_CONTEXTS.verdict, state: "failure", description: "verdict: not approved" });
+      pair = [fenceErr, red];
+    } catch (postErr) {
+      pair = [
+        { context: STATUS_CONTEXTS.fence2, state: "error" as const, status: null, ok: false, reason: `POST-THREW:${String(postErr).slice(0, 60)}` },
+        { context: STATUS_CONTEXTS.verdict, state: "failure" as const, status: null, ok: false, reason: `POST-THREW:${String(postErr).slice(0, 60)}` },
+      ];
+    }
+    return pair.map((r) => r.state === "success" ? { ...r, state: "failure" as const, ok: false, reason: "CANNOT-RUN-MUST-NOT-POST-SUCCESS" } : r);
+  }
   const fence2Ok = v.sources.fence.reason === "FENCE-GREEN";
   const verdictOk = v.verdict === "VERIFIED";
-  const pubOpts = { owner: opts.owner, repo: opts.repo, sha: opts.sha, token: opts.token, baseUrl: opts.baseUrl, fetchImpl: opts.fetchImpl };
   const cannotRun = v.sources.fence.ran === false && v.reasons.some((r) => r.startsWith("FENCE-"));
   if (cannotRun) {
     // THE POLARITY LAW, cannot-run branch: the fence never ran, so its state is
@@ -186,8 +210,8 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       { last_seq: number } | null;
     const cursor = cs?.last_seq ?? 0;
 
-    const readyRows = db.query("SELECT id, head_sha FROM pr_node WHERE state='ready_to_merge'").all() as
-      { id: string; head_sha: string | null }[];
+    const readyRows = db.query("SELECT id, head_sha, session_id FROM pr_node WHERE state='ready_to_merge'").all() as
+      { id: string; head_sha: string | null; session_id: string | null }[];
     const ready = readyRows.length;
     const eligible = readyRows.filter((r) => guardrail(db, r.id).ok).length;
 
@@ -199,9 +223,19 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       for (const r of readyRows) {
         if (!guardrail(db, r.id).ok) continue;
         const headSha = r.head_sha ?? "";
-        if (!headSha) continue;
+        if (!headSha) { errors.push(`publish:${r.id}:NO-HEAD-SHA`); continue; }
+        // sessionId travels from the PR row (verify's review source keys off
+        // it); the jobDir defaults to publishOpts.jobDir. Per-PR publishOpts
+        // may carry a jobDirFor(id) resolver (tests inject it).
+        const jobDir = typeof publishOpts.jobDirFor === "function" ? publishOpts.jobDirFor(r.id) : publishOpts.jobDir;
+        if (!jobDir) { errors.push(`publish:${r.id}:NO-JOBDIR`); continue; }
         try {
-          await publishVerdictForPr({ ...publishOpts, sha: headSha, headSha });
+          const results = await publishVerdictForPr({ ...publishOpts, sha: headSha, headSha, sessionId: r.session_id ?? "", jobDir });
+          // Transport failure (POST unconfirmed: ok:false) is logged, never thrown.
+          // A posted red verdict (ok:true, state failure/error) is a SUCCESSFUL
+          // publish — nothing to log. The tick always continues.
+          const bad = results.filter((rr) => !rr.ok);
+          if (bad.length > 0) errors.push(`publish:${r.id}:${bad.map((b) => b.reason).join(";").slice(0, 60)}`);
         } catch (e) {
           errors.push(`publish:${r.id}:${String(e).slice(0, 60)}`);
         }
