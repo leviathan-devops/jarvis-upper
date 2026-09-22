@@ -1,1 +1,1 @@
-export const op5_5 = 5;
+export const op5_6 = 6;
