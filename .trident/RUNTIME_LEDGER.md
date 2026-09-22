@@ -157,3 +157,83 @@ remote: - Changes must be made through a pull request.
 | the interface check | `scripts/interface-check.ts:1` |
 
 **21 anchors, every one verified by `grep -n` / the actual operation this turn — none invented.**
+
+---
+
+# SESSION 2 — THE OCR-HARDENING RUNTIME SEAT · 2026-09-22T23:55:32Z
+**STANCE:** *"I am the driver of the `jarvis-upper` kernel."* Instance: the repo @
+`548086c`→`b4d91c8` · `core.hooksPath=.githooks` · ruleset 23838059 · the 8 hooks.
+**METHOD:** every op ran the DEPLOYED hook via a REAL commit/push in a THROWAWAY clone — never a
+source import. The prior session's OP-1..OP-6 ran against `3f6e5f3`; these ran against the
+HARDENED hooks.
+
+## OP-7 · THE WORD-SPLIT / IFS LOOP — ★ THE DEEPEST DEFECT (a CRITICAL find)
+- **PRE-REGISTERED EXPECTATION:** a phantom claim pushed to a NEW branch fires W-3.
+- **THE PROBE:** `git push origin HEAD:refs/heads/feature-x` on a commit whose body claims
+  `created phantom-widget.ts` (a file that does not exist).
+- **ACTUAL (verbatim):** `*` [new branch] ... ` — the push SUCCEEDED. No W-3.
+- **THE MECHANISM:** `while IFS= read -r local_ref local_sha remote_ref remote_sha` — with an EMPTY
+  IFS bash does NOT field-split: the WHOLE line lands in `local_ref`, the other three are EMPTY.
+  So `[ -z "" ]` was ALWAYS true → every ref `continue`d → **W-2 AND W-3 NEVER FIRED.**
+  Measured: `IFS= read -r a b c d` on `"x y x z"` → `a="x y x z"`, b/c/d empty.
+- **VERDICT:** FIRED-WRONG (the gate was DEAD). **Not in the ocr report** — introduced by the desks'
+  own fix for F7/F8.
+- **THE FIX:** the default IFS for the 4-field ref line (`.githooks/pre-push:61`).
+- **RETEST:** OP-8.
+
+## OP-8 · THE PHANTOM, RE-PROVEN (the retest of OP-7)
+- **EXPECTATION:** the same probe now fires W-3.
+- **ACTUAL:** `REJECT(W-3): PHANTOM-DIFF:<sha>:feat: created the widget (claimed phantom-widget.ts
+  does not exist)` — the push REFUSED (rc=1). **VERDICT: FIRED-CORRECT.**
+
+## OP-9 · THE NEW-REF SKIP (found by running OP-7)
+- **EXPECTATION:** a first push of a branch is scanned.
+- **ACTUAL:** before the fix the `remote_sha == 0000` guard (meant for "the empty ref that closes
+  the pipe") ALSO skipped every NEW branch. **VERDICT: FIRED-WRONG.**
+- **THE FIX:** `.githooks/pre-push:63` — a new ref scans all commits reachable from `local_sha`.
+
+## OP-10 · W-2 (THE OWED PROBE — the prior session's residual #4)
+- **EXPECTATION:** a real orphan module is caught.
+- **ACTUAL:** `REJECT(W-2): ORPHAN:src/orphan-mod.ts (0 non-test callers)` — refused.
+  **VERDICT: FIRED-CORRECT.**
+
+## OP-11 · W-6 BOTH HALVES
+- **NEGATIVE (a legit string check):** `err.includes("Timeout")` → `PRE-COMMIT: PASS`.
+  **FIRED-CORRECT** (the over-fire closed).
+- **POSITIVE (a source-text fake-wiring):** `srcText.includes("FireGate")` → `REJECT(W-6): ...
+  asserts a symbol against SOURCE TEXT`. **FIRED-CORRECT.**
+
+## OP-12 · W-13 ACROSS THE FOUR CATCH SHAPES
+- `catch {}` → REJECT · `catch{ /* ignore */ }` → REJECT (the no-paren gap closed) ·
+  `catch(e){throw e}` → PASS · `catch{ /* already dead */ }` → PASS (the named-reason allowlist).
+  **ALL FOUR FIRED-CORRECT.**
+
+## OP-13 · THE `=~` QUOTING BUG (found by running the commit through the live hook)
+- **EXPECTATION:** a commit with only compliant docs passes W-13.
+- **ACTUAL:** `REJECT(W-13): SILENT-FALLBACK:src/verdict.ts:...` on EVERY `?? <anything>` — including
+  `opts.fenceBin ?? FENCE_DEFAULT` (an option default, not a swallow).
+- **THE MECHANISM:** `[[ "" =~ \?\?[[:space:]]*(0|""|''|\[\]|\{\}) ]]` — inside `[[ =~ ]]` the
+  pattern is UNQUOTED, so `""` and `''` are STRIPPED to empty strings, giving the alternation two
+  EMPTY branches that match anything. Proven: the inline form matched `?? x` for every x; a
+  VARIABLE pattern matches only the literals.
+- **VERDICT:** FIRED-WRONG (over-fire). **THE FIX:** the pattern in a variable
+  (`.githooks/lib/scan-silent.sh:119`). **RETEST:** the 4-shape probe above — FIRED-CORRECT.
+
+## OP-14 · THE CONTAINER (the L3/L4 tier — the clean-room proof)
+- **THE RIG:** `jarvis-upper-ct` on `omp-ct:master` · the repo at `/workspace/repo` ·
+  `core.hooksPath=.githooks` · git 2.39.5 · no host state.
+- **BASELINE (pre-fix hooks):** S5 (a legit `err.includes("Timeout")`) → **REJECTED** — the W-6
+  over-fire reproduced in a CLEAN ROOM; both scanners returned uncapped; W-3 never fired.
+- **POST-FIX:** S5 → `PRE-COMMIT: PASS`; S1/S2/S3/S4/S6/S7 all correct; W-3 + W-2 fire via
+  pre-push. **11 scenarios, `.trident/ct/ct-results.json` → overall PASS.**
+- **WHAT THE CONTAINER TAUGHT:** the W-6 over-fire is environment-INDEPENDENT; the exit-cap defect
+  was in BOTH scanners (the ocr named one); the gates carry their OWN environment (the shebang, the
+  lib sources, the relative paths) — the kernel is not host-dependent.
+
+## THE LEDGER'S LESSON (H6 — what RUNNING taught that READING could not)
+**Six defects, every one claimed FIXED by its desk, every one invisible to reading:**
+1. W-3 unwired · 2. the IFS loop (the whole pre-push gate DEAD) · 3. the new-ref skip ·
+4. the W-6 over-fire · 5. the `=~` quoting bug · 6. the W-13 catch-shape gaps.
+**The deepest (the IFS bug) was INTRODUCED by a fix and was NOT in the ocr report.** A gate's report
+is a claim; the gate's BEHAVIOR is the truth. The container reproduced the baseline defects and
+confirmed the fixes — the clean-room probe is the only proof that survives a warm shell.
