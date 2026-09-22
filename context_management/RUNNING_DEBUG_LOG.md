@@ -763,3 +763,64 @@ impossible. Never a silent pass, never a spurious fail.
 | the spec fix | `scripts/spec-audit.ts:9` |
 | the CI job | `.github/workflows/gates.yml:1` |
 | the battery | `tests/ship_manifest.test.ts:1` |
+
+
+---
+
+## [2026-09-22] EN-109 · THE EIGHTH INSTANCE — A HOST-LIVENESS GATE IN CI
+
+**THE FINDING (the CI's `test` job, run 35775366631):**
+```
+Run bash gates/does_anything_run.sh . || exit 1
+Q4:NO:wire-exercised:no runtime/wire_capture.json (the adapter has never carried live bytes)
+Q5:NO:heartbeat:no runtime/ticks.log (nothing has ever ticked)
+VERDICT:DOES-NOT-RUN
+```
+
+**THE ADJUDICATION — BOTH SIDES:**
+
+**Side A — is the gate wrong?** No. It reads `runtime/ticks.log` + `runtime/wire_capture.json`.
+**Both are GITIGNORED runtime state.** In a CI checkout nothing has ever ticked, so
+`DOES-NOT-RUN` is the TRUE answer.
+
+**Side B — is the SCOPE wrong?** **YES.** The gate's artifact class is **the LIVE HOST's runtime
+state**, not a CI checkout. It is a **HOST-LIVENESS gate**, and CI has no host.
+
+**VERDICT: a SCOPE defect (the EIGHTH instance), not a gate defect.** The gate is correct; it was
+asked a question that only makes sense on the host.
+
+**THE FIX:** the `gates/test` job's liveness step replaced with a DOCUMENTED skip:
+```yaml
+      - name: the host-liveness gate is NOT a CI gate (documented, not run)
+        run: |
+          echo "does_anything_run.sh is a HOST-LIVENESS gate (it reads gitignored runtime state)."
+          bash -n gates/does_anything_run.sh && echo "syntax: ok"
+```
+**The gate still runs locally** in `.githooks/pre-commit`, where the runtime exists — verified:
+`Q5:YES:heartbeat:runtime/ticks.log has 8674 row(s)` / `VERDICT:RUNS`.
+
+**★ THE KEY INSIGHT OF THIS INSTANCE:** the fix is NOT to make the gate pass in CI. It is to
+**name the artifact class and scope the gate to it.** A liveness gate in CI would have to be fed
+fabricated runtime state to pass — which is the THEATRE the whole build exists to kill.
+
+**THE EIGHT-INSTANCE TALLY:**
+
+| # | the instance | the axis that was wrong |
+|---|---|---|
+| 1 | W-1 | the repo LAYOUT |
+| 2 | W-9 (PR template) | the artifact CLASS |
+| 3 | W-9 (checkpoint manifest) | the artifact CLASS |
+| 4 | the CI job id | the KEY |
+| 5 | the hook shebang | the INTERPRETER |
+| 6 | the phantom gate | the COMMIT SHAPE (both halves) |
+| 7 | the ship_manifest test | the ENVIRONMENT |
+| 8 | the liveness gate in CI | the EXECUTION CONTEXT (host vs CI) |
+
+**THE ANCHORS:**
+| the claim | the anchor |
+|---|---|
+| the scoped job | `.github/workflows/gates.yml:1` (the test job) |
+| the local gate | `gates/does_anything_run.sh:1` |
+| the gitignored state | `.gitignore:1` (`runtime/ticks.log`) |
+| the local hook | `.githooks/pre-commit:1` |
+| the CI run | 35775366631 |
