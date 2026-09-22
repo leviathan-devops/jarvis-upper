@@ -9,7 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { verify, APPROVING_VERDICTS, type VerifyOpts } from "../src/verdict";
 
-const JOB = "/home/leviathan/JARVIS_WORKSPACE/jarvis-upper/jobs/upper-tier-dt-shapes";
+// Derived from THIS file, so a move of the factory tree cannot break it.
+const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
+const JOB = `${ROOT}/jobs/upper-tier-dt-shapes`;
 const SESSION = "jarvis-upper-2";
 const HEAD = "732083e1e7890000000000000000000000000000";
 
