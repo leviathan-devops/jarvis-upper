@@ -180,3 +180,91 @@ produces a gate that either fires on everything (and gets bypassed) or fires on 
 **THE META-FINDING:** this was only discoverable by RUNNING the system on real work. A design
 review would not have found either defect — both required the gate to fire on an artifact its
 author did not picture. **The rollout-as-stress-test thesis is validated by its own defects.**
+
+---
+
+# FIRING 005 — W-9 ON A CHECKPOINT MANIFEST (the third W-9 misfire)
+
+## THE FIRING
+```
+REJECT(W-9): Checkpoints/round-zero-pre-w1-.../CHECKPOINT_MANIFEST.md has 40 lines (< 100)
+REJECT(W-9): .../CHECKPOINT_MANIFEST.md has 0 file:line anchors (< 3)
+REJECT(W-9): .../context_management/COMPACTION_SURVIVAL.md has 1 file:line anchors (< 3)
+REJECT(W-9): .../context_management/TASK_QUEUE.md has 1 file:line anchors (< 3)
+```
+
+## THE ADJUDICATION (both sides, before any fix)
+
+**Side A — was the manifest thin?** Checked against the authority:
+`saving-checkpoints/SKILL.md:100` — *"The manifest records: the checkpoint name, the date, the dist
+SHA, the battery + tsc, the state, the complete contents (the file counts), and the HONEST GAPS."*
+**The manifest carries all of those. The skill specifies NO line floor for a manifest.**
+
+**Side B — is this a real contract violation?** Yes — W-9's predicate is applied to an artifact
+class it was not derived for:
+- a **manifest** is a structural INDEX, not an authored doc
+- the two flagged canon docs are **byte-identical copies** — `diff -q` returns identical
+- a **snapshot's** contents are copies; policing them polices the ORIGINALS, which already passed
+
+**VERDICT: Side B — a GATE DEFECT.** The manifest was correct; the gate was mis-scoped.
+
+## THE FIX (applied)
+
+`.githooks/pre-commit` — the exemption block extended:
+```bash
+case "$f" in
+  .github/*)     continue ;;   # GitHub-format templates (own format law)
+  Checkpoints/*) continue ;;   # a SNAPSHOT: byte-identical copies + a manifest index
+  packages/*/08-GOAL-PIN.txt) continue ;;   # a PIN is capped at 200 lines by design
+esac
+```
+**Verified both directions:** the checkpoint now yields `PRE-COMMIT: PASS` (exit 0); a real thin
+doc is still flagged (2 hits).
+
+## ★ THE PATTERN — W-9 HAS MISFIRED THREE TIMES, ALL THE SAME CLASS
+
+| the firing | the artifact class W-9 landed on | the verdict |
+|---|---|---|
+| 001 | a wave audit (an authored doc) | **CORRECT** — it WAS thin |
+| 004 | a GitHub PR/issue template | **DEFECT** — the UI sets that length |
+| 005 | a checkpoint manifest + copies | **DEFECT** — an index, not a doc |
+
+**THE LAW, RESTATED FOR THE THIRD TIME:** *a gate is a (predicate x artifact-class) pair.* W-9's
+predicate (`wc -l` + anchor count) is correct. Its **artifact class** — "an authored engineering
+doc" — was never written down, so it kept landing on classes it does not own.
+
+**This is precisely why W1 exists.** The gate-header standard (`.githooks/lib/pattern-header.sh`)
+makes `ARTIFACT CLASS` a mandatory header line — so a gate that lands on the wrong class is visible
+in its own source, not discovered by a firing.
+
+---
+
+# FIRING 006 — W-8 ON THE ORCHESTRATOR'S OWN COMMIT MESSAGE (CORRECT)
+
+## THE FIRING
+```
+REJECT(W-8): claim word (verified|passed|tested|works|green) with no artifact;
+             include a test count ("N pass"/"N tests"), a sha ([a-f0-9]{7,}), or a file:line (path.ext:NN)
+```
+
+## THE ADJUDICATION — the gate is CORRECT
+
+My message said *"Verified: checkpoint PRE-COMMIT: PASS, thin doc still flagged"* and offered these
+candidate artifacts — **none of which matched the hook's three patterns:**
+
+| I offered | why it did NOT match |
+|---|---|
+| `saving-checkpoints/SKILL.md:100` | the regex is `[a-z-]+\.(ts\|md\|sh\|yml):[0-9]+` — `SKILL` is **uppercase** |
+| `.githooks/pre-commit:24` | `pre-commit` has **no file extension**; the regex requires `\.(ts\|md\|sh\|yml)` |
+| `277L/20 anchors` | not the test-count shape (`[0-9]+ (pass\|tests)`) |
+
+**VERDICT: CORRECT.** I made a claim word with no artifact the gate recognises. The gate refused it.
+**This is the fourth CORRECT firing and the second on the orchestrator's own message.**
+
+## THE LESSON (the W-8 discipline)
+
+The artifact must match the **shape** the gate reads, not merely be true. A file:line anchor needs a
+**lowercase filename with a real extension** — `tests/gate_header.test.ts:1`, not `pre-commit:24`.
+A test count needs the literal words — `69 pass`, not `277L`.
+
+**This is the same class as the audit-pipe defect (B-7): the *method* must satisfy the *instrument*.**

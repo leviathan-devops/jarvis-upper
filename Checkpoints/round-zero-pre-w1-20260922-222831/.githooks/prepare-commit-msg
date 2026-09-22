@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# prepare-commit-msg — THE KEYSTONE: the absolute client-side anchor.
+#
+# WHY THIS FILE EXISTS:
+#   .git/hooks is NEVER versioned — git does not track it, it dies on a
+#   clone. The fix is `core.hooksPath` pointing at this committed directory
+#   (.githooks/). This hook is versioned, so every clone gets it.
+#
+# WHY prepare-commit-msg AND NOT commit-msg:
+#   From the git manual, verbatim behavior:
+#     - pre-commit  "can be bypassed with the --no-verify option."
+#     - commit-msg  "can be bypassed with the --no-verify option."
+#     - pre-push    has no --no-verify escape, but only fires on push.
+#     - prepare-commit-msg "is not suppressed by the --no-verify option."
+#   THIS is the only absolute client hook. commit-msg is kept as a
+#   bypassable twin (conventional location, fires for `git merge`).
+#
+# INPUT: $1 = message file path, $2 = source
+#   (message|template|merge|squash|commit <sha>), $3 = sha when amending.
+set -uo pipefail
+
+MSG_FILE="${1:?usage: prepare-commit-msg <msg-file> [source] [sha]}"
+SOURCE="${2:-message}"
+
+# A merge/squash message is GENERATED, not authored — there is no human
+# claim to police, so the checks are skipped for those sources.
+if [ "$SOURCE" = "merge" ] || [ "$SOURCE" = "squash" ]; then
+  exit 0
+fi
+
+# Strip git's own commented help lines before checking.
+MSG="$(grep -v '^#' "$MSG_FILE" 2>/dev/null || true)"
+
+# An empty message aborts the commit on its own; nothing to police.
+if [ -z "$(printf '%s' "$MSG" | tr -d '[:space:]')" ]; then
+  exit 0
+fi
+
+# CHECK 1 — the semantic prefix.
+if ! printf '%s' "$MSG" | grep -qE '^(feat|fix|docs|test|build|refactor|blueprint|goal|chore|spec|perf)(\([^)]+\))?: '; then
+  echo 'REJECT(W-8): message lacks semantic prefix ^(feat|fix|docs|test|build|refactor|blueprint|goal|chore|spec|perf)(scope)?: ' >&2
+  exit 1
+fi
+
+# CHECK 2 — the claim-evidence rule (W-8): a claim word with no artifact
+# is a bare claim and is rejected.
+if printf '%s' "$MSG" | grep -qiE 'verified|passed|tested|works|green'; then
+  HAS_EVIDENCE=0
+  printf '%s' "$MSG" | grep -qE '[0-9]+ (pass|tests)' && HAS_EVIDENCE=1
+  printf '%s' "$MSG" | grep -qE '[a-f0-9]{7,}' && HAS_EVIDENCE=1
+  printf '%s' "$MSG" | grep -qE '[a-z-]+\.(ts|md|sh|yml):[0-9]+' && HAS_EVIDENCE=1
+  if [ "$HAS_EVIDENCE" -eq 0 ]; then
+    echo 'REJECT(W-8): claim word (verified|passed|tested|works|green) with no artifact; include a test count ("N pass"/"N tests"), a sha ([a-f0-9]{7,}), or a file:line (path.ext:NN)' >&2
+    exit 1
+  fi
+fi
+
+exit 0

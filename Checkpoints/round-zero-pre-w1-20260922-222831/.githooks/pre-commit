@@ -22,11 +22,7 @@ STAGED="$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)"
 while IFS= read -r f; do
   [ -z "$f" ] && continue
   case "$f" in
-    .github/*)     continue ;;   # GitHub-format templates: exempt (own format law)
-    Checkpoints/*) continue ;;   # a SNAPSHOT: its docs are byte-identical COPIES
-                                 # (diff -q proves it) and its manifest is a
-                                 # structural INDEX, not an authored doc
-    packages/*/08-GOAL-PIN.txt) continue ;;   # a PIN is capped at 200 lines by design
+    .github/*) continue ;;   # GitHub-format templates: exempt (own format law)
   esac
   case "$f" in
     *.md)
