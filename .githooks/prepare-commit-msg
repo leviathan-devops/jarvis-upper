@@ -30,12 +30,16 @@ SOURCE="${2:-message}"
 
 # A merge/squash/template message is GENERATED, not authored — there is no
 # human claim to police, so the checks are skipped for those sources.
-# FIXED (W1 audit): also exempt 'template' (repo commit.template) and
-# 'commit' (amend) — a stock template without a semantic prefix would be
-# rejected on every `git commit`.
-if [ "$SOURCE" = "merge" ] || [ "$SOURCE" = "squash" ] || [ "$SOURCE" = "template" ]; then
-  exit 0
-fi
+# FIXED (W1 audit): 'template' (repo commit.template) is exempt — a stock
+# template carries no authored claim.
+# NOT exempt: 'commit' (--amend). An amend RE-AUTHORS the commit; its message
+# is still a claim, so it is policed like any other. (The prior comment claimed
+# a 'commit' exemption that the code never implemented — the ocr gate caught
+# the doc-vs-code mismatch; the code was right, the comment was wrong.)
+case "$SOURCE" in
+  merge|squash|template) exit 0 ;;   # generated messages: nothing authored to police
+  *) : ;;                            # message|commit(amend): the message IS the claim
+esac
 
 # Strip git's own commented help lines before checking.
 MSG="$(grep -v '^#' "$MSG_FILE" 2>/dev/null || true)"

@@ -30,7 +30,12 @@ jobs:
         run: |
           set -e
           FAIL=0
-          OPEN=$(gh pr list --state open --json number,headRefName,mergeStateStatus --jq '.[].number' || echo "")
+          # FIXED 2026-09-23 (ocr): `|| echo ""` masked a real gh failure (a bad
+          # token / API error) as "no open PRs" — a silent fallback. A failed
+          # MEASUREMENT is now a named, loud exit, never an empty result.
+          if ! OPEN=$(gh pr list --state open --json number,headRefName,mergeStateStatus --jq '.[].number'); then
+            echo "stale-gate-sweep: gh pr list FAILED — cannot measure (this is NOT 'no open PRs')"; exit 2
+          fi
           if [ -z "$OPEN" ]; then
             echo "stale-gate-sweep: no open PRs"
           else
@@ -59,16 +64,22 @@ jobs:
         run: |
           set -e
           FAIL=0
-          for f in $(git ls-files '*.md'); do
+          # FIXED 2026-09-23 (ocr): `for f in $(git ls-files '*.md')` word-splits
+          # on whitespace — a filename with a space broke the loop. NUL-delimited
+          # read instead. The exemptions mirror the W-9 gate's own (a snapshot and
+          # a machine-generated working dir are different artifact classes).
+          while IFS= read -r -d '' f; do
             case "$f" in
-              .github/*) continue ;;   # GitHub-format templates: exempt (own format law)
+              .github/*)     continue ;;   # GitHub-format templates: exempt (own format law)
+              Checkpoints/*) continue ;;   # a SEALED SNAPSHOT: its docs are byte-copies
+              .trident/*)    continue ;;   # machine-generated working state
             esac
             LINES=$(wc -l < "$f" | tr -d ' ')
             if [ "$LINES" -lt 100 ]; then
               echo "DOC-FLOOR: $f has $LINES lines (< 100, the W-9 floor)"
               FAIL=1
             fi
-          done
+          done < <(git ls-files -z '*.md')
           if [ "$FAIL" -ne 0 ]; then echo "doc-floor-sweep: VIOLATIONS FOUND"; exit 1; fi
           echo "doc-floor-sweep: clean"
       - name: wiring sweep — the contract/ruleset agreement must hold nightly
