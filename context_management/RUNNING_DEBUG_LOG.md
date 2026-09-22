@@ -305,3 +305,64 @@ fires on everything.
 | the wave plan | `packages/github-master-kernel/06-WAVES.md:3` (`WAVES: 6`) |
 | the spec | `packages/github-master-kernel/github_master_kernel_DPL1_SPEC.md:1` |
 | the Jev evidence | `JARVIS-FACTORY/reports/JEV_Failure_Pattern_Extraction_v1.md:1` |
+
+---
+
+## EN-101 · ★ THE FIRST REAL CI RUN FOUND A HARD DEFECT (2026-09-22)
+
+**THE FINDING:** the workflow file `.github/workflows/gates.yml` was REJECTED ENTIRELY by GitHub
+Actions — zero jobs were created. The first real CI run in this repo's history.
+
+**THE EVIDENCE:**
+```
+$ git push -u origin feat/github-master-kernel
+To https://github.com/leviathan-devops/jarvis-upper.git
+ * [new branch]      feat/github-master-kernel -> feat/github-master-kernel
+
+$ gh run list --repo leviathan-devops/jarvis-upper --limit 5
+completed  failure  feat(W1+ruleset): ...  .github/workflows/gates.yml  push  35769132155  0s
+
+$ gh run view 35769132155
+X This run likely failed because of a workflow file issue.
+
+$ gh api repos/.../actions/runs/35769132155/jobs
+   (EMPTY — zero jobs created)
+```
+
+**THE ROOT CAUSE:** the JOB IDs contain a SLASH.
+```yaml
+jobs:
+  "gates/anti-theatrical":      # <- INVALID job id (GitHub rejects the file)
+    name: gates/anti-theatrical # <- VALID (becomes the status-check context)
+```
+GitHub Actions job IDs must match `^[a-zA-Z_][a-zA-Z0-9_-]*$` — **no slashes, no dots.** The
+`name:` field MAY contain a slash and MUST here, because the armed ruleset requires
+`gates/anti-theatrical` etc. as the status contexts.
+
+**WHY IT SURVIVED 4 DESK AUDITS:** every audit validated the YAML with `yaml.safe_load` + checked
+the `name:` list. **All five `name:` values were correct.** The `name:` is what the docs and the
+ruleset care about, so nobody read the KEY. The defect is invisible to every check that looks at
+`name:`.
+
+**THE LESSON (a new audit rule):** *when a config's KEY is a different string from its VALUE,
+audit BOTH.* A YAML job key and its `name:` are two strings; a passing check on one says nothing
+about the other. This is the same class as the artifact-class defect — **the audit checked the
+thing it was looking at, not the thing that was wrong.**
+
+**THE FIX (steered to the W4 desk):** job KEYS become bare identifiers
+(`anti_theatrical`, `issue_link`, `spec_gate`, `diff_budget`, `test`); `name:` stays EXACTLY
+`gates/<the string>` so the armed ruleset still matches.
+
+**THE SECOND FINDING (the same run):** `gates/issue-link` reads
+`${{ github.event.pull_request.body }}` — empty on a `push` trigger. The job needs
+`if: github.event_name == 'pull_request'` or it fails on every non-PR event.
+
+**THE ANCHORS:**
+| the claim | the anchor |
+|---|---|
+| the invalid job ids | `.github/workflows/gates.yml:11` (`"gates/anti-theatrical":`) |
+| the valid names | `.github/workflows/gates.yml:12` (`name: gates/anti-theatrical`) |
+| the ruleset's contexts | `ruleset.json:1` (armed id 23838059) |
+| the contract | `src/status-contract.ts:33` (`REQUIRED_CONTEXTS`) |
+| the run | the `gh run list` output above (run 35769132155) |
+| the branch | `feat/github-master-kernel` |

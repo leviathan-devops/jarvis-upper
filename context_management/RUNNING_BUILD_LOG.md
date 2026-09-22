@@ -275,3 +275,44 @@ The measured pattern frequencies: `silent` 119 · `theatrical` 92 · `phantom` 7
 **The W-1/W-9 fix is the standard, not a patch:** `.githooks/pre-commit:47` carries
 `[ -d extensions ]`; `.githooks/pre-commit:24` carries the `.github/*` exemption. W1 makes the
 pattern a header every gate must carry.
+
+---
+
+## [2026-09-22 22:44] ★ THE REMOTE LAYER IS LIVE — THE RULESET + THE FIRST CI RUN
+
+### THE KEYSTONE — FIRING 007
+
+```
+remote: error: GH013: Repository rule violations found for refs/heads/main.
+remote: - 7 of 7 required status checks are expected.
+remote: - Changes must be made through a pull request.
+ ! [remote rejected] main -> main (push declined due to repository rule violations)
+```
+**A fresh clone with ZERO local hooks was refused by GitHub.** The remote main did not move.
+The ruleset is ARMED at id `23838059`, `enforcement: active`, `bypass_actors: []`.
+
+### THE THREE BLOCKERS THAT FELL
+
+| # | the error | the truth |
+|---|---|---|
+| 1 | `403 Upgrade to GitHub Pro` | the gate is `private + free` — the PUBLIC control returned `[]` |
+| 2 | `422 Invalid property /rules/1` | `_comment` is an unknown top-level field |
+| 3 | `422 evaluate is not supported on this plan` | **`evaluate` is Enterprise-only** — armed `active` |
+
+### THE FIRST CI RUN — AND THE DEFECT IT FOUND
+
+Pushing the branch (`feat/github-master-kernel`, 14 commits ahead of main) fired the workflow for
+the first time in the repo's history. It failed with **zero jobs created** — a workflow-file
+issue. The cause: the job IDs contain a slash. See **EN-101**.
+
+### THE STATE
+
+| the metric | the value |
+|---|---|
+| the ruleset | ARMED, id 23838059, 7 contexts, bypass_actors [] |
+| the CI | ENABLED, fired once, the workflow file has a defect (steered to W4) |
+| the branch | `feat/github-master-kernel` on the remote (14 commits ahead of main) |
+| the battery | 70 pass / 0 fail |
+| the hooks | 4 + `lib/pattern-header.sh` (the W1 standard) |
+| W1 | DONE — the gate-header standard landed |
+| W2/W3/W4 | IN FLIGHT |
