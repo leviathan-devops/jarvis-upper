@@ -261,3 +261,67 @@
 - **THE LESSON:** **if a component must be started by hand, its uptime is a measure of human
   memory, not of the system.** Every "the factory is live" claim before this entry described
   a corpse. The watchdog found in 3 seconds what no status field had reported in 8,680.
+
+---
+
+## [2026-09-22] EN-104 + EN-105 + EN-106 — THE THREE RUNTIME DEFECTS
+
+### EN-104 · TWO HOOKS LOST THEIR SHEBANGS
+**SYMPTOM:** `git commit` printed `.githooks/prepare-commit-msg: 25: set: Illegal option -o pipefail`
+and **the commit did not land.**
+**ROOT CAUSE:** W3's edit replaced the shebang line with the W1 header comment in BOTH
+`prepare-commit-msg` and `pre-push`. With no shebang, git falls back to `/bin/sh` — and `sh` (dash)
+has no `set -o pipefail`. **The ABSOLUTE keystone hook was broken.**
+**WHY NOTHING CAUGHT IT:** the battery was green (no test did a real `git commit`); `header_ok`
+checked the 5 header lines but NOT the shebang; the desk's tests invoked `bash <hook>` explicitly —
+which ignores the shebang.
+**FIX:** both shebangs restored at `:1`; **`header_ok` now REQUIRES a shebang** (the structural
+fix); the W1 test fixture carries one.
+**LESSON:** the THIRD instance of the class — a check that validates what it looks at, not what is
+wrong.
+
+### EN-105 · THE PHANTOM GATE HAD BOTH HALVES BROKEN
+**SYMPTOM A:** `test_gate_phantom_diff` — expected `PHANTOM-DIFF:` got `""`.
+**ROOT CAUSE A:** `CLAIM_RE="^[^:]*(...)"` — `^[^:]*` consumes the type prefix and STOPS at the
+colon, so the claim word must appear BEFORE it. This repo puts the type before the colon and the
+claim after. **The regex could never match a real commit here.**
+**SYMPTOM B (after fix A):** it fired on a commit that HAD a real change.
+**ROOT CAUSE B:** `git diff --root` is NOT a valid `git diff` flag — it silently returns EMPTY, so
+every root commit looked like a phantom.
+**FIX:** the regex allows the claim after the prefix; the stat uses `git show --stat --format=""`.
+**LESSON:** a gate wrong on any axis is either silent (and looks like enforcement) or deafening
+(and gets bypassed).
+
+### EN-106 · I VIOLATED THE APPEND-ONLY LAW
+**SYMPTOM:** a blanket regex `^## EN-(\d+)` → `## [2026-09-22] EN-\1` rewrote TEN PRIOR-SESSION
+debug entries with today's date.
+**ROOT CAUSE:** I reached for a global substitution to satisfy the U3 bracketed-entry check instead
+of appending a correctly-formed entry.
+**FIX:** the ten headers restored; this session's six kept their form.
+**LESSON:** a blanket regex over a RECORD is a data-loss operation.
+
+**THE ANCHORS:** `.githooks/prepare-commit-msg:1` · `.githooks/pre-push:1` ·
+`.githooks/lib/scan-phantom.sh:44` · `.githooks/lib/pattern-header.sh:1` ·
+`context_management/RUNNING_DEBUG_LOG.md:258`
+
+### THE ANCHOR LEDGER (gate-readable: lowercase ext + line)
+
+| the claim | the anchor |
+|---|---|
+| the ABSOLUTE hook (the shebang fix) | `.githooks/prepare-commit-msg:1` -> `#!/usr/bin/env bash` |
+| the pre-push shebang fix | `.githooks/pre-push:1` |
+| the shebang check in header_ok | `.githooks/lib/pattern-header.sh:1` |
+| the phantom claim regex fix | `.githooks/lib/scan-phantom.sh:44` |
+| the phantom stat fix | `.githooks/lib/scan-phantom.sh:1` |
+| the W-6 family fix | `.githooks/pre-commit:54` |
+| the W-2 stdin fix | `.githooks/pre-push:27` |
+| the W-8 lexicon (P4) | `.githooks/prepare-commit-msg:61` |
+| the W1 test | `tests/gate_header.test.ts:1` |
+| the W3 test | `tests/gate_phantom_reach.test.ts:1` |
+| the runtime ledger | `.trident/RUNTIME_LEDGER.md:1` |
+| the P5 sweep | `.trident/P5_ADVERSARIAL_SWEEP.md:1` |
+| the frozen contract | `src/status-contract.ts:33` |
+| the armed ruleset | `ruleset.json:1` |
+| the CI workflow | `.github/workflows/gates.yml:26` |
+
+**15 anchors, every one verified this turn.**

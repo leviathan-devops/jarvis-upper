@@ -270,3 +270,52 @@ lands.
 | the doc floor | `.githooks/pre-commit:21` |
 
 **12 anchors, every one verified by `grep -n` this turn — none invented.**
+
+---
+
+## [2026-09-22] THE RUNTIME SEAT + THE ADVERSARIAL SWEEP
+
+### THE 6 RUNTIME OPERATIONS (P4) — each with a pre-registered expectation
+
+| op | the operation | the expected | the observed | the verdict |
+|---|---|---|---|---|
+| OP-1 | the legit path | exit 0, the commit lands | `448d179` landed | **CORRECT** |
+| OP-2 | `--no-verify` + a bare claim | REJECT + no commit | `REJECT(W-8)`, 0 op-2 commits | **CORRECT** |
+| OP-3 | a hostile message (6 shapes) | claims reject, legit accept | `feat: done` was ACCEPTED | **DEFECT — FIXED** |
+| OP-4 | a silent catch | REJECT(W-13) | `REJECT(W-13)`, 0 op-4 commits | **CORRECT** |
+| OP-5 | 10 commits at once | the chain holds | 10/10 landed | **CORRECT** |
+| OP-6 | a fresh clone pushes main | refused by GitHub | `GH013 8 of 8` | **CORRECT** |
+
+**OP-2 is the critical one:** `--no-verify` did NOT skip `prepare-commit-msg`.
+
+### THE 8-GATE ADVERSARIAL SWEEP (P5)
+
+| the gate | the positive | the negative | the verdict |
+|---|---|---|---|
+| W-8 claim-evidence | fires | silent | **PASS** |
+| W-13 silent-fallback | fires | silent | **PASS** |
+| W-14 no-stub | fires | silent | **PASS** |
+| W-9 doc-density | fires | silent | **PASS** |
+| W-6 fake-wiring | fires | silent | **PASS (after fix)** |
+| W-2 reachability | fires | silent | **PASS (after fix)** |
+| W-3 phantom | fires | silent | **PASS** |
+| the ruleset | refuses | allows | **PASS** |
+
+**FOUND + FIXED: 2 defects** (W-6 matched one literal; W-2 never fired at all).
+**VERIFIED CLEAN: 8 gates, both halves.**
+
+### THE NUMBERS
+
+| the metric | the value |
+|---|---|
+| the battery | **77 pass / 0 fail / 322 expects** |
+| tsc | **exit 0** |
+| the local firings | 11 recorded (7 correct, 4 gate defects, all fixed) |
+| the ruleset | armed, 8 contexts |
+| the CI | run twice, never green |
+
+**AUDIT GATE: BLOCKED** — no independent code-audit artifact exists for this build yet. Per the
+DOC CONTRACT, `BLOCKED` is never `PASS`.
+
+**THE ANCHORS:** `.trident/RUNTIME_LEDGER.md:1` · `.trident/P5_ADVERSARIAL_SWEEP.md:1` ·
+`.githooks/lib/scan-phantom.sh:44` · `tests/gate_header.test.ts:1`
