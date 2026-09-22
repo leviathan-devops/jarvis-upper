@@ -1,4 +1,3 @@
-dist/
 # runtime state (regenerated every tick) — never a source artifact
 runtime/status.json
 runtime/ticks.log

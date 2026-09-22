@@ -6,7 +6,6 @@
 // DT-2 bug-loop: seed defect→attribute→kick→observe→close status=fixed
 // DT-3 loss-replay: a restart storm (file-backed, close/reopen ×20) + gap/dupe accounting
 import { test, expect } from "bun:test";
-import { $ } from "bun";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
@@ -26,20 +25,11 @@ import { EventRail, type RailEvent, type RailStats } from "../ao-client/rail";
 import type { Database } from "bun:sqlite";
 import { reduceEvent } from "../src/reducers";
 import { call, health, DAEMON } from "../ao-client/client";
+import { listPrsFromAo } from "../src/adapter-verbs";
 
 // HERMETICITY (fence sandbox: read-only root): scratch output goes to a
 // writable, overridable dir — never outside the job dir under a ro-bind.
 const TXN_DIR = process.env.JFM_TXN_DIR ?? join(tmpdir(), "dt-transcripts");
-
-// AO SessionPRSummary (subset we consume)
-interface AoPr {
-  number: number;
-  state: string;
-  headSha: string;
-  repo: string;
-  sourceBranch?: string;
-  targetBranch?: string;
-}
 
 function transcript(shape: string, data: unknown): string {
   mkdirSync(TXN_DIR, { recursive: true });
@@ -51,19 +41,28 @@ function transcript(shape: string, data: unknown): string {
 const frame = (seq: number, type = "pr_state_changed"): string =>
   `id: ${seq}\nevent: ${type}\ndata: {"seq":${seq},"projectId":"p","sessionId":"s-1","type":"${type}","pr":{"number":${seq},"session_id":"s-1","state":"open","head_sha":"h${seq}"},"payload":{}}\n\n`;
 
+// argv-only process spawn: no shell interpolation, safe on paths with spaces.
+async function sh(...args: string[]): Promise<string> {
+  const p = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+  const out = await new Response(p.stdout).text();
+  const code = await p.exited;
+  if (code !== 0) throw new Error(`exit ${code}: ${args.join(" ")}`);
+  return out.trim();
+}
+
 async function gitRepo(): Promise<string> {
-  const dir = await $`mktemp -d`.text().then((s) => s.trim());
-  await $`git init -q ${dir}`.quiet();
-  await $`git -C ${dir} config user.email t@t`.quiet();
-  await $`git -C ${dir} config user.name t`.quiet();
+  const dir = mkdtempSync(join(tmpdir(), "dt-git-"));
+  await sh("git", "init", "-q", dir);
+  await sh("git", "-C", dir, "config", "user.email", "t@t");
+  await sh("git", "-C", dir, "config", "user.name", "t");
   return dir;
 }
 
 async function commit(dir: string, file: string, content: string, msg: string): Promise<string> {
   await Bun.write(`${dir}/${file}`, content);
-  await $`git -C ${dir} add ${file}`.quiet();
-  await $`git -C ${dir} commit -qm ${msg}`.quiet();
-  return (await $`git -C ${dir} rev-parse HEAD`.text()).trim();
+  await sh("git", "-C", dir, "add", file);
+  await sh("git", "-C", dir, "commit", "-qm", msg);
+  return sh("git", "-C", dir, "rev-parse", "HEAD");
 }
 
 // ── DT-1: full-loop spawn → PR → sync → gate → plan → confirm → merge ─
@@ -93,7 +92,8 @@ dt1Test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→m
   const db = openStore(":memory:");
   const tx: string[] = [];
   let sessionId = "";
-  let prList: { prs: AoPr[] } = { prs: [] };
+  const projectId = process.env.DT1_PROJECT ?? "jfm-e2e";
+  let mine: PrRow[] = [];
 
   try {
     // 1. SPAWN — real AO session in scratch project (omp harness)
@@ -102,7 +102,7 @@ dt1Test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→m
         // a project WITH a remote (a PR cannot be minted without one) + a prompt
         // that requires a commit, a push and a PR — the spec's DT-1 shape.
         body: {
-          projectId: process.env.DT1_PROJECT ?? "jfm-e2e",
+          projectId,
           mode: "tui",
           displayName: "dt1-e2e",
           harness: "omp",
@@ -116,31 +116,17 @@ dt1Test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→m
       throw new Error(`DT1-SPAWN-FAILED: ${String(e)} — a synthetic session is not a pass`);
     }
 
-    // 2. PR — POLL for the real PR row the worker must mint (spec: spawn→PR).
+    // 2+3. PR + SYNC — POLL through the PRODUCTION mapper (src/adapter-verbs.ts
+    // listPrsFromAo): project from the session's projectId, raw AO state preserved,
+    // worker_hint populated. No test-local remap — the full loop exercises the real path.
     const prDeadlineMs = Date.now() + Number(process.env.DT1_PR_WAIT_S ?? 420) * 1000;
     while (Date.now() < prDeadlineMs) {
-      try { prList = await call<{ prs: AoPr[] }>("listSessionPRs", { params: { sessionId } }); } catch { prList = { prs: [] }; }
-      if (prList.prs.length > 0) break;
+      try { mine = (await listPrsFromAo({ project: projectId })).filter((r) => r.session_id === sessionId); } catch { mine = []; }
+      if (mine.length > 0) break;
       await new Promise((r) => setTimeout(r, 15_000));
     }
-    tx.push(`PR_COUNT:${prList.prs.length}`);
-
-    // 3. SYNC — adapter-shaped fact pull into pr_node
-    const { rows } = await syncPrs(db, async () =>
-      prList.prs.map(
-        (pr: AoPr): PrRow => ({
-          project: pr.repo,
-          pr_number: pr.number,
-          session_id: sessionId,
-          head_sha: pr.headSha,
-          state: (
-            { draft: "open", open: "open", merged: "merged", closed: "rejected" } as Record<string, string>
-          )[pr.state] ?? "open",
-          source_branch: pr.sourceBranch ?? null,
-          target_branch: pr.targetBranch ?? null,
-        }),
-      ),
-    );
+    tx.push(`PR_COUNT:${mine.length}`);
+    const { rows } = await syncPrs(db, async () => mine);
     tx.push(`SYNC_TOTAL_ROWS:${rows}`);
 
     // The minted PR is the row AO synced for THIS session — never a hardcoded number.
@@ -196,7 +182,7 @@ dt1Test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→m
       steps: ["spawn", "pr", "sync", "gate", "plan", "confirm", "merge", "kill"],
       transcript: tx.join(" "),
       evidence: {
-        sessionId, prId, prCount: prList.prs.length,
+        sessionId, prId, prCount: mine.length,
         gateEligible: g.ok, planKind: plan.kind, finalState: "merged",
       },
     });
@@ -207,7 +193,7 @@ dt1Test("dt_shapes: DT-1 full-loop spawn→PR→sync→gate→plan→confirm→m
       shape: "DT-1", status: "fail", daemon: "up",
       steps: tx.length > 0 ? ["partial"] : [],
       transcript: `${tx.join(" ")} FAIL:${String(e).slice(0, 200)}`,
-      evidence: { sessionId: sessionId || null, prCount: prList.prs.length, failReason: String(e).slice(0, 120) },
+      evidence: { sessionId: sessionId || null, prCount: mine.length, failReason: String(e).slice(0, 120) },
     });
     throw e;
   } finally {
