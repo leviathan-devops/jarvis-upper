@@ -209,3 +209,46 @@ End of CHANGELOG.
 - **VERDICT: VERIFIED** — fence PASS `spec_bound:true` + review `approved`, SAME sha
 - **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green · jfm 8/0
 - **jfm wave w0:** the desk `upper-tier-job` closed, `unverdicted: []`
+
+---
+
+## [2026-09-22T22:45:31Z] — THE OCR-HARDENING CAMPAIGN UPDATE (HEAD `8487df3`)
+
+**THE CURRENT DIST/HEAD:** `8487df3615196b1898b0fc7f54104424150cdbee` (branch `feat/github-master-kernel`).
+**THE BATTERY:**  78 pass  0 fail  (`bun test`). **`bunx tsc --noEmit`:** exit 0.
+**THE CONTRACT:** `src/status-contract.ts` — the 8 status contexts, UNCHANGED. The LIVE ruleset
+23838059 (enforcement active, bypass_actors []) still matches them byte-for-byte.
+**THE 8 LOCAL GATES:** W-1 (scoped off — no `extensions/` here) · W-2 · W-3 · W-6 · W-8 · W-9 ·
+W-13 · W-14.
+
+### WHAT THIS CAMPAIGN CHANGED
+The ocr ship gate returned **FAIL (36 high / 77 medium / 15 low, 40 files)** against this kernel —
+the gate this repo uses to block every ship claim had never been run on the repo itself. Four
+parallel waves hardened it (`.githooks/**` 33 findings · `.github/**` 7 · `src/*.ts` 61 ·
+`scripts/**`+`gates/**` 27). Then the ORCHESTRATOR's own audit found SIX defects the desks'
+"COMPLETE" reports did not survive — every one caught by RUNNING the hook, not reading it:
+1. **W-3 was unwired** (`scan-phantom.sh` never sourced) — `.githooks/pre-push:27`.
+2. **★ THE IFS BUG** — `IFS= read -r a b c d` with an empty IFS puts the whole line in `a`, so
+   `remote_sha` was always empty and EVERY ref was skipped: **W-2 AND W-3 never fired.** The whole
+   pre-push gate was dead. `.githooks/pre-push:61`. Not in the ocr report — introduced by a fix.
+3. **New refs skipped** by the `0000` guard — `.githooks/pre-push:63`.
+4. **W-6 over-fired** on `err.includes("Timeout")` — `.githooks/pre-commit:67`.
+5. **★ THE `=~` QUOTING BUG** — inside `[[ =~ ]]` the pattern is unquoted, so `""` and `''` were
+   stripped to empty alternation branches that match ANYTHING — `.githooks/lib/scan-silent.sh:119`.
+6. **W-13 shape gaps** — a no-paren comment-only catch escaped both rules.
+
+### THE EVIDENCE (all re-proven by running)
+- **The P5 corpus:** `.trident/p5_corpus2.sh` → **13 pass / 0 fail** — every gate, both halves.
+- **A REAL `git push`** of a new branch with a phantom claim → `REJECT(W-3)` rc=1.
+- **A REAL `git push`** with an orphan → `REJECT(W-2)`.
+- **The container test:** `jarvis-upper-ct` on `omp-ct:master`, `.trident/ct/ct-results.json` —
+  11 scenarios PASS. The prior session's residual "no container test exists" is CLOSED.
+- **The audit artifact:** `.trident/wave-audit/ORCHESTRATOR-AUDIT.md`.
+
+### THE HONEST REMAINDER
+- **THE AUDIT GATE:** the ocr re-run is in flight; the verdict lands in `TESTING_LOG.md`. A
+  degraded run is BLOCKED, never PASS.
+- **W-1** stays correctly scoped off (no dist step in this repo) — the CLAIM is fixed, not the code.
+- **4 W3 findings deferred** (the reachability worktree-vs-pushed-tree nuance, the stub body parser,
+  the brace-count approximation) — recorded in `.trident/wave-audit/W3-desk.md`.
+- **F2 (CODEOWNERS single owner)** deferred to the operator (no second handle exists).
