@@ -51,8 +51,13 @@ while IFS= read -r f; do
   [ -z "$f" ] && continue
   case "$f" in
     tests/*.ts)
-      if [ -f "$f" ] && grep -qF '.includes("Symbol")' "$f" 2>/dev/null; then
-        echo "REJECT(W-6): $f contains fake-wiring signature .includes(\"Symbol\")" >&2
+      # THE FAMILY, not one literal: any `.includes("<identifier>")` in a test
+      # is the fake-wiring signature (grepping SOURCE for a symbol name and
+      # calling it wiring). The original finding's example was `.includes("FireGate")`;
+      # matching only the literal "Symbol" was the one-example-in-the-comment defect.
+      if [ -f "$f" ] && grep -qE '\.includes\(["'"'"'][A-Za-z_][A-Za-z0-9_]*["'"'"']\)' "$f" 2>/dev/null; then
+        HIT="$(grep -nE '\.includes\(["'"'"'][A-Za-z_][A-Za-z0-9_]*["'"'"']\)' "$f" | head -1)"
+        echo "REJECT(W-6): $f contains the fake-wiring signature: $HIT" >&2
         FAIL=1
       fi
       ;;

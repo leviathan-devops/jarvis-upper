@@ -26,6 +26,10 @@ REMOTE="${1:-}"
 REMOTE_URL="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# --- CAPTURE STDIN ONCE (git sends the ref lines on stdin; a second read
+#     gets nothing — the bug that made this gate never fire) ---
+STDIN_LINES="$(cat)"
+
 # --- CHECK 1: refuse direct pushes to main ---
 while read -r local_ref _local_sha remote_ref _remote_sha; do
   [ -z "${local_ref:-}" ] && continue
@@ -33,7 +37,7 @@ while read -r local_ref _local_sha remote_ref _remote_sha; do
     echo 'REJECT: direct pushes to main are not permitted; open a PR.' >&2
     exit 1
   fi
-done
+done <<< "$STDIN_LINES"
 
 # --- CHECK 2: W-2 reachability gate ---
 # Only applies when pushing to a non-main ref (i.e., a PR branch).
@@ -63,7 +67,7 @@ while read -r local_ref local_sha remote_ref _remote_sha; do
     PUSHED_SHA="${local_sha}"
     break
   fi
-done
+done <<< "$STDIN_LINES"
 
 # If no pushed sha, nothing to check (force push / tag / delete).
 [ -z "$PUSHED_SHA" ] && exit 0
@@ -72,14 +76,14 @@ done
 # Use git diff --name-only against the remote branch.
 REMOTE_BRANCH=$(git for-each-ref --format='%(refname:short)' refs/remotes/ 2>/dev/null | head -1)
 if [ -n "$REMOTE_BRANCH" ]; then
-  RANGE="${REMOTE_BRANCH}..${PUSHED_SHA}"
+  # `git diff` is correct when a base exists.
+  CHANGED_SRC=$(git diff --name-only --diff-filter=ACM "${REMOTE_BRANCH}..${PUSHED_SHA}" 2>/dev/null | grep '^src/.*\.ts$' || true)
 else
-  # No remote branch — use root.
-  RANGE="--root ${PUSHED_SHA}"
+  # NO remote branch: `--root` is NOT a valid `git diff` flag (it silently
+  # returns nothing — the same defect the phantom gate had). Use `git show
+  # --name-only` which is correct for a root commit AND a normal one.
+  CHANGED_SRC=$(git show --name-only --format="" "$PUSHED_SHA" 2>/dev/null | grep '^src/.*\.ts$' || true)
 fi
-
-# Get the list of src/**/*.ts files in this push range.
-CHANGED_SRC=$(git diff --name-only --diff-filter=ACM $RANGE 2>/dev/null | grep '^src/.*\.ts$' || true)
 
 # If no src files changed, nothing to gate.
 [ -z "$CHANGED_SRC" ] && exit 0
