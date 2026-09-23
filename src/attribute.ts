@@ -28,10 +28,23 @@ const defaultRun = (cmd: string[], cwd: string, timeoutMs = 15000): Promise<{ co
   new Promise((resolve) => {
     const p = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
     const killer = setTimeout(() => { try { p.kill(9); } catch { /* already dead */ } }, timeoutMs);
+    // FIXED 2026-09-23 (ocr round-4 HIGH): the callback had no error handling —
+    // if p.exited REJECTED (killed by signal) or reading stdout/stderr threw,
+    // `resolve` was never called and the promise hung FOREVER (the caller's
+    // await never returned). Also `code` can be null on a signal-kill while the
+    // type claims `number`. try/catch + a .catch that always resolves; the code
+    // is coerced so the type never lies.
     p.exited.then(async (code) => {
       clearTimeout(killer);
-      const [o, e] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-      resolve({ code, stdout: o, stderr: e });
+      try {
+        const [o, e] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
+        resolve({ code: Number(code ?? 0), stdout: o, stderr: e });
+      } catch (err) {
+        resolve({ code: Number(code ?? 1), stdout: "", stderr: `READ-FAILED:${String(err).slice(0, 80)}` });
+      }
+    }).catch((err) => {
+      clearTimeout(killer);
+      resolve({ code: 1, stdout: "", stderr: `EXITED-REJECTED:${String(err).slice(0, 80)}` });
     });
   });
 export async function candidatesForFiles(

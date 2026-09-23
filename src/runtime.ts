@@ -52,7 +52,17 @@ export interface RailCapture { frames: number; bytes: number; lastSeq: number }
 
 export async function defaultRails(db: Database, root: string): Promise<RailCapture> {
   try {
-    const res = await fetch(`${DAEMON}/api/v1/events?after=0`, { signal: AbortSignal.timeout(5000) });
+    // FIXED 2026-09-23 (ocr round-4 CRITICAL): this fetched `after=0` on EVERY
+    // tick — all history. Combined with the 65536-byte buffer cap, each tick
+    // re-read the SAME first 64 KB; every event in it was already processed (the
+    // rail dedupes by (source, seq)), so the capture returned 0 new frames and
+    // events BEYOND the 64 KB window were NEVER fetched — the daemon silently
+    // stopped processing live events on any non-trivial stream. Now the cursor
+    // persisted in `rail_seq` is read BEFORE the fetch and passed as `after`.
+    const cs = db.query("SELECT last_seq FROM rail_seq WHERE source='ao-events'").get() as
+      { last_seq: number } | null;
+    const after = cs?.last_seq ?? 0;
+    const res = await fetch(`${DAEMON}/api/v1/events?after=${after}`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok || !res.body) return { frames: 0, bytes: 0, lastSeq: 0 };
     const reader = res.body.getReader();
     const dec = new TextDecoder();

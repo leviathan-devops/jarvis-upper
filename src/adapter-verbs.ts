@@ -14,8 +14,11 @@ export interface SessionRow { id: string; projectId?: string; kind?: string; har
 
 export async function listSessions(opts: { callFn?: typeof call } = {}): Promise<SessionRow[]> {
   const c = opts.callFn ?? call;
-  const res = await c<{ sessions: SessionRow[] }>("listSessions");
-  return res.sessions ?? [];
+  const res = await c<{ sessions: SessionRow[] } | null>("listSessions");
+  // FIXED 2026-09-23 (ocr round-4 HIGH): `res.sessions` threw when the client
+  // returned null (the body is `text ? JSON.parse(text) : null`) — the `?? []`
+  // only guards the PROPERTY, not the null object. Guard the object too.
+  return res && typeof res === "object" && Array.isArray(res.sessions) ? res.sessions : [];
 }
 
 // EN-010: the REAL PR lister. Enumerates sessions through the typed client, asks AO

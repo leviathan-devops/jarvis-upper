@@ -30,20 +30,32 @@ export async function executePlan(
   const planId = opts.planId ?? `plan:${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
   const exec: PlanExecution = { planId, merged: [], haltedAt: null, haltReason: null };
   for (const pr of v.order) {
-    const g = guardrail(db, pr);
-    if (!g.ok) {
+    // FIXED 2026-09-23 (ocr round-4 HIGH): the documented contract is "first
+    // failure halts with partial state recorded". The old loop only handled
+    // RETURN-VALUE failures — a THROWN exception (guardrail/adapter.publish/
+    // db.query) propagated uncaught, so the caller never received the
+    // PlanExecution and the partial state was lost. Every step is now wrapped:
+    // a throw halts with the partial state AND names the throwing step.
+    try {
+      const g = guardrail(db, pr);
+      if (!g.ok) {
+        exec.haltedAt = pr;
+        exec.haltReason = g.reasons.join(";");
+        return exec;
+      }
+      const r = await adapter.publish(pr);
+      if (!r.ok) {
+        exec.haltedAt = pr;
+        exec.haltReason = "PUBLISH-CALL-FAILED";
+        return exec;
+      }
+      db.query("UPDATE pr_node SET state='merge_ordered' WHERE id = ?").run(pr);
+      exec.merged.push(pr);
+    } catch (e) {
       exec.haltedAt = pr;
-      exec.haltReason = g.reasons.join(";");
+      exec.haltReason = `THREW:${String(e).slice(0, 80)}`;
       return exec;
     }
-    const r = await adapter.publish(pr);
-    if (!r.ok) {
-      exec.haltedAt = pr;
-      exec.haltReason = "PUBLISH-CALL-FAILED";
-      return exec;
-    }
-    db.query("UPDATE pr_node SET state='merge_ordered' WHERE id = ?").run(pr);
-    exec.merged.push(pr);
   }
   return exec;
 }

@@ -58,11 +58,28 @@ export async function guardrailRemote(
   const url = `${base}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/commits/${encodeURIComponent(opts.sha)}/statuses`;
   const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
   if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
-  const res = await fetchFn(url, { headers, signal: AbortSignal.timeout(10000) });
+  // FIXED 2026-09-23 (ocr round-4 HIGH): fetchFn AND res.json() can both throw
+  // (network error, AbortSignal timeout, invalid JSON). The function's contract
+  // is to RETURN a RemoteEligibility — a throw breaks it and crashes any caller
+  // without a try/catch. Both are now caught and returned as an honest not-ok.
+  let res: Response;
+  try {
+    res = await fetchFn(url, { headers, signal: AbortSignal.timeout(10000) });
+  } catch (e) {
+    return { ok: false, reasons: [`REMOTE-FETCH-THREW:${String(e).slice(0, 60)}`], missing: [...REQUIRED_CONTEXTS] };
+  }
   if (!res.ok) {
     return { ok: false, reasons: [`REMOTE-FETCH-FAILED:${res.status}`], missing: [...REQUIRED_CONTEXTS] };
   }
-  const rows = (await res.json()) as StatusProbe[];
+  let rows: StatusProbe[];
+  try {
+    rows = (await res.json()) as StatusProbe[];
+  } catch (e) {
+    return { ok: false, reasons: [`REMOTE-JSON-INVALID:${String(e).slice(0, 60)}`], missing: [...REQUIRED_CONTEXTS] };
+  }
+  if (!Array.isArray(rows)) {
+    return { ok: false, reasons: ["REMOTE-JSON-NOT-ARRAY"], missing: [...REQUIRED_CONTEXTS] };
+  }
   const latest: Record<string, string> = {};
   for (const r of rows) {
     latest[r.context] = r.state; // last-wins: newer status overrides older

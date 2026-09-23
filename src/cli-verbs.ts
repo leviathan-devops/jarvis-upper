@@ -22,7 +22,12 @@ export async function verbStatus(root: string, _arg?: string): Promise<VerbResul
   if (!s) return emit(1, { ok: false, verdict: "NO-STATUS-FILE", hint: "start src/main.ts" });
   const ageMs = Date.now() - Date.parse(s.ts);
   const fresh = ageMs < 2 * Number(process.env.UPPER_TICK_MS ?? 15000);
-  const verdict = !s.daemonOk ? "DOWN" : fresh ? "RUNNING" : "STALE";
+  // FIXED 2026-09-23 (ocr round-4 HIGH): a nested ternary — the review
+  // checklist prohibits it. Sequential if/else, each condition independent.
+  let verdict: "DOWN" | "RUNNING" | "STALE";
+  if (!s.daemonOk) verdict = "DOWN";
+  else if (fresh) verdict = "RUNNING";
+  else verdict = "STALE";
   return emit(verdict === "RUNNING" ? 0 : 1, { ok: verdict === "RUNNING", verdict, ageMs, tick: s.tick, cursor: s.cursor, prNodes: s.prNodes, planKind: s.planKind });
 }
 
