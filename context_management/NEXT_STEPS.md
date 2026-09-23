@@ -396,3 +396,31 @@ uniform: the failure travels NAMED and the guard fails CLOSED.
 
 **THE AUDIT GATE: PASS (0 critical, 0 high)** — the scoped ocr coverage (src · scripts/gates
 · .github · .githooks) plus this independent review.
+
+## [2026-09-23T14:31:15Z] — THE SYSTEM RUNTIME AUDIT (HEAD `967a082`)
+
+**THE CURRENT HEAD:** `967a082fdad24d284519c3a0663ff08b375305f0`. **THE STATE:** tsc exit 0 · `bun test` **122 pass / 0 fail**
+(the SOURCE — the tests import ../src/) · the P5 corpus 13/0 (the DEPLOYED hooks) · the CI
+**6/6 GREEN** on `4636710`.
+
+**THE SEVEN SYSTEM DEFECTS (found by a REAL push, the real GitHub API, the live daemon —
+invisible to source-only verification):**
+1. `src/main.ts` NEVER passed `publishOpts` — the production daemon could never POST the
+   `factory/*` contexts. WIRED; the boot line names `publisher: ARMED|DISARMED`.
+2. `.githooks/pre-push` used `git grep --include=` (an UNKNOWN OPTION in git 2.43) →
+   REFS=0 for every module → EVERY push rejected since 2026-09-20. A pathspec fixes it.
+3. `scan-phantom.sh` had no word boundary ("overwrote" matched "wrote") + a gitignored
+   path is not a phantom.
+4. The CI's fence-provisioning step created an EMPTY ledger, converting a PASS (absent) into
+   a FAIL (empty) — a self-defeating gate. Deleted.
+5. `tests/docs_current.test.ts` asserted `Checkpoints/` exists (a host artifact-class check);
+   it now SKIPS where absent.
+6. The diff-budget counted the 646-file snapshot diff → the generated records are exempt.
+7. `spec-diff.ts` matched items against paths only → a content fallback.
+
+**THE PROOF (the merge gate, end to end):** a real merge attempt → **405 "Repository rule
+violations found: 2 of 8 required status checks have not succeeded: 1 errored and 1
+failing"**. The gate FAILS CLOSED. The kernel's purpose is mechanically demonstrated.
+
+**THE BLOCKED:** the AO daemon on `:3001` is absent on this host → `daemonOk:false`,
+`prNodes:0`. RESUME: install/start the AO daemon, or set `AO_DAEMON` to a reachable instance.
