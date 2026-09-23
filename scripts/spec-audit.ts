@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 
 const HERE = import.meta.dir;            // .../jarvis-upper/scripts
 const ROOT = dirname(HERE);              // .../jarvis-upper
-const specPath = Bun.argv[2] ?? join(ROOT, "../packages/jarvis-upper-tier/jarvis_upper_tier_DPL1_SPEC.md");
+const specPath = Bun.argv[2] ?? join(ROOT, "packages/jarvis-upper-tier/jarvis_upper_tier_DPL1_SPEC.md");
 // THE EXIT-2 CONTRACT (L9): a gate that cannot measure says so — it never
 // crashes with a raw ENOENT, and it never silently passes. In CI the spec
 // lives OUTSIDE the repo (../packages/...), so its absence is EXPECTED there.

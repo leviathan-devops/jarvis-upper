@@ -10,7 +10,11 @@ set -uo pipefail
 ROOT="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$ROOT" || { echo "SHAPE-ERROR:root-missing"; exit 2; }
 
-SPEC="../packages/jarvis-upper-tier/jarvis_upper_tier_DPL1_SPEC.md"
+# FIXED 2026-09-23 (ocr round-4 HIGH): "../packages/..." resolved ABOVE ROOT
+# (the repo root) — a host path the script could never read in CI, so DECLARED
+# was always empty and the freeze never established. The spec is vendored
+# IN-REPO, so it resolves from ROOT and measures everywhere.
+SPEC="$ROOT/packages/jarvis-upper-tier/jarvis_upper_tier_DPL1_SPEC.md"
 FREEZE="gates/shape_freeze.sha16"
 
 # The pre-written identifiers: `-t <id>` names + the DT ids, read from the spec.

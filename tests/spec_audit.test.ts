@@ -13,7 +13,7 @@ import { test, expect } from "bun:test";
 import { existsSync } from "node:fs";
 
 const ROOT = new URL("..", import.meta.url).pathname;
-const SPEC = `${ROOT}../packages/jarvis-upper-tier/jarvis_upper_tier_DPL1_SPEC.md`;
+const SPEC = `${ROOT}packages/jarvis-upper-tier/jarvis_upper_tier_DPL1_SPEC.md`;
 const hasSpec = existsSync(SPEC);
 
 const run = () => {

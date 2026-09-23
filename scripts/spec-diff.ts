@@ -18,7 +18,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const SPEC = "../packages/jarvis-upper-tier/jarvis_upper_tier_DPL1_SPEC.md";
+// FIXED 2026-09-23 (ocr round-4 CRITICAL): the spec was resolved ONE LEVEL
+// ABOVE the repo (`ROOT/../packages/...`) — a host path, absent from a fresh
+// CI checkout, so existsSync always failed and the gate ALWAYS exited 2
+// (UNMEASURED) instead of measuring. The spec is now vendored IN-REPO so the
+// gate measures identically on the host and in CI.
+const SPEC = "packages/jarvis-upper-tier/jarvis_upper_tier_DPL1_SPEC.md";
 const ROOT = join(import.meta.dir, "..");
 const SPEC_ABS = join(ROOT, SPEC);
 

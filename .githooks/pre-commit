@@ -26,6 +26,11 @@ while IFS= read -r f; do
   [ -z "$f" ] && continue
   case "$f" in
     .github/*)     continue ;;   # GitHub-format templates: exempt (own format law)
+    packages/jarvis-upper-tier/*) continue ;;  # the VENDORED mission package: byte-identical
+                                 # copies of the operator's EXTERNAL build package
+                                 # (sha256-proven), NOT docs authored in this repo.
+                                 # Same artifact class as Checkpoints/* — a verbatim
+                                 # COPY, not an authored doc (the W-1 class).
     Checkpoints/*) continue ;;   # a SNAPSHOT: its docs are byte-identical COPIES
                                  # (diff -q proves it) and its manifest is a
                                  # structural INDEX, not an authored doc
