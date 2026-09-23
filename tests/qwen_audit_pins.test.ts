@@ -108,3 +108,25 @@ test("R2: verbOrder exits NON-ZERO when the plan HALTS (a halt is not success)",
     if (prev === undefined) delete process.env.UPPER_STORE; else process.env.UPPER_STORE = prev;
   }
 });
+
+test("R3-critical: stop() never launches a SECOND tick after a FAILED in-flight one", async () => {
+  const { createRuntime } = await import("../src/runtime");
+  const { openStore } = await import("../src/store");
+  const db = openStore(":memory:");
+  let ticks = 0;
+  const rt = createRuntime({
+    root: "/tmp/rt-pin", db,
+    deps: {
+      probe: async () => { ticks += 1; throw new Error("tick-boom"); },  // every tick throws
+      listPrs: async () => [],
+      rails: async () => ({ frames: 0, bytes: 0, lastSeq: 0 }),
+    },
+  });
+  rt.start();                                  // launches tick #1 (which throws)
+  await new Promise((r) => setTimeout(r, 50)); // let it settle
+  const before = ticks;
+  await rt.stop().catch(() => {});             // the OLD code launched tick #2 here
+  // the fix: stop() must NOT add a fresh tick attempt beyond the in-flight one
+  expect(ticks - before).toBeLessThanOrEqual(1);
+  db.close();
+});

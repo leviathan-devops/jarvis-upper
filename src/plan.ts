@@ -19,7 +19,10 @@ export function orderMerges(db: Database, onlyState: string = "ready_to_merge"):
   for (const id of ids) { adj.set(id, []); indeg.set(id, 0); }
   const seenEdges = new Set<string>();
   for (const e of edges) {
-    const ek = `${e.f}\0${e.t}`;
+    // FIXED 2026-09-23 (qwen-code-audit run 3): a `\0` delimiter is ambiguous if
+    // an id ever contains one (unreachable for pr:session:num ids, but free to
+    // make unambiguous). A JSON pair is injective.
+    const ek = JSON.stringify([e.f, e.t]);
     if (seenEdges.has(ek)) continue;
     seenEdges.add(ek);
     if (!indeg.has(e.f) || !indeg.has(e.t)) continue;

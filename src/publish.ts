@@ -45,7 +45,15 @@ export async function publishStatus(
   // falls through on "" too.
   const token = opts.token || process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
   const fetchFn = opts.fetchImpl ?? fetch;
-  const description = payload.description.slice(0, MAX_DESCRIPTION);
+  // FIXED 2026-09-23 (qwen-code-audit run 3): with every token source empty the
+  // code sent `Authorization: Bearer ` (an invalid header) instead of naming the
+  // missing credential. A LOUD, named refusal (the loud-fail law).
+  // only a REAL transport needs the credential; an INJECTED fetchImpl owns its
+  // own auth (a test/mock), so the guard applies to the default transport only.
+  if (!token && !opts.fetchImpl) {
+    return { context: payload.context, state: "error" as const, status: null, ok: false, reason: "NO-TOKEN: set GH_TOKEN/GITHUB_TOKEN or pass opts.token" };
+  }
+  const description = String(payload.description ?? "").slice(0, MAX_DESCRIPTION);
   const url = `${baseUrl}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/statuses/${encodeURIComponent(opts.sha)}`;
   const body = { context: payload.context, state: payload.state, description };
   let res: Response;

@@ -110,9 +110,12 @@ export function openStore(path?: string): Database {
   db.exec("PRAGMA foreign_keys=ON;");
   for (const sql of MIGRATIONS) db.exec(sql);
   // migrate pre-existing FK-less tables (a fresh db has its FKs from MIGRATIONS)
+  // FIXED 2026-09-23 (qwen-code-audit run 3): a THROWING rebuild skipped the
+  // PRAGMA ON, leaving the connection with FK enforcement OFF. try/finally.
   db.exec("PRAGMA foreign_keys=OFF;");
-  for (const { table, sql } of FK_REBUILDS) rebuildIfNoFks(db, table, sql);
-  db.exec("PRAGMA foreign_keys=ON;");
+  try {
+    for (const { table, sql } of FK_REBUILDS) rebuildIfNoFks(db, table, sql);
+  } finally { db.exec("PRAGMA foreign_keys=ON;"); }
   return db;
 }
 

@@ -87,15 +87,22 @@ export async function waveB(db: Database, fx: FixtureSet, target: string): Promi
 
 export async function waveC(db: Database, fx: FixtureSet, bugId: string): Promise<{ recorded: boolean }> {
   assertSegment("BUGID", bugId);
+  // FIXED 2026-09-23 (qwen-code-audit run 3): seed.file is untrusted fixture
+  // input — it is interpolated into the dossier text AND (via seed.lines) drives
+  // paths. Segment-validated like the other untrusted names.
   let seed: { file: string; lines: number[]; symptom: string; originCommit: string };
   try { seed = JSON.parse(await Bun.file(`${fx.root}/seeded-defect.json`).text()); } catch (e) { throw new Error(`FIXTURE-PARSE-ERROR:seeded-defect.json:${String(e).slice(0,80)}`); }
+  assertSegment("SEED-FILE", seed.file);
+  if (!Array.isArray(seed.lines) || seed.lines.some((n) => !Number.isInteger(n) || n < 0)) throw new Error(`INVALID-SEED-LINES:${bugId}`);
   const md = `# BUG ${bugId}\n\nsymptom: ${seed.symptom}\nfile: ${seed.file}:${seed.lines.join(",")}\n`;
   const origin = { originCommit: seed.originCommit, method: "seeded-fixture", confidence: 1 };
   const m = await writeDossier(`${fx.root}/../dossiers-root`, bugId, md, origin);
   db.query(`INSERT INTO bug_record(id, found_by, category, severity, dossier_path, origin_commit, attribution_confidence, status, created_at)
             VALUES (?, 'waveC-audit', 'seeded', 2, ?, ?, 1, 'open', strftime('%s','now'))`)
     .run(bugId, `${fx.root}/../dossiers-root/dossiers/${bugId}`, seed.originCommit);
-  void m;
+  // FIXED 2026-09-23 (qwen-code-audit run 3): `void m` swallowed a dossier write
+  // failure while the bug_record row was already written — an inconsistent state.
+  if (!m.sha16) throw new Error(`DOSSIER-NO-SHA:${bugId}`);
   return { recorded: true };
 }
 

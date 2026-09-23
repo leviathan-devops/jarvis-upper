@@ -210,6 +210,7 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
   let last: RuntimeStatus | null = null;
   let timer: NodeJS.Timeout | null = null;
   let inFlightPromise: Promise<unknown> | null = null;
+  let everTicked = false;
 
   async function tick(): Promise<RuntimeStatus> {
     state.tick += 1;
@@ -312,7 +313,7 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
     start() {
       if (state.running) return;
       state.running = true;
-      const safeTick = () => { if (state.inFlight) return; state.inFlight = true; inFlightPromise = tick().catch((e) => { console.error(`tick-error: ${String(e).slice(0,120)}`); }).finally(() => { state.inFlight = false; }); };
+      const safeTick = () => { if (state.inFlight) return; state.inFlight = true; everTicked = true; inFlightPromise = tick().catch((e) => { console.error(`tick-error: ${String(e).slice(0,120)}`); }).finally(() => { state.inFlight = false; }); };
       safeTick();
       timer = setInterval(safeTick, tickMs);
     },
@@ -326,7 +327,15 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       // timeout-bounded), so no racetick can ever run.
       if (last) return last;
       if (inFlightPromise) await inFlightPromise;
-      return last ?? (await tick());
+      if (last) return last;
+      // FIXED 2026-09-23 (qwen-code-audit run 3 CRITICAL): if the awaited tick
+      // THREW, `last ?? await tick()` launched a SECOND tick at stop time. stop()
+      // now runs a tick ONLY when none has EVER run and none is in flight; a
+      // status is synthesized otherwise (never a racing tick).
+      if (!state.inFlight && !everTicked) { everTicked = true; return tick(); }
+      return last ?? { ts: now().toISOString(), tick: state.tick, daemonOk: false, cursor: 0,
+        prNodes: 0, ready: 0, eligible: 0, planHash: null, planKind: "none", kicks: 0,
+        errors: ["stop-no-status"] };
     },
     status() { return last; },
   };
