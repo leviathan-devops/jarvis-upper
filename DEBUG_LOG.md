@@ -522,3 +522,25 @@ defect this campaign has found in code that READS as correct (the first was the 
 dead-gate regex) — the artifact must be read BYTE-EXACT, never by eye.
 
 Battery 97 pass / 0 fail at tests/muse_review_pins.test.ts:1
+
+## [2026-09-23T09:07:44Z] — EN-145..EN-146: THE MUSE ROUND-4 (a rejection outvoted by an approval)
+
+- **EN-145 (HIGH, src/verdict.ts:194)** — `runs.find(approving)` returned the FIRST
+  approving run and IGNORED a later rejection on the SAME head sha, so
+  `[approved@H, changes_requested@H]` read `REVIEW-GREEN`; with the fence green the
+  verdict became VERIFIED and the publisher POSTed success for a REJECTED head. A real
+  fail-open. FIX: `REJECTING_VERDICTS` (the mirror of `APPROVING_VERDICTS`) + fail-closed
+  aggregation (a rejection on the head sha is checked FIRST and wins).
+- **EN-146 (a GATE-SELF-DEFECT, found while landing EN-145)** — the W-13 scanner blocked the
+  commit because my explanatory comment pushed the `if (runs.length === 0) reason=` line out
+  of its 3-line lookahead window, so the `?? []` default read as a silent fallback. The
+  scanner's predicate is a 3-LINE window; a comment between a default and its loud handling
+  re-fires it. FIX: restructured so the loud handling is ADJACENT. This is a scanner
+  SENSITIVITY note, not a defect in the code — but it is worth recording: the window is
+  line-count-based, so formatting can trip it.
+
+PROVEN: `tests/muse_review_pins.test.ts` (now 8 cases) drives `verify()` with
+`[approved@H, changes_requested@H]` and asserts the review half is NOT `REVIEW-GREEN` and
+the verdict is NOT `VERIFIED`. Battery 98 pass / 0 fail. W-13 0 hits.
+
+Battery 98 pass / 0 fail at tests/muse_review_pins.test.ts:1
