@@ -497,3 +497,28 @@ converted into a success (a swallow, a fail-open guard, a malformed event read a
 guard fails CLOSED.
 
 Battery 94 pass / 0 fail at tests/muse_review_pins.test.ts:1
+
+## [2026-09-23T08:57:23Z] — EN-143..EN-144: THE MUSE ROUND-3 (a null overwriting a known sha + a corrupted identifier)
+
+The third independent round found 1 more HIGH — the SAME class as EN-141:
+
+- **EN-143 (HIGH, src/sync.ts:22)** — `upsertPr`'s ON CONFLICT SET used
+  `head_sha=excluded.head_sha`, so ONE API row with a null `headSha` ERASED a known sha
+  binding (MEASURED: after a null-head upsert the stored `head_sha` was NULL), forcing a
+  spurious STALE-GATE block. The sibling `reducers` path uses COALESCE for the same null
+  case — an absent value means UNKNOWN, not truth. Every nullable column now COALESCEs.
+- **EN-144 (a corrupted identifier, found while fixing EN-143)** — the SET clause carried
+  the VERBATIM bytes `source_branxcluded.source_branch` / `target_branxcluded.target_branch`
+  (the `ch=` of `source_branch=` had been consumed by an earlier edit), so the
+  source/target branch updates were effectively no-ops. Restored as
+  `source_branch = COALESCE(${EX}.source_branch, ...)`.
+
+PROVEN (measured this turn): a null-head upsert PRESERVES head_sha/base/branches/hint; a
+real value UPDATEs them. Pin: `tests/muse_review_pins.test.ts` (now 7 cases).
+
+THE ROUND-3 LESSON: the three rounds found 3 → 2 → 1 highs — a CONVERGING sequence on the
+same class (an unknown value read as a known one). The corrupted identifier is the SECOND
+defect this campaign has found in code that READS as correct (the first was the W-14
+dead-gate regex) — the artifact must be read BYTE-EXACT, never by eye.
+
+Battery 97 pass / 0 fail at tests/muse_review_pins.test.ts:1

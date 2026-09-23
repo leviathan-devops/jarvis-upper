@@ -165,3 +165,15 @@ failure travels NAMED, and the guard fails CLOSED.
 
 PINNED: `tests/muse_review_pins.test.ts` (6 cases — 3 for round 1, 3 for round 2). Battery
 96 pass / 0 fail.
+
+### §9.1 THE MUSE ROUNDS (the convergence, 3 → 2 → 1)
+
+| round | critical | high | the finding(s) |
+|---|---|---|---|
+| 1 | 0 | 3 | the rail swallow · the row-NULL STALE skip · the OOV state throw |
+| 2 | 0 | 2 | the PR-NULL STALE skip · the "unknown" state default (a CHECK violation) |
+| 3 | 0 | 1 | `sync.ts` upsertPr erasing a known sha with a null + a CORRUPTED identifier |
+
+The sequence CONVERGES on ONE class: **an unknown value converted into a known one** (a
+swallow, a fail-open guard, an out-of-vocabulary default, a null overwrite). Six highs found,
+six fixed, each pinned. The ocr scanner (capped) reported 0/0 on the same tree.
