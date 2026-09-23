@@ -14,7 +14,7 @@ function fullGreen(db: Database, id: string, sha: string | null): void {
   db.query("INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state) VALUES (?, 'p', 1, 's', ?, 'ready_to_merge')")
     .run(id, sha);
   for (const g of ["ci_green", "audit", "hardened", "fence2"]) {
-    db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, sha16, at) VALUES (?,?,?,?,?,0)")
+    db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, head_sha, at) VALUES (?,?,?,?,?,0)")
       .run(`${id}:${g}`, id, g, "pass", sha);
   }
 }

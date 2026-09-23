@@ -22,7 +22,10 @@ const MIGRATIONS: string[] = [
      FOREIGN KEY (to_pr) REFERENCES pr_node(id));
    CREATE TABLE IF NOT EXISTS gate_pass(
      id TEXT PRIMARY KEY, pr_node TEXT NOT NULL, gate TEXT NOT NULL,
-     verdict TEXT NOT NULL, evidence TEXT, sha16 TEXT, at INTEGER,
+     verdict TEXT NOT NULL, evidence TEXT, sha16 TEXT, head_sha TEXT, at INTEGER,
+     -- sha16 = the SPEC INVARIANT hash the gate verified; head_sha = the GIT
+     -- COMMIT the gate ran against (the two are different domains — see the
+     -- guardrail's STALE-GATE, which compares head_sha to pr_node.head_sha).
      -- Source of truth: GATE_TO_CONTEXT keys in src/status-contract.ts (internal gate names); keep this SQL list in sync.
      CHECK(gate IN ('ci_green','audit','hardened','fence2')),
      FOREIGN KEY (pr_node) REFERENCES pr_node(id));

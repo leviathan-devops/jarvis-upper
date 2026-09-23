@@ -23,10 +23,16 @@ export function guardrail(db: Database, prId: string): Eligibility {
   if (!pr) return { ok: false, reasons: ["PR-MISSING"] };
   if (pr.state !== "ready_to_merge") reasons.push(`NOT-READY:${pr.state}`);
   for (const g of REQUIRED_GATES) {
-    const row = db.query("SELECT verdict, sha16 FROM gate_pass WHERE pr_node = ? AND gate = ?")
-      .get(prId, g) as { verdict: string; sha16: string | null } | null;
+    const row = db.query("SELECT verdict, head_sha FROM gate_pass WHERE pr_node = ? AND gate = ?")
+      .get(prId, g) as { verdict: string; head_sha: string | null } | null;
     if (!row || row.verdict !== "pass") { reasons.push(`GATE-MISSING:${g}`); continue; }
-    if (pr.head_sha !== null && row.sha16 !== null && row.sha16 !== pr.head_sha) {
+    // FIXED 2026-09-23 (ocr round-4 CRITICAL): this compared gate_pass.sha16 (the
+    // SPEC INVARIANT hash, per verdict.ts) against pr_node.head_sha (a git commit
+    // sha) — CROSS-DOMAIN, so it was always unequal and STALE-GATE fired on every
+    // passing gate in production (the tests masked it by writing the head_sha INTO
+    // the sha16 column). It now compares the commit the gate RAN AGAINST
+    // (gate_pass.head_sha) to the PR's current head.
+    if (pr.head_sha !== null && row.head_sha !== null && row.head_sha !== pr.head_sha) {
       reasons.push(`STALE-GATE:${g}`);
     }
   }

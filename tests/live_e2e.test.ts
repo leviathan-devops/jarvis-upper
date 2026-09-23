@@ -47,7 +47,7 @@ test("live_e2e: scratch PR lands merge_ordered and posts BOTH factory contexts",
   const HEAD = "e2e5head00000000000000000000000000000000";
   db.query("INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state) VALUES ('pr:s-e2e:9', 'p', 9, 's-e2e', ?, 'ready_to_merge')").run(HEAD);
   for (const g of ["ci_green", "audit", "hardened", "fence2"]) {
-    db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, sha16, at) VALUES (?,?,?,?,?,0)").run(`pr:s-e2e:9:${g}`, "pr:s-e2e:9", g, "pass", HEAD);
+    db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, head_sha, at) VALUES (?,?,?,?,?,0)").run(`pr:s-e2e:9:${g}`, "pr:s-e2e:9", g, "pass", HEAD);
   }
   // guardrail: the PR is eligible.
   const g = guardrail(db, "pr:s-e2e:9");
