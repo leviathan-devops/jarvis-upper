@@ -52,3 +52,33 @@ test("muse-3: a VALID state still applies", () => {
   expect(row.state).toBe("ready_to_merge");
   db.close();
 });
+
+test("muse2-1: a NULL PR head_sha is STALE (both sides must be KNOWN)", () => {
+  const db = openStore(":memory:");
+  db.query("INSERT INTO pr_node(id,project,pr_number,session_id,head_sha,state) VALUES ('r','x',1,'s',NULL,'ready_to_merge')").run();
+  for (const g of ["ci_green", "audit", "hardened", "fence2"]) {
+    db.query("INSERT INTO gate_pass(id,pr_node,gate,verdict,head_sha,at) VALUES (?,?,?,?,?,0)").run(`r:${g}`, "r", g, "pass", "abc");
+  }
+  const e = guardrail(db, "r");
+  expect(e.ok).toBe(false);                                    // unknown current must block
+  expect(e.reasons.filter((x) => x.startsWith("STALE-GATE:")).length).toBe(4);
+  db.close();
+});
+
+test("muse2-2: a missing PR state does NOT throw the store CHECK (no batch rollback)", async () => {
+  const db = openStore(":memory:");
+  const { listPrsFromAo } = await import("../src/adapter-verbs");
+  // a payload with NO state -> must map to a VALID vocabulary member, not "unknown"
+  const fakeCall = async (method: string) => {
+    if (method === "listSessions") return { sessions: [{ id: "s1", projectId: "p" }] };
+    if (method === "listSessionPRs") return { sessionId: "s1", prs: [{ number: 7, headSha: "h" }] };
+    return null;
+  };
+  const rows = await listPrsFromAo({ callFn: fakeCall as never });
+  expect(rows.length).toBe(1);
+  expect(rows[0].state).toBe("open");                          // a VALID state
+  // and the row inserts without a CHECK violation
+  expect(() => db.query("INSERT INTO pr_node(id,project,pr_number,session_id,head_sha,state) VALUES (?,?,?,?,?,?)")
+    .run(`pr:s1:7`, rows[0].project, rows[0].pr_number, rows[0].session_id, rows[0].head_sha, rows[0].state)).not.toThrow();
+  db.close();
+});

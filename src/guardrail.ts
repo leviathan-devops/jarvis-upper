@@ -37,7 +37,13 @@ export function guardrail(db: Database, prId: string): Eligibility {
     // ANY future head — fail-OPEN where this file's own law is "blocking is the
     // safe default". An unknown-commit gate is STALE: the PR's head is known, the
     // gate's is not, so the two cannot be shown to match.
-    if (pr.head_sha !== null && row.head_sha !== pr.head_sha) {
+    // FIXED 2026-09-23 (muse re-review HIGH): the old guard skipped the whole
+    // check when the PR's head was NULL, so an UNKNOWN CURRENT revision read as
+    // eligible. Binding needs BOTH sides KNOWN — either null is STALE (the file's
+    // law: blocking is the default, every block carries its reason).
+    const gateHead = row.head_sha;
+    const prHead = pr.head_sha;
+    if (gateHead === null || prHead === null || gateHead !== prHead) {
       reasons.push(`STALE-GATE:${g}`);
     }
   }

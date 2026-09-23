@@ -12,6 +12,9 @@ export async function listProjects(): Promise<ProjectRow[]> {
 
 export interface SessionRow { id: string; projectId?: string; kind?: string; harness?: string }
 
+// the pr_node.state vocabulary — the SAME set as the store's CHECK constraint.
+const PR_STATES = ["open", "ready_to_merge", "merge_ordered", "merged", "rejected", "kicked"] as const;
+
 export async function listSessions(opts: { callFn?: typeof call } = {}): Promise<SessionRow[]> {
   const c = opts.callFn ?? call;
   const res = await c<{ sessions: SessionRow[] } | null>("listSessions");
@@ -51,7 +54,12 @@ export async function listPrsFromAo(opts: {
         head_sha: pr.headSha ?? null,
         source_branch: pr.sourceBranch ?? null,
         target_branch: pr.targetBranch ?? null,
-        state: pr.state ?? "unknown",
+        // FIXED 2026-09-23 (muse re-review HIGH): `?? "unknown"` is OUTSIDE the
+        // pr_node.state CHECK vocabulary, so an event without a state THREW on
+        // insert and rolled back the WHOLE sync batch (the same head-of-line
+        // block class as the reducers fix). The default is a VALID vocabulary
+        // member; an unknown value is clamped to "open" (not applied-as-truth).
+        state: (pr.state && PR_STATES.includes(pr.state as typeof PR_STATES[number])) ? pr.state : "open",
         worker_hint: pr.repo ?? null,
       }));
     }));
