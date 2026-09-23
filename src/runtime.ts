@@ -27,7 +27,6 @@ function parseTickMs(raw: string | undefined, fallback = 15000): number {
   const n = Number(raw ?? fallback);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
-const TICK_MS = parseTickMs(process.env.UPPER_TICK_MS);
 
 export interface RuntimeDeps {
   probe?: () => Promise<boolean>;
