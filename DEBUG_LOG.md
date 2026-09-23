@@ -356,3 +356,34 @@ of appending a correctly-formed entry.
   a fix and was invisible to reading. The ocr report was the ENTRY point, never the end.
 - EVIDENCE: `.trident/wave-audit/ORCHESTRATOR-AUDIT.md` · `.trident/p5_corpus2.sh` ·
   `.trident/ct/ct-results.json` · `.githooks/pre-push:61` · `.githooks/lib/scan-silent.sh:119`
+
+## [2026-09-23T00:32:42Z] — EN-118..EN-122: THE ROUND-3 OCR FINDINGS ON THE HARDENED HOOKS
+The round-2 gate (4 high) was dominated by the SEALED pre-fix checkpoint's copies. A SCOPED scan of
+the live enforcement layer (`ocr scan --path .githooks`, poolside-lane, 8 files, 12m56s) returned
+**1 high / 4 medium / 7 low** — real findings IN the hooks I had just hardened:
+- **EN-118 (HIGH) — the case-sensitivity split.** The claim-word test is `grep -qiE`
+  (case-insensitive) so `DONE`/`VERIFIED` trigger it, but the EVIDENCE tests were `grep -qE`
+  (case-SENSITIVE) — so `feat: DONE (42 PASS)` was falsely REJECTed. FIX: `-i` on every evidence
+  test + the extension list widened (tsx/yaml/txt/toml). `.githooks/prepare-commit-msg:76`.
+- **EN-119 (MEDIUM) — the test-filter no-op.** `grep -v '^tests'` filtered NOTHING: every result
+  path already began with `src/ scripts/ gates/ bin/`. So a module whose only importer was a test
+  file was flagged orphan (or, with a test importer, wrongly passed). FIX: segment/suffix filter
+  (`(^|/)(tests?|__tests__)/`, `\.(test|spec|_test)\.[a-z]+$`). `.githooks/pre-push:112`.
+- **EN-120 (MEDIUM) — the working-tree vs pushed-tree search.** The reference search grepped the
+  WORKING TREE while everything else was commit-based — a push of a non-checked-out branch gave a
+  wrong reference set. FIX: `git grep -lw … "$local_sha" -- src/ scripts/ gates/ bin/`.
+- **EN-121 (MEDIUM) — header_ok's whole-file grep.** A `# GATE ` line ANYWHERE (a comment, a
+  string) satisfied it. FIX (corrected twice): the 5 labels must form a CONTIGUOUS BLOCK in ORDER
+  (awk). **THE FIRST FIX WAS WRONG** — `head -n 12` broke the real pre-commit check because this
+  repo puts each gate's header INLINE with the gate (`.githooks/pre-commit:111-115`), not at the
+  top. **The test caught my fix's regression — the battery is the guard.**
+- **EN-122 (LOW) — `|| true` on the lib source.** A missing/broken library was silently swallowed.
+  FIX: a LOUD named `REJECT(GATE-LIB)` exit.
+- **AND a REAL checkpoint gap:** the `docs_current` test requires the newest checkpoint to carry
+  BOTH `CHECKPOINT_MANIFEST.md` (≥40 L) and `CHECKPOINT_STRUCTURE.md` (≥30 L). **Mine was missing
+  the structure doc** — a real contract gap, not a test problem. Added (53 L).
+- LESSON: **the scanner is a SECOND pair of eyes on the same code, and it caught a HIGH the desks
+  and I both missed.** But it also produced one finding whose proposed fix was WRONG for this
+  repo's convention (EN-121) — so every finding is adjudicated, never applied blindly.
+- EVIDENCE: `.trident/ocr-hooks-round3.json` · `.githooks/prepare-commit-msg:76` ·
+  `.githooks/pre-push:112` · `.githooks/lib/pattern-header.sh:56`

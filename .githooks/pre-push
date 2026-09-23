@@ -94,7 +94,18 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
   # --- CHECK 3 (W-3 phantom-completion): a commit in this ref's range claims a
   #     file was created/added, but that file does not exist at the commit.
-  PHANTOM_OUT="$(scan_phantom "$RANGE" 2>/dev/null || true)"
+  # FIXED 2026-09-23 (ocr round-3 HIGH): `2>/dev/null || true` swallowed ALL
+  # stderr and non-zero exits. A runtime error in scan_phantom produced empty
+  # stdout -> no reject -> W-3 silently PASSED (a false green). stderr is now
+  # captured; a non-empty stderr is a LOUD, named failure, not a silent pass.
+  PHANTOM_ERR="$(mktemp)"
+  PHANTOM_OUT="$(scan_phantom "$RANGE" 2>"$PHANTOM_ERR")" || true
+  if [ -s "$PHANTOM_ERR" ]; then
+    printf 'REJECT(GATE-LIB): scan_phantom errored — the W-3 gate cannot verify:\n' >&2
+    head -n 3 "$PHANTOM_ERR" >&2
+    FAIL=1
+  fi
+  rm -f "$PHANTOM_ERR"
   if [ -n "$PHANTOM_OUT" ]; then
     printf 'REJECT(W-3): %s\n' "$PHANTOM_OUT" >&2
     FAIL=1
@@ -116,6 +127,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     BASENAME=$(basename "$f" .ts)
 
     # Skip known entry points (derived from gates/orphan_scan.sh).
+    # FIXED 2026-09-23 (ocr round-3): a TEST file under src/ (src/foo.test.ts)
+    # is not a production module — its stem `foo.test` also carried a regex dot.
+    # Skip test/spec files by suffix, then the small entry-point skip list.
+    case "$f" in
+      *.test.ts|*.spec.ts|*_test.ts) continue ;;
+    esac
     case "$BASENAME" in
       main|runtime|cli|status) continue ;;
     esac
@@ -130,7 +147,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # `*.spec.ts`); the old `grep -v '^tests'` was a NO-OP because every result
     # path already began with src/ scripts/ gates/ bin/ — so a module whose only
     # importer was a test file was NOT flagged as an orphan.
-    REFS=$(git grep -lw --include='*.ts' --include='*.js' --include='*.sh' --include='*.json' \
+    # FIXED 2026-09-23 (ocr round-3): `-F` — $BASENAME is a LITERAL, but bare
+    # `-w` treats it as a regex, so a stem like `foo.test` had its `.` match any
+    # char (false positives like `fooxtest`). `git -C "$ROOT"` — the script
+    # computed ROOT but relied on PWD; run from a subdirectory, git silently
+    # returned empty and the gate could false-green.
+    REFS=$(git -C "$ROOT" grep -lFw --include='*.ts' --include='*.js' --include='*.sh' --include='*.json' \
            -e "$BASENAME" "$local_sha" -- src/ scripts/ gates/ bin/ 2>/dev/null \
            | sed "s/^[^:]*://" \
            | grep -vE '(^|/)(tests?|__tests__|__test__)/|\.(test|spec|_test)\.[a-z]+$' \

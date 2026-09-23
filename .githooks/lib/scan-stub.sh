@@ -57,7 +57,9 @@ scan_stub() {
         if [ "$brace_depth" -le 0 ]; then
           local stripped
           stripped=$(printf '%s' "$func_body" | sed -E 's|//.*$||g; s|/\*.*\*/||g' | sed -E 's/^[^{]*\{//; s/\}[^}]*$//' | tr -d '[:space:]();' || true)
-          stripped_core=$(printf '%s' "$stripped" | sed -E 's/Error$//; s/NotImplementedError$//' || true)
+          local stripped_core
+          local stripped_core
+        stripped_core=$(printf '%s' "$stripped" | sed -E 's/Error$//; s/NotImplementedError$//' || true)
           if [[ "$stripped_core" =~ ^thrownewNotImplemented$ ]] || \
              [[ "$stripped_core" =~ ^thrownewError"notimplemented"$ ]]; then
             printf 'STUB:%s:%d:throw new NotImplemented in function %s\n' "$f" "$func_start" "$fname"
@@ -77,6 +79,7 @@ ${line}"
         stripped=$(printf '%s' "$func_body" | sed -E 's|//.*$||g; s|/\*.*\*/||g' | sed -E 's/^[^{]*\{//; s/\}[^}]*$//' | tr -d '[:space:]();' || true)
         # Check: the remaining body should be ONLY a throw statement.
         # Strip Error/NotImplementedError suffixes to get the core throw shape.
+        local stripped_core
         stripped_core=$(printf '%s' "$stripped" | sed -E 's/Error$//; s/NotImplementedError$//' || true)
         if [[ "$stripped_core" =~ ^thrownewNotImplemented$ ]] || \
            [[ "$stripped_core" =~ ^thrownewError"notimplemented"$ ]]; then
@@ -103,11 +106,11 @@ ${line}"
 
 # _stub_brace_depth <line> — net `{` minus `}` count on one line (helper).
 _stub_brace_depth() {
+  # FIXED 2026-09-23 (ocr round-3): the old form spawned 6 subprocesses
+  # (printf/tr/wc x2) PER LINE — ~6000 fork+exec for a 1000-line file, the
+  # dominant cost of a pre-commit hook. Pure-bash parameter expansion: delete
+  # every non-brace char, then take the string length. Zero forks.
   local l="${1:-}"
-  local opens=0 closes=0
-  opens=$(printf '%s' "$l" | tr -cd '{' | wc -c || true)
-  closes=$(printf '%s' "$l" | tr -cd '}' | wc -c || true)
-  opens=$(printf '%s' "$opens" | tr -d ' ' || true)
-  closes=$(printf '%s' "$closes" | tr -d ' ' || true)
-  printf '%d' "$((opens - closes))"
+  local o="${l//[^{]/}" c="${l//[^}]/}"
+  printf '%d' "$(( ${#o} - ${#c} ))"
 }
