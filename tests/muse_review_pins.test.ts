@@ -82,3 +82,21 @@ test("muse2-2: a missing PR state does NOT throw the store CHECK (no batch rollb
     .run(`pr:s1:7`, rows[0].project, rows[0].pr_number, rows[0].session_id, rows[0].head_sha, rows[0].state)).not.toThrow();
   db.close();
 });
+
+test("muse3-1: upsertPr must NOT erase a known sha/branch with a null incoming value", async () => {
+  const db = openStore(":memory:");
+  const { upsertPr } = await import("../src/sync");
+  const base: any = { project:"p", pr_number:1, session_id:"s", head_sha:"abc",
+    base_sha:"b1", source_branch:"feat1", target_branch:"main", state:"open", worker_hint:"w1" };
+  upsertPr(db, base);
+  upsertPr(db, { ...base, head_sha: null, source_branch: null });   // nulls = UNKNOWN
+  const r = db.query("SELECT head_sha,base_sha,source_branch,target_branch,worker_hint FROM pr_node WHERE id='pr:s:1'").get() as any;
+  expect(r.head_sha).toBe("abc");            // preserved (COALESCE)
+  expect(r.source_branch).toBe("feat1");
+  expect(r.worker_hint).toBe("w1");
+  upsertPr(db, { ...base, head_sha: "def", source_branch: "feat2" });   // real values UPDATE
+  const r2 = db.query("SELECT head_sha,source_branch FROM pr_node WHERE id='pr:s:1'").get() as any;
+  expect(r2.head_sha).toBe("def");
+  expect(r2.source_branch).toBe("feat2");
+  db.close();
+});
