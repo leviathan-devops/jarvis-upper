@@ -414,3 +414,30 @@ refuses traversal; `start(): void` has no unhandled rejection.
 
 **THE VERDICT: `AUDIT GATE: PASS (0 critical, 0 high)`** — HEAD `b41ff22`. tsc exit 0;
 battery 90 pass / 0 fail; P5 corpus 13/0; W-13 silent-fallback 0 hits.
+
+## [2026-09-23T09:17:36Z] — THE FINAL SUBJECT-LABELLED RECEIPT (HEAD `c073cd6`)
+
+Every row names WHAT ran, ON WHAT SUBJECT, with the OBSERVED OUTPUT.
+
+| \# | WHAT RAN | THE SUBJECT | THE OUTPUT |
+|---|---|---|---|
+| 1 | `bunx tsc --noEmit` | the SOURCE (20 `.ts`) | **exit 0** |
+| 2 | `bun test` | the SOURCE (the tests import `../src/`) | **98 pass / 0 fail** across 32 files |
+| 3 | `bash .trident/p5_corpus2.sh` | the **DEPLOYED HOOKS** — real staged content through `.githooks` | **13 pass / 0 fail** |
+| 4 | `bash .githooks/lib/scan-silent.sh` | the SOURCE tree | **0 SILENT-FALLBACK hits** |
+| 5 | the `ocr` gate, scoped | the SOURCE (`src`) | **0 critical / 0 high** (`.trident/ocr-src-final2.json`) |
+| 6 | the `ocr` gate, scoped | `scripts` + `gates` + `.github` | **0 critical / 0 high** (`.trident/ocr-rest-confirm.json`) |
+| 7 | the `ocr` gate, scoped | `.githooks` | **1 high** — the `commit-msg` subject anchor — **FIXED in `68257bf`**, PROVEN on disk (a body-only prefix → `REJECT(W-8)`; a real prefix → PASS) and covered by the P5 corpus (`W-8 POS/NEG/EDGE`). A post-fix re-scan was LANE-BLOCKED (both ocr providers quota-capped). |
+| 8 | `muse exec` (independent review, round 5) | the SOURCE, read COLD | **0 critical / 0 high**; all 7 prior findings verified holding by live probes |
+
+**WHAT WAS BLOCKED:** (a) the full-tree `ocr` scan (times out >1500 s/pass — hence the three
+scoped rows); (b) a post-fix `.githooks` re-scan (both providers quota-capped). **BLOCKED is
+never PASS** — row 7's finding is FIXED and independently proven by the hook's own behavior,
+not by a re-scan.
+
+**THE BUG LEDGER (not empty):** 4 CRITICAL + ~40 HIGH found across the ocr scanner, the
+repo's own gates (TWO DEAD GATES self-caught: the W-14 stub scanner, the W-8 subject anchor),
+and the independent reviewer (7, one class). 41+ closed; 0 open on the scanned surface.
+
+**THE AUDIT GATE: PASS (0 critical, 0 high on the confirmable surface; one row BLOCKED with
+its fix proven by behavior).**
