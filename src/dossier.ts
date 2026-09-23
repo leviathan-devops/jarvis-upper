@@ -1,6 +1,7 @@
 // Dossier law: sha16 over dossier.md+origin.json gates every kick.
 import { createHash } from "node:crypto";
 import { isAbsolute, resolve, relative } from "node:path";
+import { randomUUID as cryptoRandomUUID } from "node:crypto";
 
 export interface DossierManifest {
   bugId: string;
@@ -53,7 +54,9 @@ export async function writeDossier(root: string, bugId: string, md: string, orig
     // LAST, so a crash before it leaves content the manifest does not match — the
     // reader's sha check then DETECTS the partial state instead of trusting it.
     const { rename } = await import("node:fs/promises");
-    const rnd = Math.random().toString(36).slice(2, 8);
+    // FIXED (runs 3-6): Math.random has ~21 bits — a predictable temp name.
+    // crypto.randomUUID is unpredictable (the symlink/race class).
+    const rnd = cryptoRandomUUID().slice(0, 8);
     const mdTmp = `${dir}/dossier.md.tmp-${rnd}`;
     const ojTmp = `${dir}/origin.json.tmp-${rnd}`;
     const manTmp = `${dir}/manifest.sha16.tmp-${rnd}`;

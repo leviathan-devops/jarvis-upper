@@ -33,13 +33,17 @@ if (verb === "init") {
   // encoding elsewhere). fileURLToPath is the platform-correct conversion — the
   // same fix already applied in main.ts and store.ts.
   const root = fileURLToPath(new URL("..", import.meta.url));
-  VERBS[verb](root, arg).then((r) => {
-    console.log(JSON.stringify(r.out));
-    process.exit(r.code);
-  }).catch((e) => {
-    console.error(JSON.stringify({ ok: false, error: String(e).slice(0, 200) }));
-    process.exit(1);
-  });
+  // FIXED 2026-09-23 (qwen-code-audit runs 3-6, the most-repeated high): the
+  // verb CONTRACT is "one JSON object + exit 0/1/2". A verb throw is now shaped
+  // as a VerbResult-shaped error on stderr with exit 1 (a NEGATIVE verdict), so
+  // a caller always gets the documented shape, never a bare stack.
+  Promise.resolve()
+    .then(() => VERBS[verb](root, arg))
+    .then((r) => { console.log(JSON.stringify(r.out)); process.exit(r.code); })
+    .catch((e) => {
+      console.error(JSON.stringify({ ok: false, verdict: "VERB-THREW", error: String(e).slice(0, 300) }));
+      process.exit(1);
+    });
 } else {
   console.error(usage);
   process.exit(2);

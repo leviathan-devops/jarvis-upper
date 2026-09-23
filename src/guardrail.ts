@@ -139,6 +139,8 @@ export function recordGatePass(db: Database, prId: string, headSha: string, stat
     db.query(`INSERT INTO gate_pass(id, pr_node, gate, verdict, head_sha, at)
               VALUES (?, ?, ?, ?, ?, strftime('%s','now'))
               ON CONFLICT(id) DO UPDATE SET verdict=excluded.verdict, head_sha=excluded.head_sha, at=excluded.at`)
-      .run(`${prId}:${g}`, prId, g, ok ? "pass" : "fail", headSha);
+      // FIXED (runs 3-6): a `:`-joined composite key is ambiguous if prId ever
+      // contains one. JSON.stringify of the pair is injective.
+      .run(JSON.stringify([prId, g]), prId, g, ok ? "pass" : "fail", headSha);
   }
 }
