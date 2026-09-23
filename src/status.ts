@@ -48,7 +48,8 @@ export function appendTick(root: string, s: RuntimeStatus): void {
       // FIXED 2026-09-23 (ocr round-4 HIGH): the rotation overwrote the live log
       // in place — a crash mid-write left it truncated. tmp + rename is atomic,
       // matching writeStatus.
-      const tmp = `${tp}.tmp`;
+      // FIXED (run 4): a pid-derived tmp name is predictable (a symlink target).
+      const tmp = `${tp}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
       writeFileSync(tmp, lines.slice(-5000).join("\n") + "\n", "utf8");
       renameSync(tmp, tp);
     }

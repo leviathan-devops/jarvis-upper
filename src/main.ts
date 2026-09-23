@@ -7,7 +7,8 @@ import { statusPath, ticksPath } from "./status";
 // FIXED 2026-09-23 (ocr round-4 HIGH): new URL().pathname is not a filesystem
 // path (wrong on Windows, and URL-encoded elsewhere) — fileURLToPath is the
 // correct conversion.
-const root = process.env.UPPER_ROOT ?? fileURLToPath(new URL("..", import.meta.url));
+// FIXED (run 4): `??` lets an EMPTY UPPER_ROOT through (root="") — `||`.
+const root = process.env.UPPER_ROOT || fileURLToPath(new URL("..", import.meta.url));
 // FIXED 2026-09-23 (ocr round-4 HIGH): Number("") === 0 and Number("abc")
 // === NaN — an empty/invalid env var produced a 0/NaN interval (a runaway
 // tick storm). The default now applies to a parsed-but-invalid value too.

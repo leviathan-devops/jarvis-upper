@@ -74,6 +74,10 @@ export async function waveB(db: Database, fx: FixtureSet, target: string): Promi
   const after = await Bun.file(path).text();
   // FIXED 2026-09-23 (the new FK): gate_pass references pr_node — a fixture
   // gate-pass row must have its pr_node. Mint it (idempotent) first.
+  // FIXED (run 4): the pr_node + gate_pass inserts are one UNIT — a failure
+  // between them left a pr_node with no gate. Transaction.
+  db.exec("BEGIN");
+  try {
   db.query("INSERT INTO pr_node(id, project, pr_number, session_id, state, minted_at) VALUES (?, 'fixture', 0, NULL, 'open', strftime('%s','now')) ON CONFLICT(id) DO NOTHING")
     .run(target);
   // head_sha too: a NULL row head_sha is now STALE-GATE (fail-closed), so a
@@ -82,6 +86,8 @@ export async function waveB(db: Database, fx: FixtureSet, target: string): Promi
   const rev = sha16(after);
   db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, evidence, sha16, head_sha, at) VALUES (?,?,?,?,?,?,?,strftime('%s','now'))")
     .run(`w4b:${target}`, target, "hardened", "pass", testOut.slice(0, 200), rev, rev);
+    db.exec("COMMIT");
+  } catch (e) { db.exec("ROLLBACK"); throw e; }
   return { hardened: true, token: "hardened" };
 }
 
@@ -97,12 +103,13 @@ export async function waveC(db: Database, fx: FixtureSet, bugId: string): Promis
   const md = `# BUG ${bugId}\n\nsymptom: ${seed.symptom}\nfile: ${seed.file}:${seed.lines.join(",")}\n`;
   const origin = { originCommit: seed.originCommit, method: "seeded-fixture", confidence: 1 };
   const m = await writeDossier(`${fx.root}/../dossiers-root`, bugId, md, origin);
+  // FIXED 2026-09-23 (qwen-code-audit run 4 CRITICAL): the write must be
+  // VERIFIED BEFORE the db row — the check ran after the INSERT, so a bad sha
+  // left an orphan bug_record row. Validate, then record.
+  if (!m || !m.sha16) throw new Error(`DOSSIER-NO-SHA:${bugId}`);
   db.query(`INSERT INTO bug_record(id, found_by, category, severity, dossier_path, origin_commit, attribution_confidence, status, created_at)
             VALUES (?, 'waveC-audit', 'seeded', 2, ?, ?, 1, 'open', strftime('%s','now'))`)
     .run(bugId, `${fx.root}/../dossiers-root/dossiers/${bugId}`, seed.originCommit);
-  // FIXED 2026-09-23 (qwen-code-audit run 3): `void m` swallowed a dossier write
-  // failure while the bug_record row was already written — an inconsistent state.
-  if (!m.sha16) throw new Error(`DOSSIER-NO-SHA:${bugId}`);
   return { recorded: true };
 }
 
