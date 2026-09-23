@@ -58,10 +58,9 @@ scan_stub() {
           local stripped
           stripped=$(printf '%s' "$func_body" | sed -E 's|//.*$||g; s|/\*.*\*/||g' | sed -E 's/^[^{]*\{//; s/\}[^}]*$//' | tr -d '[:space:]();' || true)
           local stripped_core
-          local stripped_core
-        stripped_core=$(printf '%s' "$stripped" | sed -E 's/Error$//; s/NotImplementedError$//' || true)
+          stripped_core=$(printf '%s' "$stripped" | sed -E 's/Error$//; s/NotImplementedError$//' || true)
           if [[ "$stripped_core" =~ ^thrownewNotImplemented$ ]] || \
-             [[ "$stripped_core" =~ ^thrownewError"notimplemented"$ ]]; then
+             [[ "$stripped_core" =~ ^thrownewError\"notimplemented\"$ ]]; then
             printf 'STUB:%s:%d:throw new NotImplemented in function %s\n' "$f" "$func_start" "$fname"
             hits=$((hits + 1))
           fi
@@ -82,7 +81,7 @@ ${line}"
         local stripped_core
         stripped_core=$(printf '%s' "$stripped" | sed -E 's/Error$//; s/NotImplementedError$//' || true)
         if [[ "$stripped_core" =~ ^thrownewNotImplemented$ ]] || \
-           [[ "$stripped_core" =~ ^thrownewError"notimplemented"$ ]]; then
+           [[ "$stripped_core" =~ ^thrownewError\"notimplemented\"$ ]]; then
           throw_lineno=$func_start
           printf 'STUB:%s:%d:throw new NotImplemented in function %s\n' "$f" "$throw_lineno" "$fname"
           hits=$((hits + 1))
@@ -111,6 +110,17 @@ _stub_brace_depth() {
   # dominant cost of a pre-commit hook. Pure-bash parameter expansion: delete
   # every non-brace char, then take the string length. Zero forks.
   local l="${1:-}"
-  local o="${l//[^{]/}" c="${l//[^}]/}"
-  printf '%d' "$(( ${#o} - ${#c} ))"
+  # FIXED 2026-09-23 (ocr confirm HIGH): a brace inside a STRING LITERAL or a
+  # COMMENT was counted — `return "}";` skewed the depth and could close a body
+  # early (a missed real stub = a false green). Strip single-line strings and
+  # comments first. FAST PATH: a line with no brace returns 0 with ZERO forks
+  # (most lines), so the fork cost stays off the hot path.
+  if [[ "$l" != *"{"* && "$l" != *"}"* ]]; then printf '0'; return; fi
+  l=$(printf '%s' "$l" | sed -E "s/\"[^\"]*\"//g; s/'[^']*'//g; s|//.*$||")
+  # ALSO FIXED (a PRE-EXISTING bug): `c="${l//[^}]/}"` never worked — bash reads the
+  # `}` inside `[^}]` as the expansion TERMINATOR, so the pattern became `[^` and c
+  # was garbage (net = nonsense -> the multi-line body detection was unreliable).
+  # Escape the brace: `${l//\}/}` (remove `}`) and `${l//\{/}` (remove `{`).
+  local op="${l//\}/}" cl="${l//\{/}"
+  printf '%d' "$(( ${#op} - ${#cl} ))"
 }
