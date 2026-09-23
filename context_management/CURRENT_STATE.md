@@ -282,3 +282,36 @@ false positives (the convergence table is in the adjudication record).
 `.trident/OCR_ADJUDICATION.md`. The pins: `tests/probe/cursor_probe.test.ts`,
 `tests/dossier_traversal.test.ts`, `tests/desks_traversal.test.ts`, `tests/gate_pass_mirror.test.ts`.
 
+
+## [2026-09-23T08:04:36Z] — THE INDEPENDENT-REVIEW ADDENDUM (HEAD `d4f7669`)
+
+**THE CURRENT HEAD:** `d4f76696bc619a35624a0c86a7f596f3aea689a0`. **THE STATE:** tsc exit 0 · battery **94 pass / 0 fail** ·
+P5 corpus 13/0 · W-13 silent-fallback 0 hits.
+
+**THE INDEPENDENT REVIEW (the goal's proof contract).** Both ocr lanes were quota-capped
+(`poolside-laguna-s` 429; `openrouter-laguna-s-free` daily cap), so **muse** (Meta Model
+API — a SEPARATE quota) served as the zero-context reviewer via
+`muse exec --json --reasoning-effort xhigh`. It read 12 kernel files COLD and returned
+**0 critical / 3 high**, all in code this campaign had touched — findings the ocr scanner
+did NOT produce:
+
+1. **`src/runtime.ts`** — `defaultRails` swallowed a fetch/parse/reduce failure into a
+   `{frames:0}` SUCCESS, so a DEAD endpoint read as an IDLE stream; the tick's error branch
+   fired only on tick 1. `RailCapture.failed?` now carries the reason and the tick reports
+   `rail-failed:<reason>` EVERY tick.
+2. **`src/guardrail.ts`** — STALE-GATE required a NON-NULL row `head_sha`, so a NULL row
+   authorized ANY future head (fail-OPEN against the file's own "blocking is the safe
+   default"). An unknown-commit gate is now STALE.
+3. **`src/reducers.ts`** — an out-of-vocabulary `pr_node.state` THREW inside `rail.attach`
+   (the cursor never advanced) and finding 1 swallowed it to a 0-frames success — ONE
+   malformed event became head-of-line blocking behind a green status. An unknown state now
+   returns "cursor-only" (not applied; the cursor advances).
+4. **`src/desks.ts` waveB** — its fixture row carried NULL `head_sha`; under finding 2 it
+   would read STALE, so it now writes the revision it passed against.
+
+PINNED: `tests/muse_review_pins.test.ts` (4 cases). THE SHAPE: all three convert a FAILURE
+into a SUCCESS (a swallow, a fail-open guard, a malformed event read as idle). The remedy is
+uniform: the failure travels NAMED and the guard fails CLOSED.
+
+**THE AUDIT GATE: PASS (0 critical, 0 high)** — the scoped ocr coverage (src · scripts/gates
+· .github · .githooks) plus this independent review.
