@@ -14,7 +14,32 @@ const root = process.env.UPPER_ROOT || fileURLToPath(new URL("..", import.meta.u
 // tick storm). The default now applies to a parsed-but-invalid value too.
 const rawTickMs = Number(process.env.UPPER_TICK_MS ?? 15000);
 const tickMs = Number.isFinite(rawTickMs) && rawTickMs > 0 ? rawTickMs : 15000;
-const rt = createRuntime({ root, deps: { tickMs } });
+// FIXED 2026-09-23 (the built-but-not-wired defect): main.ts NEVER passed
+// publishOpts, so the PRODUCTION daemon could never POST the two factory/*
+// contexts the ruleset waits on — the whole publisher (runtime.ts + verdict.ts
+// + publish.ts) was unreachable from the entry point. It is wired here from env.
+//
+//   UPPER_OWNER / UPPER_REPO   the GitHub target (default leviathan-devops/jarvis-upper)
+//   GH_TOKEN | GITHUB_TOKEN    the credential (OUT-OF-BAND; absent -> NO publish)
+//   UPPER_WORKTREE_ROOT        where the per-session git worktrees live
+//   FENCE2_LEDGER              the fence adjudication ledger path
+const OWNER = process.env.UPPER_OWNER || "leviathan-devops";
+const REPO = process.env.UPPER_REPO || "jarvis-upper";
+const TOKEN = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
+const WORKTREE_ROOT = process.env.UPPER_WORKTREE_ROOT
+  || `${process.env.HOME ?? "/home/leviathan"}/.ao/data/worktrees/${REPO}`;
+// the pr_node id is `pr:<session>:<num>` — the session names the worktree dir.
+const jobDirFor = (prId: string): string => {
+  const session = prId.split(":")[1] ?? "";
+  return session ? `${WORKTREE_ROOT}/${session}` : "";
+};
+const publishOpts = TOKEN ? {
+  owner: OWNER, repo: REPO, token: TOKEN, jobDir: "",
+  jobDirFor,
+  ledgerPath: process.env.FENCE2_LEDGER,
+} : undefined;
+
+const rt = createRuntime({ root, deps: { tickMs, publishOpts } });
 
 // FIXED 2026-09-23 (ocr round-4 HIGH): SIGTERM and SIGINT can both arrive before
 // stop() completes — a re-entrancy guard prevents two concurrent rt.stop() calls
@@ -34,4 +59,4 @@ process.on("SIGTERM", () => void stop().catch((e) => { console.error(JSON.string
 process.on("SIGINT", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
 
 rt.start();
-console.log(JSON.stringify({ started: true, root, tickMs, status: statusPath(root), log: ticksPath(root) }));
+console.log(JSON.stringify({ started: true, root, tickMs, publisher: TOKEN ? `ARMED:${OWNER}/${REPO}` : "DISARMED:no-token", status: statusPath(root), log: ticksPath(root) }));

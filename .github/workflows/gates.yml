@@ -88,7 +88,11 @@ jobs:
           set -e
           # F10: github.base_ref is EMPTY on merge_group — refuse loudly, never guess.
           [ -n "${BASE}" ] || { echo "no base ref (neither pull_request.base.sha nor merge_group.base_sha present) — refusing to guess"; exit 1; }
-          L=$(git diff --numstat "${BASE}..HEAD" | awk '{s+=$1+$2} END{print s+0}')
+          # FIXED 2026-09-23: the budget counts REVIEWABLE lines. The generated
+          # records (Checkpoints/ = machine snapshots, .trident/ = tool working
+          # state) are EXEMPT — the same artifact-class law the W-9 gate applies.
+          # Counting them made a 646-file snapshot diff read as 100K+ lines.
+          L=$(git diff --numstat "${BASE}..HEAD" | awk -F'\t' '$3 !~ /^(Checkpoints|\.trident)\// {s+=$1+$2} END{print s+0}')
           echo "lines=$L"
           # pull_request.labels is undefined on merge_group, so the oversized
           # escape hatch exists ONLY on pull_request. An over-budget

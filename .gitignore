@@ -11,3 +11,10 @@ dist/
 .omp-waves/
 **/__pycache__/
 *.py[cod]
+
+# THE GENERATED RECORDS (a 646-file checkpoint diff is NOT reviewable code —
+# the W-9 gate's own artifact-class law: a snapshot/working-state is machine-
+# generated, exempt from the doc law, and likewise from the diff budget).
+Checkpoints/
+.trident/
+.aider.chat.history.md
