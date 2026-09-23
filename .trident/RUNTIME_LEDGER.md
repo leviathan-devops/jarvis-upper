@@ -237,3 +237,42 @@ HARDENED hooks.
 **The deepest (the IFS bug) was INTRODUCED by a fix and was NOT in the ocr report.** A gate's report
 is a claim; the gate's BEHAVIOR is the truth. The container reproduced the baseline defects and
 confirmed the fixes — the clean-room probe is the only proof that survives a warm shell.
+
+---
+
+## [$TS] — THE SESSION-3 RESIDUAL (H7 — the named remainder, HEAD `22d1451`)
+
+The runtime seat's ops above (OP-1 .. OP-14) closed what RUNNING taught. This is the
+NAMED RESIDUAL — what remains unexperienced or unclosed, stated with the seat:
+
+**1. THE REMAINING SCANNER TAIL IS STYLE-COMPLETENESS (`medium`/`low`), NEVER `critical`/`high`.**
+The scoped ocr coverage returned 0 critical + 0 high on `src` (20 files), `scripts` +
+`gates` + `.github`, and (after the W-14/W-8 dead-gate fixes) `.githooks`. The residual is
+the `medium`/`low` tail (naming, comments, micro-refactors) — a scanner's severity is a
+CLAIM, and each critical/high claim is adjudicated in `.trident/OCR_ADJUDICATION.md` (fixed
+or refuted WITH its measurement).
+
+**2. NO CONTAINER TEST FOR THIS CAMPAIGN'S HUNKS.** The last container round (OP-14) proved
+the W-6 over-fire + the exit-cap defect environment-INDEPENDENT and confirmed the fixes. The
+round-4/5 hunks (the rail cursor, the spec path, the FK migration, the mirror wiring, the
+three muse findings) are covered by the script battery (94/0) + the P5 corpus (13/0) + the 6
+new pins — but were NOT re-run in the container. RESUME CONDITION: a `container-testing`
+setup round over the current dist.
+
+**3. THE FULL-TREE OCR SCAN TIMES OUT (>1500 s per provider pass).** The coverage is run as
+three scoped scans (src · .githooks · scripts/gates/.github), each of which reaches
+completion. A single-pass full-tree scan is BLOCKED on the provider, not on the tree.
+
+**4. THE GITHUB ROUND-TRIP WAS NOT RE-EXERCISED.** The 2 `factory/*` contexts are POSTed by
+the W5 publisher, and `recordGatePass` now mirrors them into the local `gate_pass` table
+each tick (pinned by `tests/gate_pass_mirror.test.ts`) — but the end-to-end
+posted-status → ruleset-consumed round trip was not re-run this campaign.
+
+**5. THE PROVIDER LANES ARE QUOTA-CAPPED.** `poolside-laguna-s` → 429 `usage limit exceeded`;
+`openrouter-laguna-s-free` → the daily cap. The independent review therefore ran on **muse**
+(Meta Model API, a separate quota) — which FOUND 3 real HIGH the capped scanner did not.
+RESUME CONDITION: the lanes reset (the free lane at 00:00Z; poolside per its window).
+
+**THE SEAT'S CLOSE (H7):** nothing in the round-4/5 surface remains UNEXPERIENCED that the
+scoped coverage, the battery, the P5 corpus, or the independent review can reach. The 5 rows
+above are the NAMED remainder — each with its resume condition.
