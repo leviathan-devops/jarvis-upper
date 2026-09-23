@@ -136,7 +136,10 @@ export async function attributeBug(
     commit: top.commit,
     session: r.session,
     worker: r.worker,
-    method: top.score >= 0.75 && blameHits.has(top.commit) ? "blame+log" : "log",
+    // FIXED 2026-09-23 (ocr final HIGH): a blame-ONLY candidate (in blameHits, NOT
+    // logHits) scored 0.75 and satisfied the old test, so it was mislabeled
+    // "blame+log". Branch on the ACTUAL source sets.
+    method: blameHits.has(top.commit) ? (logHits.has(top.commit) ? "blame+log" : "blame") : "log",
     candidates: scored.slice(0, 5),
     confidence: top.score,
   };

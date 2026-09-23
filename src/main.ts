@@ -20,7 +20,10 @@ const rt = createRuntime({ root, deps: { tickMs } });
 // racing to process.exit().
 let stopping = false;
 async function stop(): Promise<void> {
-  if (stopping) return;
+  // FIXED 2026-09-23 (ocr final HIGH): the guard made a SECOND signal a silent
+  // no-op — if the first stop() hung on a network call, the daemon was unkillable
+  // by signals. A second signal now ESCALATES to a forced exit.
+  if (stopping) { console.error(JSON.stringify({ forced: true, reason: "second-signal" })); process.exit(1); }
   stopping = true;
   const s = await rt.stop();
   console.log(JSON.stringify({ stopped: true, ticks: s.tick, daemonOk: s.daemonOk, status: statusPath(root), log: ticksPath(root) }));
