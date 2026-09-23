@@ -1,0 +1,149 @@
+{
+  "status": "completed_with_errors",
+  "llm": {
+    "provider": "openrouter-laguna-s-free",
+    "model": "poolside/laguna-s-2.1:free"
+  },
+  "summary": {
+    "files_reviewed": 10,
+    "comments": 10,
+    "total_tokens": 572177,
+    "input_tokens": 443257,
+    "output_tokens": 128920,
+    "cache_read_tokens": 4352,
+    "elapsed": "37m49s"
+  },
+  "tool_calls": {
+    "total": 21,
+    "by_tool": {
+      "code_comment": 3,
+      "code_search": 7,
+      "file_find": 7,
+      "file_read": 4
+    },
+    "failure": 0,
+    "failure_by_tool": {},
+    "failure_details": []
+  },
+  "comments": [
+    {
+      "path": "gates/orphan_scan.sh",
+      "content": "Test file exclusion is ineffective. The `grep -v '^tests'` is meant to exclude test files from caller counts, but search directories are `src/ ao-client/ gates/ scripts/ bin/`. Output paths start with those prefixes (e.g. `src/foo.test.ts`), never `\n` `tests/`. So test files within source directories are still counted as callers, causing\nfalse 'has callers' results and masking true orphans. The `^tests` filter is effectively a no-op.\n\nSuggestion: use a pattern that catches common test file locations/naming, e.g.:\n  `grep -vE '(__tests__|\\.test\\.|\\.spec\\.)'`\n—or add each searched directory's test subdirs explicitly.",
+      "existing_code": "| grep -v \"^$f$\" | grep -v '^tests' | wc -l | tr -d ' '",
+      "start_line": 0,
+      "end_line": 0,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "gates/orphan_scan.sh",
+      "content": "`grep -v \"^$f$\"` uses regex, not fixed-string matching. `$f` contains file paths like `src/main.ts` where `.` matches any char. This could unintentionally exclude other files (e.g. `src/mainXts` filtered out when scanning `src/main.ts`). If paths ever contain `[`, `*`, `+` etc. the pattern could misbehave or error.\n\nSuggestion: use `grep -vF -e \"$f\"` (or `grep -vFx \"$f\"`) to match the path literally.",
+      "existing_code": "| grep -v \"^$f$\" | grep -v '^tests' | wc -l | tr -d ' '",
+      "start_line": 0,
+      "end_line": 0,
+      "category": "other",
+      "severity": "low"
+    },
+    {
+      "path": "gates/orphan_scan.sh",
+      "content": "Only top-level `.ts` files in `src/` and `ao-client/` are scanned — globs `src/*.ts` and `ao-client/*.ts` don't recurse into subdirectories. Orphaned modules in `src/utils/`, `src/routes/`, etc. are never checked. This could miss real orphans.\n\nSuggestion: use `find src/ ao-client/ -name '*.ts'` to discover modules in all subdirectories.",
+      "existing_code": "for f in src/*.ts ao-client/*.ts; do",
+      "start_line": 30,
+      "end_line": 30,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": ".github/workflows/drift.yml",
+      "content": "Security/reliability: The job sets GH_TOKEN via `env:` at the job level, which is acceptable (token not echoed). However, there is no `permissions:` key declared. Although the workflow only triggers on `schedule` and `workflow_dispatch` (no pull_request_target, so no fork-PR secret handoff), best practice and the checklist require least-privilege: the default `GITHUB_TOKEN` permissions are broad (default `read-all` / repo scope). Since these sweeps only list PRs read-only and run a local script, this job can safely declare `permissions: contents: read` (and possibly `pull-requests: read`). Add an explicit `permissions:` block to harden against privilege creep.",
+      "start_line": 0,
+      "end_line": 0,
+      "category": "security",
+      "severity": "low"
+    },
+    {
+      "path": ".github/workflows/drift.yml",
+      "content": "Reliability: The `stale-gate sweep` step runs `set -e` but then explicitly `exit 2`s and `exit 1`s, which is fine. However, the step itself has no `timeout-minutes:` and the `gh pr view` loop makes one API call per open PR. For repos with many open PRs this step can take a long time. Add `timeout-minutes:` to the step (or job) to guarantee it cannot hang indefinitely and consume runner resources. Same gap applies to the `doc-floor sweep` and `wiring sweep` steps.",
+      "start_line": 0,
+      "end_line": 0,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": ".github/workflows/drift.yml",
+      "content": "Performance/correctness (N+1 API calls): The stale-gate sweep does `gh pr list` to get all open PR numbers, then loops calling `gh pr view $N --json mergeStateStatus` and `gh pr view $N --json headRefOid` separately for each PR. This is two API calls per PR (N+1 problem). Since `gh pr list --json ... mergeStateStatus,headRefOid` already can return all needed fields, fetch `number,mergeStateStatus,headRefOid` in the single listing call and iterate over structured output (e.g. with `--jq`) to avoid per-PR round trips. This reduces API latency and rate-limit pressure.",
+      "start_line": 0,
+      "end_line": 0,
+      "category": "performance",
+      "severity": "low"
+    },
+    {
+      "path": ".github/workflows/drift.yml",
+      "content": "Reliability: `bun install --frozen-lockfile || exit 1` — the `|| exit 1` is redundant under `set -e` (which is the default for GitHub Actions `run:` steps, and also explicitly set by the shell). It does not cause a bug, but it's a minor redundancy. More importantly, dependency install on every run with no caching (`actions/cache` or bun's built-in cache) wastes runner time and increases job cost. Consider persisting bun's cache (`~/.bun/install/cache`) between runs. Low priority for a nightly, but worth noting.",
+      "start_line": 0,
+      "end_line": 0,
+      "category": "other",
+      "severity": "low"
+    },
+    {
+      "path": ".github/workflows/drift.yml",
+      "content": "Correctness: `OUT=$(bun run scripts/interface-check.ts)` captures stdout, but the script's exit status is discarded by the subshell (command substitution only captures output, not exit code). With `set -e` active, if `bun run scripts/interface-check.ts` exits non-zero, `set -e` will still abort the step — so the behavior is partially protected. BUT if the script succeeds (exit 0) but prints no output or prints something other than INTERFACE:MATCH (e.g. it crashed silently or printed to stderr), the grep check correctly catches it. This is fine, but for clarity consider checking the script's status explicitly. No actual defect here — just a verification note.",
+      "start_line": 0,
+      "end_line": 0,
+      "category": "other",
+      "severity": "low"
+    },
+    {
+      "path": ".github/workflows/drift.yml",
+      "content": "Reliability: The cron schedule `cron: '0 6 * * *'` runs daily at 06:00 UTC. This is missing a `concurrency:` group. Since the workflow can also be triggered by `workflow_dispatch`, a manual run while a scheduled run is in progress would spawn redundant concurrent runs. Add a `concurrency:` group (e.g. `concurrency: drift-sweep` with `cancel-in-progress: false` — false because cancelling a drift sweep mid-run could leave a partial state; but at minimum group so only one runs at a time). Note: because this is a fail-closed gate, `cancel-in-progress` should be carefully considered — false is safer here.",
+      "existing_code": "cron: '0 6 * * *'",
+      "start_line": 14,
+      "end_line": 14,
+      "category": "other",
+      "severity": "low"
+    },
+    {
+      "path": ".github/CODEOWNERS",
+      "content": "Single-owner bottleneck is documented but not mitigated. Every ownership route — including the enforcement machinery (verdict.ts, guardrail.ts, execute.ts, plan.ts), the governance surface (.github/, ruleset.json, .githooks/), and the catch-all `*` — resolves to the single handle @leviathan-devops. The header comment correctly flags this as a 'single-owner risk', but the remediation it defers ('an operator decision (a team handle or second owner)') is never implemented. This is a live governance/security risk: if require_code_owner_review is ever flipped to true (as the comment implies is the intended future state), a compromised, renamed/inactive, or rogue handle could unilaterally approve changes to the entire enforcement and governance layer with no secondary approval. At minimum, the two most sensitive paths — /ruleset.json and /src/guardrail.ts, which respectively define and implement enforcement — should carry a second owner / code-owner team to prevent unilateral changes to the merge-control machinery itself. Recommend adding a team handle (or a second individual owner) to the enforcement-machinery and rules entries now, rather than relying on a future operator to remember to do it.",
+      "existing_code": "# THE DECISION MACHINERY — a change here changes enforcement\n/src/verdict.ts         @leviathan-devops\n/src/guardrail.ts       @leviathan-devops\n/src/execute.ts         @leviathan-devops\n/src/plan.ts            @leviathan-devops\n\n# THE GOVERNANCE SURFACE — only the operator edits the rules\n/.github/               @leviathan-devops\n/ruleset.json           @leviathan-devops\n/.githooks/             @leviathan-devops",
+      "start_line": 15,
+      "end_line": 24,
+      "category": "maintainability",
+      "severity": "medium"
+    }
+  ],
+  "warnings": [
+    {
+      "file": "gates/does_anything_run.sh",
+      "message": "LLM completion error: POST \"https://openrouter.ai/api/v1/chat/completions\": 429 Too Many Requests {\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"poolside/laguna-s-2.1:free is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"Poolside\",\"is_byok\":false,\"limit_source\":\"upstream_provider_shared_pool\",\"remedy_hint\":\"Retry shortly, add your own provider key (https://openrouter.ai/settings/integrations), or route to another provider with provider routing: https://openrouter.ai/docs/features/provider-routing\"}}",
+      "type": "scan_subtask_error"
+    },
+    {
+      "file": "gates/shape_freeze.sh",
+      "message": "LLM completion error: error reading response body: context deadline exceeded",
+      "type": "scan_subtask_error"
+    },
+    {
+      "file": "scripts/spec-audit.ts",
+      "message": "LLM completion error: POST \"https://openrouter.ai/api/v1/chat/completions\": 429 Too Many Requests {\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"poolside/laguna-s-2.1:free is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"Poolside\",\"is_byok\":false,\"limit_source\":\"upstream_provider_shared_pool\",\"remedy_hint\":\"Retry shortly, add your own provider key (https://openrouter.ai/settings/integrations), or route to another provider with provider routing: https://openrouter.ai/docs/features/provider-routing\"}}",
+      "type": "scan_subtask_error"
+    },
+    {
+      "file": "scripts/interface-check.ts",
+      "message": "LLM completion error: error reading response body: context deadline exceeded",
+      "type": "scan_subtask_error"
+    },
+    {
+      "file": "scripts/spec-diff.ts",
+      "message": "LLM completion error: error reading response body: context deadline exceeded",
+      "type": "scan_subtask_error"
+    },
+    {
+      "file": ".github/workflows/gates.yml",
+      "message": "LLM completion error: error reading response body: context deadline exceeded",
+      "type": "scan_subtask_error"
+    }
+  ],
+  "project_summary": "## Project Summary\n\n### Top Issues\n\n- **Orphan scan misses real orphans due to non-recursive globs** (`gates/orphan_scan.sh`): `src/*.ts` and `ao-client/*.ts` only match top-level files, so modules in subdirectories like `src/utils/`, `src/routes/`, etc. are never checked. This undermines the scanner’s primary purpose.\n- **Orphan scan has a broken test-file exclusion** (`gates/orphan_scan.sh`): `grep -v '^tests'` is ineffective because search paths use prefixes like `src/`, `ao-client/`, `gates/`, so test files (e.g. `src/foo.test.ts`) are never excluded as intended.\n- **Orphan scan uses unsafe regex matching on file paths** (`gates/orphan_scan.sh`): `grep -v \"^$f$\"` treats file paths as regexes; characters like `.` or `[` can match unintended paths, causing false exclusions.\n- **N+1 GitHub API calls in drift workflow** (`.github/workflows/drift.yml`): The stale-gate sweep loops over each open PR and makes two separate `gh pr view` calls per PR. This should be batched into a single `gh pr list --json` query to avoid rate limits and timeouts.\n- **Missing exit-code handling in interface-check capture** (`.github/workflows/drift.yml`): `OUT=$(bun run scripts/interface-check.ts)` discards the script’s exit status under `set -e`, meaning interface-check failures may go undetected rather than failing the step.\n\n### Module Hotspots\n\n- **`gates/orphan_scan.sh`** — All three comments cluster on this file: broken globs, broken test exclusion, and regex/path-matching hazards. High severity for correctness of an audit gate.\n- **`.github/workflows/drift.yml`** — Six comments span correctness, performance/N+1 API usage, missing `timeout-minutes`, missing `permissions`, missing `concurrency`, and redundant `|| exit 1`.\n\n### Cross-Cutting Concerns\n\n- **Regex misuse with file paths**: `grep -v \"^$f$\"` in `orphan_scan.sh` interpolates file paths directly into regex, a pattern that recurs as a latent bug whenever paths contain metacharacters.\n- **Missing workflow guardrails in CI**: `.github/workflows/drift.yml` lacks explicit `permissions:`, `timeout-minutes:`, and `concurrency:` blocks, a common source of reliability and security issues across GitHub Actions jobs.\n- **Redundant error handling**: `|| exit 1` after commands that already run under `set -e` appears in `.github/workflows/drift.yml`, suggesting inconsistent understanding of error-propagation defaults.\n\n### Quick Wins\n\n- Replace `src/*.ts` and `ao-client/*.ts` globs in `gates/orphan_scan.sh` with `find` recursion into subdirectories.\n- Fix the test-file exclusion in `gates/orphan_scan.sh` to match actual path prefixes (e.g. `*.test.*`) or use `grep -vF`.\n- Switch `grep -v \"^$f$\"` to `grep -vF -- \"$f\"` in `gates/orphan_scan.sh` for literal path matching.\n- Batch `gh pr view` calls into a single `gh pr list --json` query in `.github/workflows/drift.yml`.\n- Add `concurrency:`, `permissions:`, and `timeout-minutes:` to `.github/workflows/drift.yml`.",
+  "session_id": "18daf4af-6ebe-46a3-9d4b-fbd041657593"
+}
