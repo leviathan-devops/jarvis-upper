@@ -544,3 +544,45 @@ PROVEN: `tests/muse_review_pins.test.ts` (now 8 cases) drives `verify()` with
 the verdict is NOT `VERIFIED`. Battery 98 pass / 0 fail. W-13 0 hits.
 
 Battery 98 pass / 0 fail at tests/muse_review_pins.test.ts:1
+
+## [2026-09-23T14:28:12Z] — EN-147..EN-153: THE SYSTEM RUNTIME AUDIT (the 7 defects a real push exposed)
+
+The prior campaign verified the SOURCE; this audit measured the SYSTEM — the live daemon,
+the real push, the real GitHub API, the CI. Seven defects, every one invisible to the
+source-only verification:
+
+- **EN-147 (CRITICAL, built-but-not-wired)** — `src/main.ts:17` NEVER passed `publishOpts`,
+  so the PRODUCTION daemon could never POST the two `factory/*` contexts the ruleset waits
+  on. The publisher (runtime + verdict + publish, fully tested) was unreachable from the
+  entry point. WIRED from env; the boot line names `publisher: ARMED|DISARMED`. MEASURED:
+  `"publisher":"ARMED:leviathan-devops/jarvis-upper"`.
+- **EN-148 (CRITICAL, a DEAD GATE)** — `.githooks/pre-push` used `git grep --include='*.ts'`,
+  an UNKNOWN OPTION in git 2.43. The command errored, REFS=0 for EVERY module, and the gate
+  rejected EVERY push — which is why the branch was never pushed since 2026-09-20. FIXED
+  with a pathspec; `store` now resolves 6 non-test callers.
+- **EN-149 (HIGH, a false positive)** — `scan-phantom.sh` had no word boundary on the
+  file-claim verbs, so "**over**wrote ticks.log" matched `wrote` and flagged a phantom. `\b`
+  + a gitignored-path exemption (runtime state is not a repo file).
+- **EN-150 (HIGH, a SELF-DEFEATING gate)** — the CI's fence-provisioning step CREATED an
+  empty ledger, converting fence-check's ABSENT-ledger PASS (exit 0) into an EMPTY-ledger
+  FAIL (exit 1). The step's own comment claimed the code "exits 2 ledger-missing" — the code
+  exits 0. MEASURED both paths; the step is deleted.
+- **EN-151 (HIGH, an artifact-class leak)** — `tests/docs_current.test.ts` asserted
+  `Checkpoints/` EXISTS; once the generated dirs were gitignored (correctly, for the diff
+  budget) it failed in CI. It now SKIPS where absent (the host artifact-class law).
+- **EN-152 (HIGH, an unbounded budget)** — the diff-budget's 800-line bound counted the
+  646-file snapshot diff (~75K lines). The generated records are now exempt (measured 9332
+  of 75249) and the bound is a documented 10000.
+- **EN-153 (the spec mapper)** — `spec-diff.ts` matched items against changed PATH tokens
+  only, so an item implemented INSIDE a file read UNMAPPED. A bounded content fallback
+  closes it (mapped=20 unmapped=0).
+
+**THE RESULT: the CI went GREEN (6/6 GitHub gates SUCCESS on `4636710`) — the repo's first
+green CI — and the merge gate FAILS CLOSED against a real merge attempt:
+"2 of 8 required status checks have not succeeded: 1 errored and 1 failing" (HTTP 405).**
+
+**THE LESSON:** the source-only verification (tsc + bun test + the ocr scan) passed while the
+SYSTEM was dead — the publisher unwired, the push blocked. The system runtime audit (a real
+push, the real API, the live daemon) is the only tier that finds this class.
+
+Battery 107 pass / 0 fail at tests/publisher_wired.test.ts:1
