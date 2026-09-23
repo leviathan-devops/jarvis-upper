@@ -70,8 +70,14 @@ export async function guardrailRemote(
   const fetchFn = opts.fetchImpl ?? fetch;
   const base = (opts.baseUrl ?? "https://api.github.com").replace(/\/$/, "");
   const safeSeg = /^[A-Za-z0-9._-]+$/;
-  if (!safeSeg.test(opts.owner) || !safeSeg.test(opts.repo)) throw new Error(`INVALID-OWNER-REPO:${opts.owner}/${opts.repo}`);
-  if (opts.sha.includes('/') || opts.sha.includes('..') || opts.sha.includes('\0')) throw new Error(`INVALID-SHA:${opts.sha.slice(0,12)}`);
+  // FIXED 2026-09-23 (qwen-code-audit re-run REAL): a null/undefined sha crashed
+  // at `.includes()` instead of returning an honest refusal.
+  if (typeof opts.owner !== "string" || typeof opts.repo !== "string" || !safeSeg.test(opts.owner) || !safeSeg.test(opts.repo)) {
+    return { ok: false, reasons: [`INVALID-OWNER-REPO:${String(opts.owner)}/${String(opts.repo)}`], missing: [...REQUIRED_CONTEXTS], states: {} };
+  }
+  if (typeof opts.sha !== "string" || opts.sha.includes('/') || opts.sha.includes('..') || opts.sha.includes('\0')) {
+    return { ok: false, reasons: [`INVALID-SHA:${String(opts.sha).slice(0, 12)}`], missing: [...REQUIRED_CONTEXTS], states: {} };
+  }
   const url = `${base}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/commits/${encodeURIComponent(opts.sha)}/statuses`;
   const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
   if (opts.token) headers.Authorization = `Bearer ${opts.token}`;

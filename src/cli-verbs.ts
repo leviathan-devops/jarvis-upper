@@ -49,7 +49,11 @@ export async function verbOrder(root: string, arg?: string): Promise<VerbResult>
   try {
   const adapter: MergeAdapter = { publish: async () => ({ ok: false }) };
   const r = await executePlan(db, adapter, { confirm: true });
-  return emit(0, { ok: true, planId: r.planId, merged: r.merged, haltedAt: r.haltedAt });
+  // FIXED 2026-09-23 (qwen-code-audit re-run REAL): executePlan can return a
+  // PARTIAL execution (haltedAt set); the verb always returned code 0, so a
+  // halted plan read as success. A halt is a negative verdict (exit 1).
+  const halted = r.haltedAt !== null;
+  return emit(halted ? 1 : 0, { ok: !halted, planId: r.planId, merged: r.merged, haltedAt: r.haltedAt, haltReason: r.haltReason });
   } finally { db.close(); }
 }
 

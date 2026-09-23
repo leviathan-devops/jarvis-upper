@@ -116,7 +116,10 @@ export function artifactBoundToHead(jobDir: string, headSha: string): { ok: bool
   try {
     const spec = readFileSync(`${specDir}/SPEC.md`, "utf8");
     const m = spec.match(/artifact:\s*(\S+)/);
-    if (m && m[1].startsWith("/")) {
+    // FIXED 2026-09-23 (qwen-code-audit re-run REAL): the artifact path came
+    // from SPEC.md with no containment — a crafted absolute path reached any file.
+    // It must resolve INSIDE the worktree root.
+    if (m && m[1].startsWith("/") && (m[1] === top.out || m[1].startsWith(top.out + "/"))) {
       const rel = m[1].slice(top.out.length + 1);
       const committed = run(["git", "-C", top.out, "show", `HEAD:${rel}`]);
       const onDisk = readFileSync(m[1], "utf8");
@@ -200,16 +203,21 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
       // posted success for a REJECTED head — a fail-open. A rejection on the head
       // sha now wins over any approval (the fail-closed polarity).
       const verdictOf = (r: { verdict?: string | null }) => String(r.verdict ?? "").toLowerCase();
-      const rejecting = runs.find((r) => (REJECTING_VERDICTS as readonly string[]).includes(verdictOf(r)));
-      const approving = runs.find((r) => (APPROVING_VERDICTS as readonly string[]).includes(verdictOf(r)));
+      const isReject = (r: { verdict?: string | null }) => (REJECTING_VERDICTS as readonly string[]).includes(verdictOf(r));
+      const isApprove = (r: { verdict?: string | null }) => (APPROVING_VERDICTS as readonly string[]).includes(verdictOf(r));
+      // FIXED 2026-09-23 (qwen-code-audit re-run REAL): the previous fix checked
+      // EVERY run, so a rejection on a DIFFERENT sha blocked THIS head — over-
+      // blocking. The per-sha law: only a run BOUND to this head (its targetSha
+      // matches, or is unspecified = presume current) can decide it.
+      const binds = (r: { targetSha?: string | null }) => !r.targetSha || r.targetSha === opts.headSha;
+      const rejecting = runs.find((r) => binds(r) && isReject(r));
+      const approving = runs.find((r) => binds(r) && isApprove(r));
+      // an approval on a DIFFERENT sha is STALE — named, never silently ignored
+      const staleApproval = runs.find((r) => !binds(r) && isApprove(r));
       if (rejecting) review.reason = `REVIEW-REJECTED: ${verdictOf(rejecting)}`;
-      else if (!approving) review.reason = `REVIEW-NOT-APPROVED: verdicts ${JSON.stringify(runs.map((r) => r.verdict ?? null))}`;
-      else {
-      review.verdict = String(approving.verdict);
-      review.targetSha = approving.targetSha ?? null;
-      if (review.targetSha !== opts.headSha) review.reason = `REVIEW-STALE-SHA: ${String(review.targetSha).slice(0, 7)} != head ${opts.headSha.slice(0, 7)}`;
-      else review.reason = "REVIEW-GREEN";
-      }
+      else if (approving) { review.verdict = String(approving.verdict); review.targetSha = approving.targetSha ?? opts.headSha; review.reason = "REVIEW-GREEN"; }
+      else if (staleApproval) review.reason = `REVIEW-STALE-SHA: ${String(staleApproval.targetSha).slice(0, 7)} != head ${opts.headSha.slice(0, 7)}`;
+      else review.reason = `REVIEW-NOT-APPROVED: verdicts ${JSON.stringify(runs.map((r) => r.verdict ?? null))}`;
     }
   } catch (e) {
     review.reason = `REVIEW-NOT-RUN: ${String(e).slice(0, 120)}`;

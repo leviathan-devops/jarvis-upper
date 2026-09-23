@@ -131,7 +131,15 @@ export async function attributeBug(
     return { commit: "", session: null, worker: null, method: "no-candidates",
              candidates: [], confidence: 0 };
   }
-  const r = await resolve(top.commit);
+  // FIXED 2026-09-23 (qwen-code-audit re-run REAL): a throwing resolver rejected
+  // the whole attribution; the commit match is the deliverable, the session is
+  // enrichment. A resolver failure yields null session/worker, not a crash.
+  let r: { session: string | null; worker: string | null } = { session: null, worker: null };
+  try { r = await resolve(top.commit); } catch (e) {
+    // W-13: a catch must log or rethrow. The session is enrichment — the commit
+    // match is the deliverable — so the failure is NAMED and the commit kept.
+    console.error(`attribute-resolve-failed:${top.commit.slice(0, 12)}:${String(e).slice(0, 80)}`);
+  }
   return {
     commit: top.commit,
     session: r.session,

@@ -59,3 +59,52 @@ test("C6/C7 REFUTED: EventRail.attach PERSISTS the cursor (rail_seq advances)", 
   expect(row?.last_seq).toBe(11);                     // the cursor IS persisted
   db.close();
 });
+
+// ─── the RE-RUN round (the second gate pass) ────────────────────────────────
+
+test("R1: a rejection on a DIFFERENT sha does NOT block this head (no over-rejection)", async () => {
+  const { verify } = await import("../src/verdict");
+  const HEAD = "a".repeat(40);
+  const OTHER = "b".repeat(40);
+  const v = await verify({
+    jobDir: "/tmp/x", headSha: HEAD, sessionId: "s",
+    runFence: async () => ({ code: 1, stdout: "", stderr: "" }),   // isolate the review
+    fetchReviews: async () => ({ runs: [
+      { verdict: "changes_requested", targetSha: OTHER },          // a DIFFERENT revision
+      { verdict: "approved", targetSha: HEAD },                    // THIS head
+    ] }),
+  });
+  // the approval binds this head; the other-sha rejection must NOT block it
+  expect(v.sources.review.reason).toBe("REVIEW-GREEN");
+});
+
+test("R1b: an approval on a DIFFERENT sha is STALE (named, never silently ignored)", async () => {
+  const { verify } = await import("../src/verdict");
+  const HEAD = "a".repeat(40);
+  const v = await verify({
+    jobDir: "/tmp/x", headSha: HEAD, sessionId: "s",
+    runFence: async () => ({ code: 1, stdout: "", stderr: "" }),
+    fetchReviews: async () => ({ runs: [{ verdict: "approved", targetSha: "760ad1bb42431b992d7a2168ff182e9893be5f65" }] }),
+  });
+  expect(v.sources.review.reason).toContain("REVIEW-STALE-SHA");
+  expect(v.verdict).not.toBe("VERIFIED");
+});
+
+test("R2: verbOrder exits NON-ZERO when the plan HALTS (a halt is not success)", async () => {
+  const { verbOrder } = await import("../src/cli-verbs");
+  const { openStore } = await import("../src/store");
+  const tmp = `/tmp/upper-order-${Date.now()}.sqlite`;
+  const prev = process.env.UPPER_STORE;
+  process.env.UPPER_STORE = tmp;
+  try {
+    const db = openStore(tmp);
+    // a ready PR whose gates are NOT green -> the guardrail blocks -> the plan halts
+    db.query("INSERT INTO pr_node(id,project,pr_number,session_id,state) VALUES ('h','p',1,'s','ready_to_merge')").run();
+    db.close();
+    const r = await verbOrder("/tmp", "--confirm");
+    expect(r.code).toBe(1);                       // a halt is a NEGATIVE verdict
+    expect(r.out.haltedAt).toBe("h");
+  } finally {
+    if (prev === undefined) delete process.env.UPPER_STORE; else process.env.UPPER_STORE = prev;
+  }
+});
