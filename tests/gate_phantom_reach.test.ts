@@ -138,7 +138,12 @@ test("test_reachability_gate_structure", () => {
   const content = readFileSync(PRE_PUSH, "utf-8");
   expect(content).toContain("ORPHAN:");
   expect(content).toContain("REJECT(W-2)");
-  expect(content).toMatch("grep -rl");
+  // UPDATED 2026-09-23 (ocr round-3): the reference search moved from
+  // `grep -rlw` over the working tree to `git grep -lw` against the PUSHED tree
+  // (a push of a branch that is not checked out gave a wrong reference set).
+  // This is a TEXT pin on the implementation; the BEHAVIOR is proven by the
+  // live probe (a real push of an orphan -> REJECT(W-2), rc=1).
+  expect(content).toMatch("git grep -lw");
   // Verify the existing main refusal is intact.
   expect(content).toContain("direct pushes to main are not permitted");
 });

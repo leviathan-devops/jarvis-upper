@@ -63,15 +63,22 @@ gate_pass() {
 header_ok() {
   local f="${1:?"header_ok <gate-file>"}"
   [ -f "$f" ] || return 1
-  # FIXED 2026-09-23 (ocr round-3): search only the HEADER region. The old form
-  # grepped the WHOLE file, so a `# GATE ` line anywhere (a comment, a string, a
-  # doc body) falsely satisfied the check.
-  local head_part
-  head_part="$(head -n 12 "$f")"
-  printf '%s\n' "$head_part" | grep -qE '^# GATE ' || return 1
-  printf '%s\n' "$head_part" | grep -qE '^# JEV COUNT: ' || return 1
-  printf '%s\n' "$head_part" | grep -qE '^# ARTIFACT CLASS: ' || return 1
-  printf '%s\n' "$head_part" | grep -qE '^# SURFACE: ' || return 1
-  printf '%s\n' "$head_part" | grep -qE '^# PREDICATE READS: ' || return 1
+  # FIXED 2026-09-23 (ocr round-3, corrected): the old form grepped the WHOLE
+  # file, so a stray `# GATE ` line anywhere (a comment, a string) passed. But
+  # this repo's convention puts each gate's header INLINE with the gate (e.g.
+  # .githooks/pre-commit:111-115), not at the top of the file — so a `head -n N`
+  # window is WRONG (it broke the real pre-commit check).
+  # The correct predicate: the 5 labels must form a CONTIGUOUS BLOCK in ORDER,
+  # anywhere in the file. A stray line elsewhere cannot satisfy an ordered
+  # 5-line run. (awk, because the sequence — not the membership — is the check.)
+  awk '
+    /^# GATE /            { n=1; next }
+    n==1 && /^# JEV COUNT: /        { n=2; next }
+    n==2 && /^# ARTIFACT CLASS: /   { n=3; next }
+    n==3 && /^# SURFACE: /          { n=4; next }
+    n==4 && /^# PREDICATE READS: /  { found=1; exit 0 }
+    { if (n>0) n=0 }
+    END { exit(found ? 0 : 1) }
+  ' "$f" || return 1
   return 0
 }
