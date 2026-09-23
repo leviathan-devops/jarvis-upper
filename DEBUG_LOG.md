@@ -462,3 +462,38 @@ without checking the class — the exact defect family W-1/W-9 already paid for.
 severity is a CLAIM: EN-138 was refuted by reading the guard the scanner did not.
 
 Battery 82 pass / 0 fail at tests/dossier_traversal.test.ts:1
+
+## [2026-09-23T08:04:01Z] — EN-139..EN-142: THE INDEPENDENT REVIEW (muse exec, the zero-context reviewer)
+
+The goal's proof contract requires an independent re-verification. Both ocr lanes were
+quota-capped (`poolside-laguna-s` 429; `openrouter-laguna-s-free` daily cap), so **muse**
+(Meta Model API — a SEPARATE quota) served as the zero-context reviewer via
+`muse exec --json --reasoning-effort xhigh`. It read 12 kernel files cold and returned
+**0 critical / 3 high** — ALL in code this session had touched (it found what the ocr
+scanner did not):
+
+- **EN-139 (HIGH, src/runtime.ts:88)** — `defaultRails` swallowed every fetch/parse/reduce
+  failure into a `{frames:0}` SUCCESS, so a DEAD endpoint was indistinguishable from an
+  IDLE stream; the tick's error branch (`frames===0 && tick===1`) fired only once, so after
+  tick 1 a dead rail reported `daemonOk` with empty errors forever. FIX: `RailCapture.failed?`
+  carries the reason; the tick reports `rail-failed:<reason>` EVERY tick.
+- **EN-140 (HIGH, src/guardrail.ts:35)** — STALE-GATE required a NON-NULL row `head_sha`, so
+  a NULL row authorized ANY future head — fail-OPEN where the file's own law is "blocking is
+  the safe default". FIX: an unknown-commit gate is STALE.
+- **EN-141 (HIGH, src/reducers.ts:28)** — `pr_node.state` is CHECK-constrained; an
+  out-of-vocabulary state THREW inside `rail.attach`, so the cursor never advanced, and
+  EN-139's swallow turned it into a 0-frames success — ONE malformed event became
+  head-of-line blocking behind a green status. FIX: an unknown state returns "cursor-only".
+- **EN-142 (the waveB fixture)** — its gate_pass row carried NULL head_sha; under EN-140's
+  fail-closed rule it would read STALE, so the fixture now writes the revision it passed
+  against.
+
+PROVEN: `tests/muse_review_pins.test.ts` (4 cases). Battery 94 pass / 0 fail.
+
+THE LESSON: a scanner's severity is a CLAIM, and an INDEPENDENT reviewer on a SEPARATE quota
+finds what the capped scanner cannot. The three findings share one shape — a failure
+converted into a success (a swallow, a fail-open guard, a malformed event read as a
+0-frames idle). The remedy in each case is the same: the failure travels NAMED and the
+guard fails CLOSED.
+
+Battery 94 pass / 0 fail at tests/muse_review_pins.test.ts:1
