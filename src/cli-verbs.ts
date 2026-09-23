@@ -71,9 +71,12 @@ export async function verbGates(root: string, _arg?: string): Promise<VerbResult
 }
 
 export async function verbSync(root: string, arg?: string): Promise<VerbResult> {
-  const projects = await listProjects();
   const db = openStore();
   try {
+  // FIXED 2026-09-23 (ocr confirm HIGH): listProjects() ran BEFORE the try, so a
+  // throw there skipped the db cleanup path (and the error was not shaped as a
+  // VerbResult). It is inside the try now.
+  const projects = await listProjects();
   const { rows: n } = await syncPrs(db, () => listPrsFromAo({ project: arg }));
   const prs = db.query("SELECT COUNT(*) AS n FROM pr_node WHERE state != 'merged'").get() as { n: number };
   return emit(0, { ok: true, projects: projects.length, prNodes: n, openPrNodes: prs.n });

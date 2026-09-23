@@ -37,10 +37,23 @@ export async function writeDossier(root: string, bugId: string, md: string, orig
   try {
     // also inside the try: JSON.stringify can throw on a cyclic/BigInt origin.
     const originJson = JSON.stringify(origin, null, 2) ?? "null";
-    await Bun.write(`${dir}/dossier.md`, md);
-    await Bun.write(`${dir}/origin.json`, originJson);
     const sha16 = dossierSha16(md, originJson);
-    await Bun.write(`${dir}/manifest.sha16`, sha16 + "\n");
+    // FIXED 2026-09-23 (ocr confirm HIGH): three separate writes had no atomicity
+    // — a kill between them left a stale manifest over new content. Write to temp
+    // files and RENAME each into place (atomic per file); the MANIFEST renames
+    // LAST, so a crash before it leaves content the manifest does not match — the
+    // reader's sha check then DETECTS the partial state instead of trusting it.
+    const { rename } = await import("node:fs/promises");
+    const rnd = Math.random().toString(36).slice(2, 8);
+    const mdTmp = `${dir}/dossier.md.tmp-${rnd}`;
+    const ojTmp = `${dir}/origin.json.tmp-${rnd}`;
+    const manTmp = `${dir}/manifest.sha16.tmp-${rnd}`;
+    await Bun.write(mdTmp, md);
+    await Bun.write(ojTmp, originJson);
+    await Bun.write(manTmp, sha16 + "\n");
+    await rename(mdTmp, `${dir}/dossier.md`);
+    await rename(ojTmp, `${dir}/origin.json`);
+    await rename(manTmp, `${dir}/manifest.sha16`);
     return { bugId, sha16, files: [`${dir}/dossier.md`, `${dir}/origin.json`] };
   } catch (e) {
     throw new Error(`DOSSIER-WRITE-FAILED:${bugId}:${String(e).slice(0, 120)}`);
