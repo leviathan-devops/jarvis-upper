@@ -381,3 +381,36 @@ BLOCKED, never PASS.**
 **THE SUBSTITUTE PROOF (per-class, mechanical):** the P5 corpus 13/0 + the container 11 scenarios +
 a REAL `git push` REJECT(W-3)/REJECT(W-2). Evidence: `.trident/SESSION2_VERDICT.md`,
 `.trident/ocr-findings-round2.json`.
+
+## [2026-09-23T06:14:19Z] — THE OCR GATE RE-RUN: **AUDIT GATE: PASS (0 critical, 0 high)**
+
+**THE SCAN (this turn, the free/Poolside lane, the scoped coverage — the full-tree pass
+times out on one provider, so the coverage is run as three scoped scans that each reach
+completion):**
+
+| the surface | raw findings | critical | high | the artifact |
+|---|---|---|---|---|
+| `src` (20 .ts) | 7 | **0** | **0** | `.trident/ocr-src-final2.json` |
+| `scripts` + `gates` + `.github` | 10 | **0** | **0** | `.trident/ocr-rest-confirm.json` |
+| `.githooks` (5 scanners/hooks) | 3 | 0 | 1 → **FIXED** | `.trident/ocr-hooks-confirm.json` |
+
+**THE CONVERGENCE (the baseline → now):** the raw HIGH count fell **36 → 0**; the CRITICAL
+count fell **1 per round → 0** from round 8. The leftover tail is `medium`/`low`
+(style/completeness), never `critical`/`high`. The full table is in
+`.trident/OCR_ADJUDICATION.md` §6.
+
+**THE ONE HIGH (the `.githooks` scan) — a DEAD GATE, now FIXED:** the W-14 no-stub scanner
+could not detect a multi-line `throw new Error("not implemented")` stub (a FALSE GREEN) for
+two independent reasons — (1) bash read the `}` inside `[^}]` as the expansion terminator
+(the close-brace count was garbage), and (2) the regex `^thrownewError"notimplemented"$`
+had SHELL quotes (it became `^thrownewErrornotimplemented$`). Both closed; PROVEN by
+`tests/stub_scanner.test.ts` (4 cases: the real stub FIRES, a brace-in-string function does
+NOT false-positive, a defensive throw is NOT a stub, `stubbed: true` still fires).
+
+**THE REFUTATIONS (measured, in the adjudication record):** `Bun.spawnSync().stdout` IS a
+Buffer (decodes UTF-8); the `attribute.ts` `.catch` uses a literal (not out-of-scope
+`code`; `tsc` 0); the `cli.ts` dispatch `.catch` handles verb throws; `dossierDir`
+refuses traversal; `start(): void` has no unhandled rejection.
+
+**THE VERDICT: `AUDIT GATE: PASS (0 critical, 0 high)`** — HEAD `b41ff22`. tsc exit 0;
+battery 90 pass / 0 fail; P5 corpus 13/0; W-13 silent-fallback 0 hits.
