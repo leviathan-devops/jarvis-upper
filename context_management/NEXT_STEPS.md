@@ -331,3 +331,34 @@ parallel waves hardened it (`.githooks/**` 33 findings · `.github/**` 7 · `src
 - **4 W3 findings deferred** (the reachability worktree-vs-pushed-tree nuance, the stub body parser,
   the brace-count approximation) — recorded in `.trident/wave-audit/W3-desk.md`.
 - **F2 (CODEOWNERS single owner)** deferred to the operator (no second handle exists).
+
+## [2026-09-23T04:42:29Z] — THE ROUND-4/5 OCR CAMPAIGN UPDATE (HEAD `e3bd0e1`)
+
+**THE CURRENT HEAD:** `e3bd0e12a14e268c76679063570c545bf9cb707f` (branch `feat/github-master-kernel`).
+**THE STATE:** tsc exit 0 · battery **85 pass / 0 fail** · P5 corpus 13/0 · tree clean
+(excl. the live `runtime/watchdog-ledger.jsonl`).
+
+**WHAT THIS CAMPAIGN CLOSED (the round-4/5 scans, the deep surface the earlier rounds missed):**
+- **3 CRITICAL** — (1) `src/runtime.ts` `defaultRails` fetched `after=0` every tick, so with
+  the 64 KB cap the daemon silently stopped processing live events (pinned by
+  `tests/probe/cursor_probe.test.ts`); (2) `scripts/spec-diff.ts` resolved the spec ONE LEVEL
+  ABOVE the repo, so the REQUIRED `gates/spec-gate` always exited 2 (UNMEASURED) — the mission
+  spec is now vendored in-repo (`packages/jarvis-upper-tier/`, sha256 55aebe6f3c54db5f) and the
+  gates measure (spec-diff exit 1, shape_freeze exit 0); (3) `src/guardrail.ts` STALE-GATE
+  compared a SPEC invariant hash against a git sha (cross-domain → always stale) — a real
+  `gate_pass.head_sha` column now carries the commit.
+- **~20 HIGH** across `src/` — exception safety, null derefs, path containment, ambiguous
+  hashing, COALESCE data loss, concurrent ticks, O(n²) rotation, missing FKs, tick-interval
+  validation, `fileURLToPath`. Each at the INVARIANT, each pinned.
+- **2 REFUTED** (with their measurements): `Bun.spawnSync().stdout` IS a Buffer (decodes UTF-8);
+  the `attribute.ts` `.catch` uses a literal, not an out-of-scope `code` (tsc exits 0).
+
+**THE RESIDUAL (named):** the LOCAL `gate_pass` mirror is now WIRED (synced from the
+authoritative `guardrailRemote` read each tick — pinned by `tests/gate_pass_mirror.test.ts`);
+the remaining scanner highs are adjudicated in `.trident/OCR_ADJUDICATION.md`. The ocr gate's
+CONFIRMED critical/high count is ZERO; the raw scanner count mixes real defects with refuted
+false positives (the convergence table is in the adjudication record).
+
+**THE EVIDENCE:** `.trident/ocr-src-round4.json` … `round9.json`, `.trident/ocr-rest-round4.json`,
+`.trident/OCR_ADJUDICATION.md`. The pins: `tests/probe/cursor_probe.test.ts`,
+`tests/dossier_traversal.test.ts`, `tests/desks_traversal.test.ts`, `tests/gate_pass_mirror.test.ts`.
