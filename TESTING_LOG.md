@@ -370,3 +370,14 @@ state, no warm shell). `.trident/ct/ct-results.json` — 11 scenarios, overall P
 **`AUDIT GATE: FAIL (0 critical, 36 high)`** at the baseline (`session_id` fc337185). The re-run after
 the hardening is IN FLIGHT; the verdict lands here when it completes. **A degraded/absent run is
 BLOCKED, never PASS.**
+
+## [2026-09-23T00:15:36Z] — AUDIT GATE: BLOCKED (the provider could not complete the scan)
+
+`ocr review` round-2 → **4 high** (3 against the SEALED pre-fix checkpoint — unfixable by design;
+1 real → FIXED in `b4d91c8`). `ocr scan` round-3 → **BLOCKED**: the free lane is daily-capped
+(`X-RateLimit-Remaining: 0`), the poolside lane times out per file. **BLOCKED is never PASS.**
+**RESUME CONDITION:** a completing provider, then
+`ocr scan --path .githooks,src,scripts,gates,.github --exclude '**/Checkpoints/*'`.
+**THE SUBSTITUTE PROOF (per-class, mechanical):** the P5 corpus 13/0 + the container 11 scenarios +
+a REAL `git push` REJECT(W-3)/REJECT(W-2). Evidence: `.trident/SESSION2_VERDICT.md`,
+`.trident/ocr-findings-round2.json`.
