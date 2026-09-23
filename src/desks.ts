@@ -14,6 +14,14 @@ function contained(base: string, candidate: string): boolean {
   return rel !== "" && rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel);
 }
 
+// FIXED 2026-09-23 (ocr round-4 rescan-4 HIGH): `target` was interpolated into
+// `${fx.root}/ship/${target}-v1` UNVALIDATED — `../../evil` escaped the fixture
+// root. A single-segment assertion (no separators, no "..") makes it inert.
+const SEG_RE = /^[A-Za-z0-9._-]+$/;
+function assertSegment(name: string, v: string): void {
+  if (!SEG_RE.test(v) || v.includes("..")) throw new Error(`INVALID-${name}:${v}`);
+}
+
 export interface FixtureSet {
   root: string;
 }
@@ -22,6 +30,7 @@ const sha16 = (s: string) =>
   createHash("sha256").update(s, "utf8").digest("hex").slice(0, 16);
 
 export async function waveA(db: Database, fx: FixtureSet, target: string): Promise<{ manifest: string; files: number }> {
+  assertSegment("TARGET", target);
   let prs: { files: string[] };
   try { prs = JSON.parse(await Bun.file(`${fx.root}/pr-set.json`).text()); } catch (e) { throw new Error(`FIXTURE-PARSE-ERROR:pr-set.json:${String(e).slice(0,80)}`); }
   const dir = `${fx.root}/ship/${target}-v1`;
@@ -45,6 +54,7 @@ export async function waveA(db: Database, fx: FixtureSet, target: string): Promi
 }
 
 export async function waveB(db: Database, fx: FixtureSet, target: string): Promise<{ hardened: boolean; token: string }> {
+  assertSegment("TARGET", target);
   let defect: { file: string; fix: string; test: string };
   try { defect = JSON.parse(await Bun.file(`${fx.root}/defect.json`).text()); } catch (e) { throw new Error(`FIXTURE-PARSE-ERROR:defect.json:${String(e).slice(0,80)}`); }
   // FIXED 2026-09-23 (ocr round-4 HIGH): defect.file / defect.test are
