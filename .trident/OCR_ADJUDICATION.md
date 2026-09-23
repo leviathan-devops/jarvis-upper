@@ -83,3 +83,58 @@ are pinned so a future regression goes RED.
 
 A claim without its artifact is VOID. Every row above names its artifact; the pins
 are executable; the refutations carry their measurement. That is the whole record.
+
+---
+
+## §6 THE SESSION-3 CONVERGENCE (the round-4/5 campaign, measured)
+
+The RAW high/crit count per scan (the artifact `.trident/<scan>.json`):
+
+```
+  the scan                     crit  high  med  low
+  ocr-findings-e9ff02b (base)     0    36   77   15   <- the goal's baseline
+  ocr-findings-round2             0     4    7    6
+  ocr-hooks-round3                0     1    4    7
+  ocr-hooks-round3b               0     1    6    6
+  ocr-src-round4                  1     5   24   12   <- the deep src surface, first full pass
+  ocr-src-round4-rescan           0    11   28   28
+  ocr-src-round5                  1     3   29   25
+  ocr-src-round6                  1     2   17   16
+  ocr-src-round7                  1     3   22   21
+  ocr-src-round8                  0     5   13   13
+  ocr-src-round9                  0     4   24   27
+  ocr-src-final                   0     2   12   20
+  ocr-src-confirm                 0     2   10    8
+  ocr-src-confirm2                0     3   10    2
+  ocr-rest-confirm                0     0    4    6   <- scripts/gates/.github: CLEAN
+```
+
+**THE SHAPE:** the CRITICALS began at 1 per round (4-7) and went to 0 from round 8 on —
+every critical was closed or refuted with a measurement. The HIGHS fell from 36 (baseline)
+to a 2-3 tail that is defensive-completeness (error handling, atomicity), not structural
+bugs. The `scripts/gates/.github` surface is CLEAN (0/0).
+
+## §7 THE SESSION-3 REFUTATIONS (measured)
+
+| the claim | the measurement |
+|---|---|
+| `src/verdict.ts` — `Bun.spawnSync().stdout` is a Uint8Array, `.toString()` gives comma-bytes | `stdout` is a **Buffer** (`Buffer.isBuffer() === true`); `.toString()` decodes UTF-8. Witness: `tests/spec_audit.test.ts` asserts decoded stdout and passes. |
+| `src/attribute.ts` — the `.catch` references the out-of-scope `code` | the `.catch` uses the LITERAL `code: 1`; a genuine out-of-scope ref would FAIL `tsc`; `tsc` exits 0. |
+| `src/desks.ts` — `bugId` reaches a path unvalidated | `dossierDir` throws `INVALID-BUGID` outside `[A-Za-z0-9_-]+`/`..`. Pinned: `tests/dossier_traversal.test.ts`. |
+| `src/cli-verbs.ts` — multiple verbs lack try/catch → unhandled exceptions | `cli.ts`'s dispatch `.catch` converts any verb throw to `{ok:false,error}` + exit 1, and each verb's `finally { db.close() }` runs on the throw path. Not unhandled. |
+| `src/main.ts` — `rt.start()` not awaited/caught | the `Runtime` interface declares `start(): void` — no promise, no unhandled rejection. |
+| `src/status-contract.ts` — MISSING a `pending` state | the contract is FROZEN; the kernel posts final verdicts; GitHub defaults an unposted context to pending. A boundary, not a defect. |
+
+## §8 THE DEAD-GATE FIND (the W-14 scanner — the goal's own forbidden class)
+
+The `ocr-hooks-confirm` HIGH exposed a **DEAD GATE**: the W-14 no-stub scanner could not
+detect a multi-line `throw new Error("not implemented")` stub — a FALSE GREEN. Two
+independent bugs, both closed:
+1. `c="${l//[^}]/}"` — bash reads the `}` inside the bracket as the expansion TERMINATOR
+   (the pattern became `[^`, the count was garbage, the body "closed" on the signature line).
+2. `[[ "$x" =~ ^thrownewError"notimplemented"$ ]]` — the `"` are SHELL QUOTES, so the regex
+   was `^thrownewErrornotimplemented$`, which never matched.
+PROVEN after the fix: `tests/stub_scanner.test.ts` (4 cases) — the multi-line stub FIRES,
+a brace-in-string function does NOT false-positive, a defensive throw is NOT a stub, the
+`stubbed: true` shape still fires. This is the class the goal names: "a gate that never
+fires is a FALSE GREEN." Finding it is the campaign's highest-value result.
