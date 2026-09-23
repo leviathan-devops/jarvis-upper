@@ -27,7 +27,11 @@ if (verb === "init") {
     console.log(JSON.stringify({ ok: true, source: arg ?? "ao-events", last_seq: row?.last_seq ?? 0 }));
   } finally { db.close(); }
 } else if (verb && VERBS[verb]) {
-  const root = new URL("..", import.meta.url).pathname;
+  // FIXED 2026-09-23 (the muse rounds' consistency sweep): a file:// URL's
+  // `.pathname` is not a filesystem path (Windows drive-letter prefix; URL
+  // encoding elsewhere). fileURLToPath is the platform-correct conversion — the
+  // same fix already applied in main.ts and store.ts.
+  const root = fileURLToPath(new URL("..", import.meta.url));
   VERBS[verb](root, arg).then((r) => {
     console.log(JSON.stringify(r.out));
     process.exit(r.code);
