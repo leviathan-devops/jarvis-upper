@@ -82,6 +82,7 @@ export async function waveB(db: Database, fx: FixtureSet, target: string): Promi
 }
 
 export async function waveC(db: Database, fx: FixtureSet, bugId: string): Promise<{ recorded: boolean }> {
+  assertSegment("BUGID", bugId);
   let seed: { file: string; lines: number[]; symptom: string; originCommit: string };
   try { seed = JSON.parse(await Bun.file(`${fx.root}/seeded-defect.json`).text()); } catch (e) { throw new Error(`FIXTURE-PARSE-ERROR:seeded-defect.json:${String(e).slice(0,80)}`); }
   const md = `# BUG ${bugId}\n\nsymptom: ${seed.symptom}\nfile: ${seed.file}:${seed.lines.join(",")}\n`;

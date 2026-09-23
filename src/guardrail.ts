@@ -52,7 +52,7 @@ export function guardrail(db: Database, prId: string): Eligibility {
 }
 
 export interface StatusProbe { context: string; state: string; }
-export interface RemoteEligibility { ok: boolean; reasons: string[]; missing: string[]; }
+export interface RemoteEligibility { ok: boolean; reasons: string[]; missing: string[]; states: Record<string, string>; }
 export async function guardrailRemote(
   opts: { owner: string; repo: string; sha: string; token?: string; baseUrl?: string; fetchImpl?: typeof fetch },
 ): Promise<RemoteEligibility> {
@@ -72,19 +72,19 @@ export async function guardrailRemote(
   try {
     res = await fetchFn(url, { headers, signal: AbortSignal.timeout(10000) });
   } catch (e) {
-    return { ok: false, reasons: [`REMOTE-FETCH-THREW:${String(e).slice(0, 60)}`], missing: [...REQUIRED_CONTEXTS] };
+    return { ok: false, reasons: [`REMOTE-FETCH-THREW:${String(e).slice(0, 60)}`], missing: [...REQUIRED_CONTEXTS], states: {} };
   }
   if (!res.ok) {
-    return { ok: false, reasons: [`REMOTE-FETCH-FAILED:${res.status}`], missing: [...REQUIRED_CONTEXTS] };
+    return { ok: false, reasons: [`REMOTE-FETCH-FAILED:${res.status}`], missing: [...REQUIRED_CONTEXTS], states: {} };
   }
   let rows: StatusProbe[];
   try {
     rows = (await res.json()) as StatusProbe[];
   } catch (e) {
-    return { ok: false, reasons: [`REMOTE-JSON-INVALID:${String(e).slice(0, 60)}`], missing: [...REQUIRED_CONTEXTS] };
+    return { ok: false, reasons: [`REMOTE-JSON-INVALID:${String(e).slice(0, 60)}`], missing: [...REQUIRED_CONTEXTS], states: {} };
   }
   if (!Array.isArray(rows)) {
-    return { ok: false, reasons: ["REMOTE-JSON-NOT-ARRAY"], missing: [...REQUIRED_CONTEXTS] };
+    return { ok: false, reasons: ["REMOTE-JSON-NOT-ARRAY"], missing: [...REQUIRED_CONTEXTS], states: {} };
   }
   const latest: Record<string, string> = {};
   for (const r of rows) {
@@ -107,5 +107,21 @@ export async function guardrailRemote(
       missing.push(ctx);
     }
   }
-  return { ok: reasons.length === 0, reasons, missing };
+  return { ok: reasons.length === 0, reasons, missing, states: latest };
+}
+
+// FIXED 2026-09-23 (ocr final HIGH): the LOCAL gate_pass mirror had NO production
+// populator, so head_sha was always NULL and STALE-GATE could never fire. This
+// MIRRORS the authoritative remote read into the local table (the guardrail's own
+// design: GitHub decides MAY, the DB check is the local mirror of it). Called by
+// the runtime tick immediately after guardrailRemote().
+export function recordGatePass(db: Database, prId: string, headSha: string, states: Record<string, string>): void {
+  for (const g of REQUIRED_GATES) {
+    const ctxs = GATE_TO_CONTEXT[g] as readonly string[];
+    const ok = ctxs.length > 0 && ctxs.every((c) => states[c] === "success");
+    db.query(`INSERT INTO gate_pass(id, pr_node, gate, verdict, head_sha, at)
+              VALUES (?, ?, ?, ?, ?, strftime('%s','now'))
+              ON CONFLICT(id) DO UPDATE SET verdict=excluded.verdict, head_sha=excluded.head_sha, at=excluded.at`)
+      .run(`${prId}:${g}`, prId, g, ok ? "pass" : "fail", headSha);
+  }
 }

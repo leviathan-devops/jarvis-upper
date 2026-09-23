@@ -9,7 +9,7 @@ import { openStore } from "./store";
 import { syncPrs, type PrRow } from "./sync";
 import { listPrsFromAo } from "./adapter-verbs";
 import { orderMerges } from "./plan";
-import { guardrail } from "./guardrail";
+import { guardrail, guardrailRemote, recordGatePass } from "./guardrail";
 import { appendTick, writeStatus, type RuntimeStatus } from "./status";
 import { EventRail, parseSse } from "../ao-client/rail";
 import { reduceEvent } from "./reducers";
@@ -232,6 +232,20 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
     const readyRows = db.query("SELECT id, head_sha, session_id FROM pr_node WHERE state='ready_to_merge'").all() as
       { id: string; head_sha: string | null; session_id: string | null }[];
     const ready = readyRows.length;
+    // FIXED 2026-09-23 (ocr final HIGH): sync the LOCAL gate_pass mirror from the
+    // AUTHORITATIVE remote BEFORE the eligibility read — without this the mirror
+    // was empty, so every PR read GATE-MISSING and STALE-GATE could never fire.
+    // Best-effort: a failed remote read leaves the mirror's last value.
+    if (publishOpts) {
+      await Promise.allSettled(readyRows.filter((r) => r.head_sha).map(async (r) => {
+        try {
+          const e = await guardrailRemote({ owner: publishOpts.owner, repo: publishOpts.repo, sha: r.head_sha!, token: publishOpts.token, baseUrl: publishOpts.baseUrl, fetchImpl: publishOpts.fetchImpl });
+          if (Object.keys(e.states).length > 0) recordGatePass(db, r.id, r.head_sha!, e.states);
+        // W-13: a catch must LOG or rethrow (a comment-only body is a silent
+        // fallback). The mirror sync is best-effort, so the failure is logged.
+        } catch (e) { errors.push(`mirror:${String(e).slice(0, 60)}`); }
+      }));
+    }
     const eligible = readyRows.filter((r) => guardrail(db, r.id).ok).length;
 
     // W5 — publish the verdict for every ELIGIBLE PR. The two `factory/*`
