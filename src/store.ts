@@ -1,7 +1,11 @@
 // Upper store: SQLite WAL, forward-only migrations, append-only ledgers.
 import { Database } from "bun:sqlite";
+import { fileURLToPath } from "node:url";
 
-export const STORE_PATH = process.env.UPPER_STORE ?? new URL("../store.sqlite", import.meta.url).pathname;
+// FIXED 2026-09-23 (ocr round-4 HIGH): a file:// URL's `.pathname` is not a
+// filesystem path (leading slash before a Windows drive; URL-encoded
+// elsewhere). fileURLToPath is the correct, platform-specific conversion.
+export const STORE_PATH = process.env.UPPER_STORE ?? fileURLToPath(new URL("../store.sqlite", import.meta.url));
 
 const MIGRATIONS: string[] = [
   `CREATE TABLE IF NOT EXISTS pr_node(
@@ -46,7 +50,7 @@ const MIGRATIONS: string[] = [
 ];
 
 export function openStore(path?: string): Database {
-  const resolved = path ?? (process.env.UPPER_STORE ?? new URL("../store.sqlite", import.meta.url).pathname);
+  const resolved = path ?? (process.env.UPPER_STORE ?? fileURLToPath(new URL("../store.sqlite", import.meta.url)));
   const db = new Database(resolved, { create: true });
   db.exec("PRAGMA journal_mode=WAL;");
   db.exec("PRAGMA foreign_keys=ON;");

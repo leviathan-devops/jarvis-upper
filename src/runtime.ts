@@ -20,7 +20,14 @@ import { publishStatus, publishVerdict, type PublishResult } from "./publish";
 import { STATUS_CONTEXTS } from "./status-contract";
 
 export const DAEMON = process.env.AO_DAEMON ?? "http://localhost:3001";
-const TICK_MS = Number(process.env.UPPER_TICK_MS ?? 15000);
+
+// FIXED 2026-09-23 (ocr round-4 HIGH): Number("")===0 / Number("abc")===NaN —
+// a present-but-invalid env var produced a 0/NaN interval. Validate the parse.
+function parseTickMs(raw: string | undefined, fallback = 15000): number {
+  const n = Number(raw ?? fallback);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+const TICK_MS = parseTickMs(process.env.UPPER_TICK_MS);
 
 export interface RuntimeDeps {
   probe?: () => Promise<boolean>;
@@ -179,7 +186,7 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
   const root = opts.root;
   const db = opts.db ?? openStore();
   const deps = opts.deps ?? {};
-  const tickMs = deps.tickMs ?? Number(process.env.UPPER_TICK_MS ?? 15000);
+  const tickMs = deps.tickMs ?? parseTickMs(process.env.UPPER_TICK_MS);
   const probe = deps.probe ?? defaultProbe;
   // EN-010: the default is the REAL adapter. A daemon tick that silently syncs
   // zero PRs is a wrong answer wearing a green light — so the default pulls AO.

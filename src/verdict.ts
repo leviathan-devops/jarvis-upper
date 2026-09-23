@@ -96,6 +96,11 @@ export function ledgerRowFor(ledgerPath: string, jobNeedle: string | undefined):
 export function artifactBoundToHead(jobDir: string, headSha: string): { ok: boolean; reason: string; actual?: string; worktree?: string } {
   const run = (argv: string[]) => {
     const p = Bun.spawnSync(argv);
+    // REFUTED (ocr round-4 CRITICAL claim: "stdout is a Uint8Array, so
+    // toString() gives comma-joined bytes"). MEASURED: Bun.spawnSync().stdout
+    // is a Buffer (Buffer.isBuffer === true) whose toString() decodes UTF-8 —
+    // it returns "/home/leviathan", not "104,101,...". Pinned by the decoded
+    // assertions in tests/spec_audit.test.ts (which pass).
     return { code: p.exitCode ?? -1, out: (p.stdout?.toString() ?? "").trim() };
   };
   const top = run(["git", "-C", jobDir, "rev-parse", "--show-toplevel"]);
