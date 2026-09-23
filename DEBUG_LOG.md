@@ -417,3 +417,48 @@ medium / 6 low** — MORE real findings in the hooks:
   exactly this way).
 - EVIDENCE: `.trident/ocr-hooks-round3b.json` · `.githooks/pre-push:97` ·
   `.githooks/lib/scan-stub.sh:105`
+
+## [2026-09-23T02:42:56Z] — EN-129..EN-138: THE ROUND-4/5 SRC SCANS (the deep-tree coverage)
+
+The earlier rounds scanned .githooks (rounds 1-3, 10 findings) and the src surface partly
+(round 2, 128 findings from the digest). Rounds 4-5 ran a FULL src scan + a full
+scripts/gates/.github scan on the poolside lane and found the residual surface:
+
+- **EN-129 (CRITICAL, src/runtime.ts:53)** — `defaultRails` fetched `after=0` on EVERY tick.
+  With the 65536-byte cap, each tick re-read the SAME first 64 KB (all already deduped by
+  EventRail), so events BEYOND the window were NEVER fetched — the daemon silently stopped
+  processing live events on any non-trivial stream. FIX: read the `rail_seq` cursor BEFORE
+  the fetch and pass `after=<cursor>`. PROVEN by tests/probe/cursor_probe.test.ts (asserts
+  `after=4242`, not `after=0`). src/runtime.ts:53.
+- **EN-130 (CRITICAL, scripts/spec-diff.ts:21)** — the spec was resolved ONE LEVEL ABOVE the
+  repo (`ROOT/../packages/jarvis-upper-tier/...`), a HOST path absent from a CI checkout, so
+  `existsSync` always failed and the gate ALWAYS exited 2 (UNMEASURED). `gates/spec-gate` is
+  a REQUIRED ruleset check — it never measured anything in CI. FIX: the mission spec is vendored
+  IN-REPO (sha256 55aebe6f3c54db5f, byte-identical) and the 3 scripts + the test resolve it
+  relative to ROOT. MEASURED after: spec-diff exit 1 (MAPPED=18 UNMAPPED=2), shape_freeze exit 0
+  (declared 3 / implemented 28), spec-audit GS-1..GS-8 printed. scripts/spec-diff.ts:21.
+- **EN-131 (CRITICAL, src/guardrail.ts:26)** — STALE-GATE compared `gate_pass.sha16` (the SPEC
+  INVARIANT hash, per verdict.ts) against `pr_node.head_sha` (a GIT COMMIT sha) — cross-domain,
+  so ALWAYS unequal and every passing gate read as stale in production. The tests masked it by
+  writing the head_sha INTO the sha16 column. FIX: gate_pass gains a real `head_sha` column;
+  the guardrail compares THAT. src/guardrail.ts:26, src/store.ts:23.
+- **EN-132..EN-137 (HIGH, src/)** — execute.ts (a THROW lost the partial PlanExecution);
+  adapter-verbs.ts (a null client body crashed the inline `.sessions`); guardrail.ts (fetch +
+  json throws uncaught); cli-verbs.ts (nested ternary); attribute.ts (a promise that could hang
+  forever + `code ?? 0` reported a signal-kill as SUCCESS — MY OWN REGRESSION); desks.ts
+  (`startsWith` is not containment — the untrusted defect.file/defect.test could escape the
+  fixture root); dossier.ts (the md+json sha was AMBIGUOUS — a delimiter swap collides);
+  reducers.ts (a head_sha-less event overwrote the stored head_sha with NULL); runtime.ts
+  (stop() launched a SECOND concurrent tick); status.ts (the rotation read the whole log every
+  tick, O(n^2)); store.ts (PRAGMA foreign_keys=ON with NO foreign keys).
+- **EN-138 (REFUTED)** — the ocr round-4 desks.ts claim that `bugId` reaches a path
+  unvalidated. MEASURED: every writer goes through `dossierDir`, which refuses any bugId
+  outside [A-Za-z0-9_-]+ or containing "..". The traversal is unreachable.
+  PINNED by tests/dossier_traversal.test.ts (3 cases; RED if the guard is removed).
+
+THE LESSON (the artifact-class law, again): a gate's *predicate* is correct for one
+artifact-CLASS. spec-diff's path predicate was written for the HOST layout and ported to CI
+without checking the class — the exact defect family W-1/W-9 already paid for. And a scanner's
+severity is a CLAIM: EN-138 was refuted by reading the guard the scanner did not.
+
+Battery 82 pass / 0 fail at tests/dossier_traversal.test.ts:1
