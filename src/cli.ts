@@ -1,4 +1,5 @@
 // upper CLI: one JSON object on stdout, human text on stderr, exit 0/1/2.
+import { fileURLToPath } from "node:url";
 import { openStore, tableNames, STORE_PATH } from "./store";
 import { VERBS } from "./cli-verbs";
 
