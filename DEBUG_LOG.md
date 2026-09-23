@@ -387,3 +387,33 @@ the live enforcement layer (`ocr scan --path .githooks`, poolside-lane, 8 files,
   repo's convention (EN-121) — so every finding is adjudicated, never applied blindly.
 - EVIDENCE: `.trident/ocr-hooks-round3.json` · `.githooks/prepare-commit-msg:76` ·
   `.githooks/pre-push:112` · `.githooks/lib/pattern-header.sh:56`
+
+## [2026-09-23T00:51:17Z] — EN-123..EN-128: THE ROUND-3b OCR FINDINGS (the re-scan of the hardened hooks)
+A SECOND scoped scan (`ocr scan --path .githooks`, poolside, 8 files, 14m46s) returned **1 high / 6
+medium / 6 low** — MORE real findings in the hooks:
+- **EN-123 (HIGH) — the masked error in the W-3 call.** `PHANTOM_OUT="$(scan_phantom "$RANGE"
+  2>/dev/null || true)"` swallowed ALL stderr and non-zero exits: a runtime error produced empty
+  stdout → no reject → **W-3 silently PASSED (a false green).** FIX: capture stderr to a temp file;
+  a non-empty stderr is a LOUD `REJECT(GATE-LIB)`. `.githooks/pre-push:97`.
+- **EN-124 (MEDIUM) — the regex-stem.** `git grep -w` without `-F` treated `$BASENAME` as a
+  REGEX: a stem like `foo.test` had its `.` match any char (`fooxtest`). FIX: `-F`.
+- **EN-125 (MEDIUM) — the PWD reliance.** `ROOT` was computed but unused; run from a subdirectory,
+  git silently returned empty → a false green. FIX: `git -C "$ROOT"`.
+- **EN-126 (MEDIUM) — test files under src/.** `src/foo.test.ts` was scanned as a production module
+  (its stem also carried the regex dot). FIX: skip `*.test.ts`/`*.spec.ts`/`*_test.ts`.
+- **EN-127 (MEDIUM) — the leaked variable.** `stripped_core` was assigned WITHOUT `local` in
+  `scan-stub.sh`, leaking into the caller's scope (and the second branch read the first's value).
+  FIX: `local stripped_core`.
+- **EN-128 (MEDIUM) — the fork storm.** `_stub_brace_depth` spawned 6 subprocesses PER LINE
+  (~6000 fork+exec for a 1000-line file — the dominant pre-commit cost). FIX: pure-bash parameter
+  expansion (`${l//[^{]/}`).
+- **AND the test pin that kept breaking:** `tests/gate_phantom_reach.test.ts` pins the
+  implementation TEXT (`git grep -lw` → `git grep -lFw` → `grep -lFw`). **The pin is brittle by
+  design** — it catches a silent revert of the search form. The BEHAVIOR is proven by the live
+  orphan probe.
+- LESSON: **the scanner kept finding real defects in the hardened hooks — 3 rounds, each with a
+  genuine HIGH.** The hooks were never "done"; they were *less wrong* each round. The battery + the
+  live probe are the guard that catches a fix's own regression (EN-121's `head -n 12` was caught
+  exactly this way).
+- EVIDENCE: `.trident/ocr-hooks-round3b.json` · `.githooks/pre-push:97` ·
+  `.githooks/lib/scan-stub.sh:105`
