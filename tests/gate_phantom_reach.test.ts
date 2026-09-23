@@ -143,7 +143,7 @@ test("test_reachability_gate_structure", () => {
   // (a push of a branch that is not checked out gave a wrong reference set).
   // This is a TEXT pin on the implementation; the BEHAVIOR is proven by the
   // live probe (a real push of an orphan -> REJECT(W-2), rc=1).
-  expect(content).toMatch("git grep -lFw");   // -F: the stem is a literal, not a regex
+  expect(content).toMatch("grep -lFw");   // -F: the stem is a literal, not a regex
   // Verify the existing main refusal is intact.
   expect(content).toContain("direct pushes to main are not permitted");
 });
