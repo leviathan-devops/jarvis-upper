@@ -2,6 +2,7 @@
 runtime/status.json
 runtime/ticks.log
 runtime/wire_capture.json
+runtime/watchdog-ledger.jsonl
 store.sqlite
 store.sqlite-wal
 store.sqlite-shm

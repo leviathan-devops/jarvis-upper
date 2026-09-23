@@ -109,10 +109,24 @@ for (const item of items) {
   }
   // Whole-token equality against one file's tokens — `plan` never meets
   // `explain`, `test` never maps an item by itself (it is STOP).
-  const hit = keys.length > 0 ? files.find((f) => {
+  // PASS 1 — a whole-token match against a changed PATH (the cheap check).
+  let hit = keys.length > 0 ? files.find((f) => {
     const toks = fileToks(f);
     return keys.some((k) => toks.includes(k));
   }) : undefined;
+  // PASS 2 — THE CONTENT FALLBACK (FIXED 2026-09-23): an item whose IMPLEMENTATION
+  // lives INSIDE a file (e.g. "fix_direct branch protocol" -> kick.ts's `fix/${id}`)
+  // has no matching PATH, so the path-only check reported it UNMAPPED though it IS
+  // delivered. A bounded content search over the changed SOURCE files closes it.
+  if (!hit && keys.length > 0) {
+    const srcExt = /\.(ts|sh|py|yml|yaml|json)$/;
+    const candidates = files.filter((f) => srcExt.test(f)).slice(0, 400);
+    for (const f of candidates) {
+      let text = "";
+      try { text = readFileSync(join(ROOT, f), "utf8"); } catch { continue; }
+      if (keys.some((k) => text.includes(k))) { hit = f; break; }
+    }
+  }
   if (hit) console.log(`MAPPED:${item.n}:${hit}`);
   else { console.log(`UNMAPPED:${item.n}`); unmapped += 1; }
 }
