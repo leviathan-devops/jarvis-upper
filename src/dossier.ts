@@ -34,8 +34,9 @@ export async function writeDossier(root: string, bugId: string, md: string, orig
   // returns the VALUE `undefined`, not a string — `?? "null"` guarantees a string
   // before it reaches the sha + the write. (b) the multi-write sequence gets
   // contextual error handling so a failure names the dossier, not a raw EIO.
-  const originJson = JSON.stringify(origin, null, 2) ?? "null";
   try {
+    // also inside the try: JSON.stringify can throw on a cyclic/BigInt origin.
+    const originJson = JSON.stringify(origin, null, 2) ?? "null";
     await Bun.write(`${dir}/dossier.md`, md);
     await Bun.write(`${dir}/origin.json`, originJson);
     const sha16 = dossierSha16(md, originJson);

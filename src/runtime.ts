@@ -199,6 +199,7 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
   const state = { running: false, tick: 0, inFlight: false };
   let last: RuntimeStatus | null = null;
   let timer: NodeJS.Timeout | null = null;
+  let inFlightPromise: Promise<unknown> | null = null;
 
   async function tick(): Promise<RuntimeStatus> {
     state.tick += 1;
@@ -284,19 +285,20 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
     start() {
       if (state.running) return;
       state.running = true;
-      const safeTick = () => { if (state.inFlight) return; state.inFlight = true; tick().catch((e) => { console.error(`tick-error: ${String(e).slice(0,120)}`); }).finally(() => { state.inFlight = false; }); };
+      const safeTick = () => { if (state.inFlight) return; state.inFlight = true; inFlightPromise = tick().catch((e) => { console.error(`tick-error: ${String(e).slice(0,120)}`); }).finally(() => { state.inFlight = false; }); };
       safeTick();
       timer = setInterval(safeTick, tickMs);
     },
     async stop() {
       state.running = false;
       if (timer) { clearInterval(timer); timer = null; }
-      // FIXED 2026-09-23 (ocr round-4 HIGH): `last ?? await tick()` launched a
-      // SECOND concurrent tick when the first was still in flight (state.inFlight
-      // true, `last` still null) — two ticks racing on the same db + status
-      // files. Wait for the in-flight tick to settle first (bounded).
+      // FIXED 2026-09-23 (ocr round-4 HIGH x2): (a) `last ?? await tick()`
+      // launched a SECOND concurrent tick when one was in flight; (b) the first
+      // fix's bounded loop could time out and STILL launch the second tick. Now
+      // stop() awaits the ACTUAL in-flight promise (the tick is internally
+      // timeout-bounded), so no racetick can ever run.
       if (last) return last;
-      for (let i = 0; i < 400 && state.inFlight; i++) await new Promise((r) => setTimeout(r, 25));
+      if (inFlightPromise) await inFlightPromise;
       return last ?? (await tick());
     },
     status() { return last; },

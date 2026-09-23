@@ -15,7 +15,13 @@ const rawTickMs = Number(process.env.UPPER_TICK_MS ?? 15000);
 const tickMs = Number.isFinite(rawTickMs) && rawTickMs > 0 ? rawTickMs : 15000;
 const rt = createRuntime({ root, deps: { tickMs } });
 
+// FIXED 2026-09-23 (ocr round-4 HIGH): SIGTERM and SIGINT can both arrive before
+// stop() completes — a re-entrancy guard prevents two concurrent rt.stop() calls
+// racing to process.exit().
+let stopping = false;
 async function stop(): Promise<void> {
+  if (stopping) return;
+  stopping = true;
   const s = await rt.stop();
   console.log(JSON.stringify({ stopped: true, ticks: s.tick, daemonOk: s.daemonOk, status: statusPath(root), log: ticksPath(root) }));
   process.exit(0);

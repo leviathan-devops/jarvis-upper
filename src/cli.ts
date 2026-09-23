@@ -13,15 +13,19 @@ if (extras.length > 0 && verb !== "init" && verb !== "cursor") {
 }
 if (verb === "init") {
   const db = openStore();
-  const tables = tableNames(db).filter((t) => !t.startsWith("sqlite_"));
-  db.close();
-  console.log(JSON.stringify({ ok: true, store: STORE_PATH, tables }));
+  // FIXED 2026-09-23 (ocr round-4 HIGH): a throw between open and close leaked
+  // the connection — db.close() now runs in finally.
+  try {
+    const tables = tableNames(db).filter((t) => !t.startsWith("sqlite_"));
+    console.log(JSON.stringify({ ok: true, store: STORE_PATH, tables }));
+  } finally { db.close(); }
 } else if (verb === "cursor") {
   const db = openStore();
-  const row = db.query("SELECT last_seq FROM rail_seq WHERE source = ?")
-    .get(arg ?? "ao-events") as { last_seq: number } | null;
-  db.close();
-  console.log(JSON.stringify({ ok: true, source: arg ?? "ao-events", last_seq: row?.last_seq ?? 0 }));
+  try {
+    const row = db.query("SELECT last_seq FROM rail_seq WHERE source = ?")
+      .get(arg ?? "ao-events") as { last_seq: number } | null;
+    console.log(JSON.stringify({ ok: true, source: arg ?? "ao-events", last_seq: row?.last_seq ?? 0 }));
+  } finally { db.close(); }
 } else if (verb && VERBS[verb]) {
   const root = new URL("..", import.meta.url).pathname;
   VERBS[verb](root, arg).then((r) => {
