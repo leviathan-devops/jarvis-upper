@@ -7,6 +7,7 @@
 // The FORBIDDEN EVIDENCE SET (commit-exists · diff-changed · drift-gate-green ·
 // worker-tests-pass · PR-open · transcript-shows-spawn · "I read it") is never a source.
 import { readFileSync, existsSync } from "node:fs";
+import { resolve as resolvePath, relative as relativePath, isAbsolute } from "node:path";
 
 export interface FenceSource {
   ran: boolean;
@@ -119,7 +120,15 @@ export function artifactBoundToHead(jobDir: string, headSha: string): { ok: bool
     // FIXED 2026-09-23 (qwen-code-audit re-run REAL): the artifact path came
     // from SPEC.md with no containment — a crafted absolute path reached any file.
     // It must resolve INSIDE the worktree root.
-    if (m && m[1].startsWith("/") && (m[1] === top.out || m[1].startsWith(top.out + "/"))) {
+    // FIXED 2026-09-23 (qwen-code-audit run 5 REAL): a STRING PREFIX is not
+    // containment — "/worktree/../../../etc/passwd" starts with "/worktree/" and
+    // readFileSync resolves it OUTSIDE. The check is now a RESOLVED-path
+    // containment (the same `contained()` law as the desks fix).
+    const insideWorktree = (cand: string): boolean => {
+      const rel = relativePath(resolvePath(top.out), resolvePath(cand));
+      return rel === "" || (rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel));
+    };
+    if (m && m[1].startsWith("/") && insideWorktree(m[1])) {
       const rel = m[1].slice(top.out.length + 1);
       const committed = run(["git", "-C", top.out, "show", `HEAD:${rel}`]);
       const onDisk = readFileSync(m[1], "utf8");

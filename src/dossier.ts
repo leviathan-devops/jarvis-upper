@@ -1,5 +1,6 @@
 // Dossier law: sha16 over dossier.md+origin.json gates every kick.
 import { createHash } from "node:crypto";
+import { isAbsolute, resolve, relative } from "node:path";
 
 export interface DossierManifest {
   bugId: string;
@@ -23,7 +24,15 @@ const BUGID_RE = /^[A-Za-z0-9_-]+$/;
 
 export function dossierDir(root: string, bugId: string): string {
   if (!BUGID_RE.test(bugId) || bugId.includes("..")) throw new Error(`INVALID-BUGID:${bugId}`);
-  return `${root.replace(/\/$/, "")}/dossiers/${bugId}`;
+  // FIXED 2026-09-23 (qwen-code-audit run 5 REAL): a `root` carrying ".." escaped
+  // the intended scope. It must be an ABSOLUTE path, and `path.resolve` normalizes
+  // any traversal away BEFORE the join.
+  if (typeof root !== "string" || !isAbsolute(root)) throw new Error(`INVALID-ROOT:${root}`);
+  const base = resolve(root);
+  const dir = resolve(base, "dossiers", bugId);
+  const rel = relative(base, dir);
+  if (rel === ".." || rel.startsWith("../") || isAbsolute(rel)) throw new Error(`ROOT-ESCAPE:${bugId}`);
+  return dir;
 }
 
 export async function writeDossier(root: string, bugId: string, md: string, origin: unknown): Promise<DossierManifest> {

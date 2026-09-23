@@ -49,6 +49,10 @@ export async function executePlan(
         exec.haltReason = "PUBLISH-CALL-FAILED";
         return exec;
       }
+      // NOTE (run 5): publish is EXTERNAL (GitHub) and the db update is LOCAL —
+      // they cannot share a transaction. The 0-row check below is the honest
+      // detector: a publish that succeeded with a db update that matched no row
+      // HALTS and NAMES the divergence rather than reporting a phantom merge.
       // FIXED 2026-09-23 (qwen-code-audit high): the UPDATE result was ignored —
       // a 0-row update (the PR absent) still pushed the id into `merged`, so the
       // returned plan claimed a merge the DB never recorded.
