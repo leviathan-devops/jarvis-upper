@@ -138,3 +138,30 @@ PROVEN after the fix: `tests/stub_scanner.test.ts` (4 cases) — the multi-line 
 a brace-in-string function does NOT false-positive, a defensive throw is NOT a stub, the
 `stubbed: true` shape still fires. This is the class the goal names: "a gate that never
 fires is a FALSE GREEN." Finding it is the campaign's highest-value result.
+
+---
+
+## §9 THE INDEPENDENT REVIEW (muse exec, xhigh — the separate-quota reviewer)
+
+With both ocr lanes quota-capped, **muse** (Meta Model API) served as the zero-context
+reviewer. It read the kernel COLD, twice, and returned **0 critical / 5 high** — ALL five in
+code this campaign had touched, and ALL five of ONE shape: **an unknown value converted into
+a success.**
+
+| round | the finding | the mechanism | the fix |
+|---|---|---|---|
+| 1 | `src/runtime.ts:88` | `defaultRails` swallowed a fetch/parse/reduce failure into a `{frames:0}` success — a DEAD endpoint read as IDLE, and the tick's error branch fired only once | `RailCapture.failed?` + the tick reports `rail-failed` EVERY tick |
+| 1 | `src/guardrail.ts:35` | STALE-GATE required a NON-NULL ROW head_sha, so a NULL row authorized ANY head (fail-OPEN) | an unknown-commit gate is STALE |
+| 1 | `src/reducers.ts:28` | an out-of-vocabulary state THREW inside `rail.attach` (the cursor never advanced) and finding 1 swallowed it — ONE bad event = head-of-line block behind a green status | an unknown state returns "cursor-only" |
+| 2 | `src/guardrail.ts:40` | the guard SKIPPED the check when the PR's head was NULL — an unknown CURRENT revision read as eligible | BOTH sides must be KNOWN; either null is STALE |
+| 2 | `src/adapter-verbs.ts:54` | `state ?? "unknown"` is OUTSIDE the CHECK vocabulary — an insert threw and rolled back the WHOLE sync batch | the default is a VALID vocabulary member |
+
+**THE LESSON.** The ocr scanner (capped) reported 0 critical/0 high on the same tree. The
+independent reviewer found 5 REAL highs the scanner did not — because it read the code COLD
+and reasoned about the CONTRACT, not about pattern shape. The five share one class the
+scanner's predicates cannot express: a FAILURE converted into a SUCCESS (a swallow, a
+fail-open guard, a malformed value read as a valid one). Each is closed the same way: the
+failure travels NAMED, and the guard fails CLOSED.
+
+PINNED: `tests/muse_review_pins.test.ts` (6 cases — 3 for round 1, 3 for round 2). Battery
+96 pass / 0 fail.
