@@ -119,7 +119,10 @@ export function artifactBoundToHead(jobDir: string, headSha: string): { ok: bool
       const rel = m[1].slice(top.out.length + 1);
       const committed = run(["git", "-C", top.out, "show", `HEAD:${rel}`]);
       const onDisk = readFileSync(m[1], "utf8");
-      if (committed.code === 0 && committed.out.length > 0 && !onDisk.startsWith(committed.out.slice(0, 64))) {
+      // FIXED 2026-09-23 (ocr round-4 HIGH): the comment promises a
+      // BYTE-IDENTICAL check; a 64-char prefix passed a file that diverged after
+      // the prefix. Compare the full content (trailing whitespace tolerated).
+      if (committed.code === 0 && committed.out.length > 0 && onDisk.trimEnd() !== committed.out.trimEnd()) {
         return { ok: false, reason: "FENCE-ARTIFACT-DRIFT: the job artifact != the head's committed copy", worktree: top.out };
       }
     }

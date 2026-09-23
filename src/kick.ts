@@ -3,6 +3,11 @@
 import { Database } from "bun:sqlite";
 import { dossierSha16 } from "./dossier";
 
+// FIXED 2026-09-23 (ocr round-4 HIGH): `kick:<bugId>:<Date.now()>` collided for
+// two kicks of the same bug inside one millisecond. A random suffix makes the
+// id unique regardless of the clock.
+const kickSuffix = (): string => Math.random().toString(36).slice(2, 10);
+
 export interface KickDeps {
   sessionAlive: (sessionId: string) => Promise<boolean>;
   send: (sessionId: string, brief: string) => Promise<{ ok: boolean }>;
@@ -55,20 +60,20 @@ export async function kick(
     if (!r.ok) throw new Error("KICK-SEND-FAILED");
     db.query(`INSERT INTO kick(id, bug_record, mode, target_session, dossier_path, dossier_sha16, sent_at, outcome)
               VALUES (?,?,?,?,?,?,strftime('%s','now'),'delivered')`)
-      .run(`kick:${input.bugId}:${Date.now()}`, input.bugId, mode, input.originSession, input.dossierPath, sha);
+      .run(`kick:${input.bugId}:${Date.now()}:${kickSuffix()}`, input.bugId, mode, input.originSession, input.dossierPath, sha);
     return { mode, target: sessionId, dossierSha16: sha };
   }
   if (mode === "spawn") {
     const r = await deps.spawn({ projectId: input.projectId, brief, attachments: [`${input.dossierPath}/dossier.md`, `${input.dossierPath}/origin.json`] });
     db.query(`INSERT INTO kick(id, bug_record, mode, spawned_session, dossier_path, dossier_sha16, sent_at, outcome)
               VALUES (?,?,?,?,?,?,strftime('%s','now'),'spawned')`)
-      .run(`kick:${input.bugId}:${Date.now()}`, input.bugId, mode, r.sessionId, input.dossierPath, sha);
+      .run(`kick:${input.bugId}:${Date.now()}:${kickSuffix()}`, input.bugId, mode, r.sessionId, input.dossierPath, sha);
     return { mode, target: r.sessionId, dossierSha16: sha };
   }
   const b = await deps.openBranch(input.bugId);
   if (!b.ok) throw new Error("KICK-BRANCH-FAILED");
   db.query(`INSERT INTO kick(id, bug_record, mode, dossier_path, dossier_sha16, sent_at, outcome)
             VALUES (?,?,?, ?,?,strftime('%s','now'),'branched')`)
-    .run(`kick:${input.bugId}:${Date.now()}`, input.bugId, mode, input.dossierPath, sha);
+    .run(`kick:${input.bugId}:${Date.now()}:${kickSuffix()}`, input.bugId, mode, input.dossierPath, sha);
   return { mode, target: `fix/${input.bugId}`, dossierSha16: sha };
 }

@@ -43,7 +43,12 @@ export function appendTick(root: string, s: RuntimeStatus): void {
     const CAP_BYTES = 1024 * 1024; // ~1 MiB, well under 10000 short lines
     if (statSync(tp).size > CAP_BYTES) {
       const lines = readFileSync(tp, "utf8").split("\n");
-      writeFileSync(tp, lines.slice(-5000).join("\n") + "\n", "utf8");
+      // FIXED 2026-09-23 (ocr round-4 HIGH): the rotation overwrote the live log
+      // in place — a crash mid-write left it truncated. tmp + rename is atomic,
+      // matching writeStatus.
+      const tmp = `${tp}.tmp`;
+      writeFileSync(tmp, lines.slice(-5000).join("\n") + "\n", "utf8");
+      renameSync(tmp, tp);
     }
   } catch { /* rotation is best-effort */ }
 }
