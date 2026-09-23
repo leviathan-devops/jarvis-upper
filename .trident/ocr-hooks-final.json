@@ -1,0 +1,117 @@
+{
+  "status": "completed_with_errors",
+  "llm": {
+    "provider": "openrouter-laguna-s-free",
+    "model": "poolside/laguna-s-2.1:free"
+  },
+  "summary": {
+    "files_reviewed": 8,
+    "comments": 5,
+    "total_tokens": 182473,
+    "input_tokens": 64737,
+    "output_tokens": 117736,
+    "cache_read_tokens": 6528,
+    "elapsed": "29m52s"
+  },
+  "tool_calls": {
+    "total": 9,
+    "by_tool": {
+      "code_comment": 2,
+      "code_search": 1,
+      "file_find": 3,
+      "file_read": 3
+    },
+    "failure": 0,
+    "failure_by_tool": {},
+    "failure_details": []
+  },
+  "comments": [
+    {
+      "path": ".githooks/lib/scan-phantom.sh",
+      "content": "When `git rev-list` fails (e.g., broken range like a non-existent ref), `SHAS` is set to the raw `$COMMIT_RANGE` string (e.g., `origin/main..HEAD`). The `for SHA in $SHAS` loop then iterates over this range-syntax string as if it were a single commit SHA. `git log -1 --format='%s' \"origin/main..HEAD\"` would interpret the `..` as a range specifier rather than a single commit, potentially checking the wrong commit or producing inconsistent results. The fallback should abort gracefully (return 0) instead of feeding range syntax back through single-SHA git commands.",
+      "suggestion_code": "  SHAS=$(git rev-list \"$COMMIT_RANGE\" 2\u003e/dev/null) || {\n    # If rev-list fails (bad range), abort rather than feeding range syntax\n    # back through as a single SHA (which git would misinterpret).\n    return 0\n  }",
+      "existing_code": "  SHAS=$(git rev-list \"$COMMIT_RANGE\" 2\u003e/dev/null) || {\n    # If rev-list fails (bad range), try treating it as a single sha.\n    SHAS=\"$COMMIT_RANGE\"\n  }",
+      "start_line": 37,
+      "end_line": 40,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": ".githooks/lib/scan-phantom.sh",
+      "content": "The body is grepped twice: once with `grep -qiE` to test whether any file claims exist, and then again with `grep -oiE` inside the process substitution to extract matches. This is redundant I/O on the same data. The outer `if` test can be eliminated entirely — the `while` loop simply won't iterate if grep produces no output.",
+      "suggestion_code": "    # Use process substitution to avoid subshell ORPHANS loss.\n    while IFS= read -r match; do",
+      "existing_code": "    if printf '%s\\n' \"$BODY\" | grep -qiE \"$FILE_CLAIM_RE\"; then\n      # Use process substitution to avoid subshell ORPHANS loss.\n      while IFS= read -r match; do",
+      "start_line": 62,
+      "end_line": 64,
+      "category": "performance",
+      "severity": "low"
+    },
+    {
+      "path": ".githooks/lib/scan-phantom.sh",
+      "content": "The `local CLAIMED_FILE` declaration is inside the `while` loop body. In bash, `local` is function-scoped (not block-scoped), so re-declaring it on every iteration is unnecessary. Hoisting it above the loop is clearer and avoids redundant declarations.",
+      "suggestion_code": "        CLAIMED_FILE=$(printf '%s' \"$match\" | awk '{print $NF}')",
+      "existing_code": "        local CLAIMED_FILE\n        CLAIMED_FILE=$(printf '%s' \"$match\" | awk '{print $NF}')",
+      "start_line": 65,
+      "end_line": 66,
+      "category": "maintainability",
+      "severity": "low"
+    },
+    {
+      "path": ".githooks/commit-msg",
+      "content": "CHECK 1 applies the prefix regex to ALL lines of $MSG, not just the first (subject) line. Because grep -qE tests each line independently, a body line that begins with e.g. \"feat:\" (such as a quoted reference) will satisfy the check even when the actual subject line lacks a valid prefix. Commit-message conventions anchor the type prefix to the first line only. Fix: slice $MSG to its first non-empty line before testing, e.g. FIRST_LINE=\"$(printf '%s\\n' \"$MSG\" | grep -v \"^[[:space:]]*$\" | head -n1)\" and run the prefix grep against FIRST_LINE.",
+      "existing_code": "if ! printf '%s' \"$MSG\" | grep -qE '^(feat|fix|docs|test|build|refactor|blueprint|goal|chore|spec|perf)(\\([^)]+\\))?: '; then\n  echo 'REJECT(W-8): message lacks semantic prefix ^(feat|fix|docs|test|build|refactor|blueprint|goal|chore|spec|perf)(scope)?: ' \u003e\u00262\n  exit 1\nfi",
+      "start_line": 29,
+      "end_line": 32,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": ".githooks/commit-msg",
+      "content": "The SHA evidence regex \\b[0-9a-f]*[a-f][0-9a-f]{6,39}\\b requires at least one [a-f] character, so it fails to match a valid all-decimal hex SHA of length 7-40 (e.g. \"1234567\"). A simpler \\b[0-9a-f]{7,40}\\b would correctly accept any git SHA-1 short/long form. This is a narrow false-negative edge case rather than a correctness blocker.",
+      "existing_code": "  printf '%s' \"$MSG\" | grep -qE '\\b[0-9a-f]*[a-f][0-9a-f]{6,39}\\b' \u0026\u0026 HAS_EVIDENCE=1",
+      "start_line": 40,
+      "end_line": 40,
+      "category": "bug",
+      "severity": "low"
+    }
+  ],
+  "warnings": [
+    {
+      "file": ".githooks/lib/scan-phantom.sh",
+      "message": "LLM completion error: POST \"https://openrouter.ai/api/v1/chat/completions\": 429 Too Many Requests {\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"poolside/laguna-s-2.1:free is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"Poolside\",\"is_byok\":false,\"limit_source\":\"upstream_provider_shared_pool\",\"remedy_hint\":\"Retry shortly, add your own provider key (https://openrouter.ai/settings/integrations), or route to another provider with provider routing: https://openrouter.ai/docs/features/provider-routing\"}}",
+      "type": "scan_subtask_error"
+    },
+    {
+      "file": ".githooks/lib/scan-silent.sh",
+      "message": "LLM completion error: error reading response body: context deadline exceeded",
+      "type": "scan_subtask_error"
+    },
+    {
+      "file": ".githooks/lib/scan-stub.sh",
+      "message": "LLM completion error: error reading response body: context deadline exceeded",
+      "type": "scan_subtask_error"
+    },
+    {
+      "file": ".githooks/lib/pattern-header.sh",
+      "message": "LLM completion error: error reading response body: context deadline exceeded",
+      "type": "scan_subtask_error"
+    },
+    {
+      "file": ".githooks/prepare-commit-msg",
+      "message": "LLM completion error: error reading response body: context deadline exceeded",
+      "type": "scan_subtask_error"
+    },
+    {
+      "file": ".githooks/pre-push",
+      "message": "LLM completion error: error reading response body: context deadline exceeded",
+      "type": "scan_subtask_error"
+    },
+    {
+      "file": ".githooks/pre-commit",
+      "message": "LLM completion error: error reading response body: context deadline exceeded",
+      "type": "scan_subtask_error"
+    }
+  ],
+  "project_summary": "### Top Issues\n\n1. **Broken-range fallback produces invalid SHAs in `scan-phantom.sh`** — When `git rev-list` fails (e.g., non-existent ref), `SHAS` is set to the raw `$COMMIT_RANGE` string (e.g., `origin/main..HEAD`). The subsequent `for SHA in $SHAS` loop then iterates over this range-syntax string as if it were commit SHAs, producing incorrect/empty results. Requires guarded error handling around the `git rev-list` call.\n\n2. **Redundant body grep in `scan-phantom.sh`** — The commit body is grepped twice: once with `grep -qiE` to test for claims, then again with `grep -oiE` inside the process substitution to extract matches. The outer `if` test can be eliminated entirely, as the `while` loop already handles the empty-match case.\n\n3. **`local` declaration inside loop in `scan-phantom.sh`** — `local CLAIMED_FILE` is declared inside the `while` loop body. Since `local` is function-scoped in bash, re-declaring it on every iteration is unnecessary and should be hoisted above the loop.\n\n4. **Commit-msg prefix validation checks all lines in `.githooks/commit-msg`** — CHECK 1 applies the prefix regex to every line of `$MSG`, not just the first (subject) line. A body line like \"feat:\" (e.g., a quoted reference) can satisfy the check even when the subject line is invalid. Should restrict the check to only the first line.\n\n5. **SHA evidence regex rejects all-decimal hex SHAs in `.githooks/commit-msg`** — The pattern `\\b[0-9a-f]*[a-f][0-9a-f]{6,39}\\b` requires at least one `[a-f]` character, so it fails to match valid all-decimal hex SHAs of length 7–40 (e.g., `\"1234567\"`). A simpler `\\b[0-9a-f]{7,40}\\b` would correctly accept any SHA-1 short/long form.\n\n### Module Hotspots\n\n- **`.githooks/lib/scan-phantom.sh`** — Contains 3 of 5 total comments. Issues span error handling (`git rev-list` fallback), inefficient I/O (redundant grep), and code clarity (`local` misuse). Highest density of actionable fixes.\n\n- **`.githooks/commit-msg`** — Contains 2 of 5 comments. Two distinct regex/logic bugs around commit message validation that could allow non-compliant commits to pass checks.\n\n### Cross-Cutting Concerns\n\n- **Shell scripting correctness pitfalls**: Multiple issues stem from subtle bash/shell behaviors: `local` variable scoping (function vs block), unguarded command substitution fallbacks (`$(...)` swallowing errors), and regex edge cases (`\\b` boundary + character class constraints). These are systemic risks in hook scripts.\n\n- **Defensive programming gaps**: The `scan-phantom.sh` script does not validate or guard the output of `git rev-list`, leading to malformed iteration when inputs are invalid. No early-exit or error messaging on failure.\n\n### Quick Wins\n\n- **Hoist `local CLAIMED_FILE` above the `while` loop** in `.githooks/lib/scan-phantom.sh` to eliminate redundant declarations.\n\n- **Remove the redundant outer `grep -qiE` test** in `scan-phantom.sh`; let the `while read` loop with `grep -oiE` process substitution handle detection and extraction in a single pass.\n\n- **Restrict prefix regex validation to only the first line** of the commit message in `.githooks/commit-msg` to prevent false positives from body lines.\n\n- **Simplify the SHA evidence regex** in `.githooks/commit-msg` from `\\b[0-9a-f]*[a-f][0-9a-f]{6,39}\\b` to `\\b[0-9a-f]{7,40}\\b` to correctly match all valid SHA-1 formats.\n\n- **Add error handling around `git rev-list`** in `scan-phantom.sh` to prevent the `COMMIT_RANGE` string from being used as a fallback when the command fails.",
+  "session_id": "ff275e5c-cc18-4f79-9085-cd2a55101da6"
+}
