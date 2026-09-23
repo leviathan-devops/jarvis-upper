@@ -100,3 +100,20 @@ test("muse3-1: upsertPr must NOT erase a known sha/branch with a null incoming v
   expect(r2.source_branch).toBe("feat2");
   db.close();
 });
+
+test("muse4-1: a rejection on the head sha WINS over an earlier approval (fail-closed)", async () => {
+  const { verify } = await import("../src/verdict");
+  const HEAD = "a".repeat(40);
+  // runs: approved@HEAD then changes_requested@HEAD — the old code returned REVIEW-GREEN
+  const v = await verify({
+    jobDir: "/tmp/x", headSha: HEAD, sessionId: "s",
+    runFence: async () => ({ code: 1, stdout: "", stderr: "" }),   // fence not green: isolate the review
+    fetchReviews: async () => ({ runs: [
+      { status: "approved", targetSha: HEAD },
+      { status: "changes_requested", targetSha: HEAD },
+    ] }),
+  });
+  // the review half must NOT be green
+  expect(v.sources.review.reason).not.toBe("REVIEW-GREEN");
+  expect(v.verdict).not.toBe("VERIFIED");
+});

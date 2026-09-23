@@ -29,6 +29,11 @@ export interface VerifyResult {
 }
 
 export const APPROVING_VERDICTS = ["approved", "approve", "lgtm", "pass", "passed"] as const;
+// FIXED 2026-09-23 (muse round-4 HIGH): the mirror of APPROVING. A run whose
+// verdict is here BLOCKS the head — an approval must never outvote a rejection
+// on the SAME sha.
+export const REJECTING_VERDICTS = ["changes_requested", "changes-requested", "requested_changes",
+  "rejected", "reject", "changes_requested_by_reviewer", "blocked", "block", "fail", "failed", "denied"] as const;
 export const FENCE_DEFAULT = process.env.FENCE2_BIN ?? "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py";
 export const LEDGER_DEFAULT = process.env.FENCE2_LEDGER ?? "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl";
 
@@ -191,14 +196,24 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     review.ran = true;
     review.harness = payload.reviewerHarness ?? null;
     const runs = [...(payload.runs ?? []), ...(payload.reviews ?? []).map((r) => ({ verdict: r.status, targetSha: r.targetSha }))]; // merge reviews into runs shape
-    const approving = runs.find((r) => r.verdict != null && (APPROVING_VERDICTS as readonly string[]).includes(String(r.verdict).toLowerCase()));
     if (runs.length === 0) review.reason = "REVIEW-NO-RUNS";
-    else if (!approving) review.reason = `REVIEW-NOT-APPROVED: verdicts ${JSON.stringify(runs.map((r) => r.verdict ?? null))}`;
     else {
+      // FIXED 2026-09-23 (muse round-4 HIGH): `runs.find(approving)` returned the
+      // FIRST approval and IGNORED a later rejection on the SAME head sha, so
+      // [approved@H, changes_requested@H] read REVIEW-GREEN and the verdict
+      // posted success for a REJECTED head — a fail-open. A rejection on the head
+      // sha now wins over any approval (the fail-closed polarity).
+      const verdictOf = (r: { verdict?: string | null }) => String(r.verdict ?? "").toLowerCase();
+      const rejecting = runs.find((r) => (REJECTING_VERDICTS as readonly string[]).includes(verdictOf(r)));
+      const approving = runs.find((r) => (APPROVING_VERDICTS as readonly string[]).includes(verdictOf(r)));
+      if (rejecting) review.reason = `REVIEW-REJECTED: ${verdictOf(rejecting)}`;
+      else if (!approving) review.reason = `REVIEW-NOT-APPROVED: verdicts ${JSON.stringify(runs.map((r) => r.verdict ?? null))}`;
+      else {
       review.verdict = String(approving.verdict);
       review.targetSha = approving.targetSha ?? null;
       if (review.targetSha !== opts.headSha) review.reason = `REVIEW-STALE-SHA: ${String(review.targetSha).slice(0, 7)} != head ${opts.headSha.slice(0, 7)}`;
       else review.reason = "REVIEW-GREEN";
+      }
     }
   } catch (e) {
     review.reason = `REVIEW-NOT-RUN: ${String(e).slice(0, 120)}`;
