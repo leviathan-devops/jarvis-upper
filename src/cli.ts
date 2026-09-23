@@ -37,7 +37,7 @@ if (verb === "init") {
     console.log(JSON.stringify(r.out));
     process.exit(r.code);
   }).catch((e) => {
-    console.log(JSON.stringify({ ok: false, error: String(e).slice(0, 200) }));
+    console.error(JSON.stringify({ ok: false, error: String(e).slice(0, 200) }));
     process.exit(1);
   });
 } else {

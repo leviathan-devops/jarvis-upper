@@ -40,7 +40,10 @@ export async function publishStatus(
   payload: PublishPayload,
 ): Promise<PublishResult> {
   const baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL;
-  const token = opts.token ?? process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN ?? "";
+  // FIXED 2026-09-23 (qwen-code-audit high): `??` lets an EMPTY STRING through,
+  // so a blank opts.token produced `Authorization: Bearer ` (invalid). `||`
+  // falls through on "" too.
+  const token = opts.token || process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
   const fetchFn = opts.fetchImpl ?? fetch;
   const description = payload.description.slice(0, MAX_DESCRIPTION);
   const url = `${baseUrl}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/statuses/${encodeURIComponent(opts.sha)}`;

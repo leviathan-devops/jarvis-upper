@@ -35,11 +35,14 @@ export async function kick(
   deps: KickDeps,
   input: { bugId: string; projectId: string; originSession: string | null; originCommit: string; dossierPath: string; mode?: KickMode },
 ): Promise<KickResult> {
+  // FIXED 2026-09-23 (qwen-code-audit C3): the file READS ran BEFORE the
+  // bug_record validation — a caller-supplied dossierPath reached the filesystem
+  // before the db check could refuse it. Validation comes FIRST.
+  const row = db.query("SELECT id FROM bug_record WHERE id = ?").get(input.bugId) as { id: string } | null;
+  if (!row) throw new Error(`BUG-UNKNOWN:${input.bugId}`);
   const md = await deps.readFile(`${input.dossierPath}/dossier.md`);
   const oj = await deps.readFile(`${input.dossierPath}/origin.json`);
   const sha = dossierSha16(md, oj);
-  const row = db.query("SELECT id FROM bug_record WHERE id = ?").get(input.bugId) as { id: string } | null;
-  if (!row) throw new Error(`BUG-UNKNOWN:${input.bugId}`);
   const dossierRow = db.query(
     "SELECT dossier_path AS p FROM bug_record WHERE id = ?").get(input.bugId) as { p: string } | null;
   // F17: canonicalize — always use input.dossierPath (the caller-provided path)

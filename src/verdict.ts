@@ -49,10 +49,6 @@ export interface VerifyOpts {
   bind?: (jobDir: string, headSha: string) => { ok: boolean; reason: string };
 }
 
-export function sha16(s: string): string {
-  return new Bun.CryptoHasher("sha256").update(s).digest("hex").slice(0, 16);
-}
-
 async function defaultRunFence(argv: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   const p = Bun.spawn(["python3", ...argv], { stdout: "pipe", stderr: "pipe" });
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);

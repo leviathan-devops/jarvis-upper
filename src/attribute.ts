@@ -139,7 +139,12 @@ export async function attributeBug(
     // FIXED 2026-09-23 (ocr final HIGH): a blame-ONLY candidate (in blameHits, NOT
     // logHits) scored 0.75 and satisfied the old test, so it was mislabeled
     // "blame+log". Branch on the ACTUAL source sets.
-    method: blameHits.has(top.commit) ? (logHits.has(top.commit) ? "blame+log" : "blame") : "log",
+    // FIXED 2026-09-23 (qwen-code-audit C2): the header promises "<0.6 → triage"
+    // but nothing enforced it — a sub-floor assignment read as final. The floor
+    // now decides the method (triage), which callers key on.
+    method: top.score < CONFIDENCE_FLOOR
+      ? "triage"
+      : blameHits.has(top.commit) ? (logHits.has(top.commit) ? "blame+log" : "blame") : "log",
     candidates: scored.slice(0, 5),
     confidence: top.score,
   };

@@ -49,7 +49,15 @@ export async function executePlan(
         exec.haltReason = "PUBLISH-CALL-FAILED";
         return exec;
       }
-      db.query("UPDATE pr_node SET state='merge_ordered' WHERE id = ?").run(pr);
+      // FIXED 2026-09-23 (qwen-code-audit high): the UPDATE result was ignored —
+      // a 0-row update (the PR absent) still pushed the id into `merged`, so the
+      // returned plan claimed a merge the DB never recorded.
+      const upd = db.query("UPDATE pr_node SET state='merge_ordered' WHERE id = ?").run(pr);
+      if (upd.changes === 0) {
+        exec.haltedAt = pr;
+        exec.haltReason = "MERGE-UPDATE-0-ROWS";
+        return exec;
+      }
       exec.merged.push(pr);
     } catch (e) {
       exec.haltedAt = pr;

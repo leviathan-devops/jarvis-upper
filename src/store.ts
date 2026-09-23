@@ -54,21 +54,33 @@ const MIGRATIONS: string[] = [
 // FK-less schema forever (orphans kept accumulating despite foreign_keys=ON).
 // This migration REBUILDS a table in place when its FK list is empty — the
 // documented SQLite table-rebuild recipe (create-new, copy, drop, rename).
+// FIXED 2026-09-23 (qwen-code-audit C4/C5 + the SQL-safety note): the rebuild
+// (a) dropped the CHECK constraints the MIGRATIONS declare, (b) ran WITHOUT a
+// transaction (a mid-rebuild failure lost the table), and (c) interpolated
+// PRAGMA-derived names into SQL with no validation. All three closed: the name
+// is checked against an allowlist, the rebuild is one transaction, and the
+// rebuild SQL carries the SAME CHECKs as MIGRATIONS.
+const REBUILDABLE = new Set(["pr_edge", "gate_pass", "kick"]);
 function rebuildIfNoFks(db: Database, table: string, createNewSql: string): void {
+  if (!REBUILDABLE.has(table)) throw new Error(`REBUILD-TABLE-REFUSED:${table}`);
   const exists = db.query("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name=?").get(table);
   if (!exists) return;
   const fks = db.query(`PRAGMA foreign_key_list(${table})`).all();
   if (fks.length > 0) return;
   const newName = `${table}__fk`;
-  db.exec(createNewSql.replace(/CREATE TABLE IF NOT EXISTS \w+/, `CREATE TABLE ${newName}`));
   // column-aware copy: the old table may lack NEWER columns (e.g. gate_pass had
   // no head_sha before the guardrail fix) — map the common ones, NULL the rest.
   const oldCols = (db.query(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
-  const newCols = (db.query(`PRAGMA table_info(${newName})`).all() as { name: string }[]).map((c) => c.name);
-  const select = newCols.map((c) => (oldCols.includes(c) ? c : `NULL AS ${c}`)).join(", ");
-  db.exec(`INSERT INTO ${newName} (${newCols.join(", ")}) SELECT ${select} FROM ${table};`);
-  db.exec(`DROP TABLE ${table};`);
-  db.exec(`ALTER TABLE ${newName} RENAME TO ${table};`);
+  db.exec("BEGIN");
+  try {
+    db.exec(createNewSql.replace(/CREATE TABLE IF NOT EXISTS \w+/, `CREATE TABLE ${newName}`));
+    const newCols = (db.query(`PRAGMA table_info(${newName})`).all() as { name: string }[]).map((c) => c.name);
+    const select = newCols.map((c) => (oldCols.includes(c) ? c : `NULL AS ${c}`)).join(", ");
+    db.exec(`INSERT INTO ${newName} (${newCols.join(", ")}) SELECT ${select} FROM ${table};`);
+    db.exec(`DROP TABLE ${table};`);
+    db.exec(`ALTER TABLE ${newName} RENAME TO ${table};`);
+    db.exec("COMMIT");
+  } catch (e) { db.exec("ROLLBACK"); throw new Error(`REBUILD-FAILED:${table}:${String(e).slice(0, 100)}`); }
 }
 
 const FK_REBUILDS: { table: string; sql: string }[] = [
@@ -77,14 +89,17 @@ const FK_REBUILDS: { table: string; sql: string }[] = [
      kind TEXT NOT NULL, created_at INTEGER,
      FOREIGN KEY (from_pr) REFERENCES pr_node(id),
      FOREIGN KEY (to_pr) REFERENCES pr_node(id));` },
+  // the CHECKs MIRROR MIGRATIONS (a rebuild must not drop them)
   { table: "gate_pass", sql: `CREATE TABLE IF NOT EXISTS gate_pass(
      id TEXT PRIMARY KEY, pr_node TEXT NOT NULL, gate TEXT NOT NULL,
      verdict TEXT NOT NULL, evidence TEXT, sha16 TEXT, head_sha TEXT, at INTEGER,
+     CHECK(gate IN ('ci_green','audit','hardened','fence2')),
      FOREIGN KEY (pr_node) REFERENCES pr_node(id));` },
   { table: "kick", sql: `CREATE TABLE IF NOT EXISTS kick(
      id TEXT PRIMARY KEY, bug_record TEXT NOT NULL, mode TEXT NOT NULL,
      target_session TEXT, spawned_session TEXT, dossier_path TEXT,
      dossier_sha16 TEXT, sent_at INTEGER, outcome TEXT, outcome_at INTEGER,
+     CHECK(mode IN ('live','spawn','direct')),
      FOREIGN KEY (bug_record) REFERENCES bug_record(id));` },
 ];
 
