@@ -28,7 +28,12 @@ scan_phantom() {
   local CLAIM_RE='^[a-z]+(\([^)]*\))?:[[:space:]].*(complete[d]?|done|finished|implemented|added|built|landed|shipped|delivered)'
 
   # Regex for "created <file>" / "added <file>" / "wrote <file>" in the body.
-  local FILE_CLAIM_RE='(created|added|wrote|built|deployed)[[:space:]]+([^ ]+\.[a-z]{1,4})'
+  # FIXED 2026-09-23 (a real push false-positive): the verbs had NO WORD
+  # BOUNDARY, so `overwrote ticks.log` matched `wrote` and the gate flagged a
+  # phantom. `\b` anchors each verb. Also: a claim about a GITIGNORED file
+  # (runtime/ticks.log, store.sqlite) is a RUNTIME artifact, never a repo
+  # phantom — the check now skips those.
+  local FILE_CLAIM_RE='\b(created|added|wrote|built|deployed)[[:space:]]+([^ ]+\.[a-z]{1,4})'
 
   local ORPHANS=0
 
@@ -64,6 +69,10 @@ scan_phantom() {
       while IFS= read -r match; do
         local CLAIMED_FILE
         CLAIMED_FILE=$(printf '%s' "$match" | awk '{print $NF}')
+        # a gitignored path is runtime state, not a repo file — never a phantom
+        if git -C "$(git rev-parse --show-toplevel 2>/dev/null)" check-ignore -q "$CLAIMED_FILE" 2>/dev/null; then
+          continue
+        fi
         if ! git cat-file -e "$SHA:$CLAIMED_FILE" 2>/dev/null; then
           printf 'PHANTOM-DIFF:%s:%s (claimed %s does not exist)\n' "$SHA" "$SUBJECT" "$CLAIMED_FILE"
           ORPHANS=$((ORPHANS + 1))

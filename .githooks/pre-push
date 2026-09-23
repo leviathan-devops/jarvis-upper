@@ -152,8 +152,14 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # char (false positives like `fooxtest`). `git -C "$ROOT"` — the script
     # computed ROOT but relied on PWD; run from a subdirectory, git silently
     # returned empty and the gate could false-green.
-    REFS=$(git -C "$ROOT" grep -lFw --include='*.ts' --include='*.js' --include='*.sh' --include='*.json' \
-           -e "$BASENAME" "$local_sha" -- src/ scripts/ gates/ bin/ 2>/dev/null \
+    # FIXED 2026-09-23 (a DEAD-GATE bug found by a real push): `git grep
+    # --include='*.ts'` is an UNKNOWN OPTION in git 2.43 -> the command errored
+    # `unknown option  include=*.ts` -> REFS=0 for EVERY module -> the gate
+    # rejected EVERY push. The reference set is now a PATHSPEC (git grep has no
+    # --include). This is why the branch was never pushed and the end-to-end
+    # lifecycle was never exercised.
+    REFS=$(git -C "$ROOT" grep -lFw \
+           -e "$BASENAME" "$local_sha" -- 'src/*.ts' 'src/*.js' 'scripts/*.ts' 'scripts/*.sh' 'gates/*' 'bin/*' 2>/dev/null \
            | sed "s/^[^:]*://" \
            | grep -vE '(^|/)(tests?|__tests__|__test__)/|\.(test|spec|_test)\.[a-z]+$' \
            | grep -vxF "$f" | wc -l | tr -d ' ')
