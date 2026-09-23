@@ -32,7 +32,12 @@ export function guardrail(db: Database, prId: string): Eligibility {
     // passing gate in production (the tests masked it by writing the head_sha INTO
     // the sha16 column). It now compares the commit the gate RAN AGAINST
     // (gate_pass.head_sha) to the PR's current head.
-    if (pr.head_sha !== null && row.head_sha !== null && row.head_sha !== pr.head_sha) {
+    // FIXED 2026-09-23 (muse independent review HIGH): requiring a NON-NULL row
+    // head_sha made a NULL row (a legacy-migrated row, a fixture row) authorize
+    // ANY future head — fail-OPEN where this file's own law is "blocking is the
+    // safe default". An unknown-commit gate is STALE: the PR's head is known, the
+    // gate's is not, so the two cannot be shown to match.
+    if (pr.head_sha !== null && row.head_sha !== pr.head_sha) {
       reasons.push(`STALE-GATE:${g}`);
     }
   }

@@ -76,8 +76,12 @@ export async function waveB(db: Database, fx: FixtureSet, target: string): Promi
   // gate-pass row must have its pr_node. Mint it (idempotent) first.
   db.query("INSERT INTO pr_node(id, project, pr_number, session_id, state, minted_at) VALUES (?, 'fixture', 0, NULL, 'open', strftime('%s','now')) ON CONFLICT(id) DO NOTHING")
     .run(target);
-  db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, evidence, sha16, at) VALUES (?,?,?,?,?, ?,strftime('%s','now'))")
-    .run(`w4b:${target}`, target, "hardened", "pass", testOut.slice(0, 200), sha16(after));
+  // head_sha too: a NULL row head_sha is now STALE-GATE (fail-closed), so a
+  // fixture row that models a legitimate pass must carry the revision it passed
+  // against. The fixture has no git sha, so the content hash IS the revision.
+  const rev = sha16(after);
+  db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, evidence, sha16, head_sha, at) VALUES (?,?,?,?,?,?,?,strftime('%s','now'))")
+    .run(`w4b:${target}`, target, "hardened", "pass", testOut.slice(0, 200), rev, rev);
   return { hardened: true, token: "hardened" };
 }
 

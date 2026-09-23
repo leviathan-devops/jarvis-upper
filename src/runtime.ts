@@ -54,7 +54,17 @@ export async function defaultProbe(): Promise<boolean> {
   } catch { return false; }
 }
 
-export interface RailCapture { frames: number; bytes: number; lastSeq: number }
+export interface RailCapture {
+  frames: number;
+  bytes: number;
+  lastSeq: number;
+  // FIXED 2026-09-23 (muse independent review HIGH): the catch returned a
+  // 0-frames SUCCESS, making a DEAD endpoint indistinguishable from an IDLE
+  // stream — the tick's error branch (frames===0 && tick===1) only fired once,
+  // so after tick 1 a dead rail reported daemonOk with empty errors forever.
+  // The failure travels NAMED now.
+  failed?: string;
+}
 
 export async function defaultRails(db: Database, root: string): Promise<RailCapture> {
   try {
@@ -69,7 +79,7 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
       { last_seq: number } | null;
     const after = cs?.last_seq ?? 0;
     const res = await fetch(`${DAEMON}/api/v1/events?after=${after}`, { signal: AbortSignal.timeout(5000) });
-    if (!res.ok || !res.body) return { frames: 0, bytes: 0, lastSeq: 0 };
+    if (!res.ok || !res.body) return { frames: 0, bytes: 0, lastSeq: 0, failed: `HTTP-${res.status}` };
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = "";
@@ -91,7 +101,7 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
       await Bun.write(wireCapturePath(root), JSON.stringify({ ts: new Date().toISOString(), parsedFrames: parsed.length, newlyProcessed: frames.length, bytes: buf.length, lastSeq }, null, 2) + "\n");
     }
     return { frames: parsed.length, bytes: buf.length, lastSeq };
-  } catch { return { frames: 0, bytes: 0, lastSeq: 0 }; }
+  } catch (e) { return { frames: 0, bytes: 0, lastSeq: 0, failed: String(e).slice(0, 80) }; }
 }
 
 export interface PublishVerdictForPrOpts {
@@ -217,9 +227,12 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       } catch (e) { errors.push(`sync:${String(e).slice(0, 60)}`); }
       try {
         const cap = await rails(db, root);
+        // FIXED 2026-09-23 (muse HIGH): a NAMED failure is reported EVERY tick —
+        // a dead rail can no longer hide as an idle stream behind daemonOk.
+        if (cap.failed) errors.push(`rail-failed:${cap.failed}`);
         // an IDLE stream (no new events since the cursor) is normal, not an error;
         // only the FIRST tick with zero frames is a real defect signal.
-        if (cap.frames === 0 && state.tick === 1) errors.push("rail:0-frames-on-first-tick");
+        else if (cap.frames === 0 && state.tick === 1) errors.push("rail:0-frames-on-first-tick");
       } catch (e) { errors.push(`rail:${String(e).slice(0, 60)}`); }
     } else {
       errors.push("ECONNREFUSED");
