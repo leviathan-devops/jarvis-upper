@@ -20,11 +20,25 @@
 #   <local-ref> <local-sha> <remote-ref> <remote-sha>
 set -uo pipefail
 
-source "$(dirname "$0")/lib/pattern-header.sh" 2>/dev/null || true
+if ! source "$(dirname "$0")/lib/pattern-header.sh" 2>/dev/null; then
+  printf 'REJECT(GATE-LIB): pattern-header.sh failed to load — the gates cannot run\n' >&2
+  exit 1
+fi
 # WIRED 2026-09-23 (ocr F1 / the audit DEFECT A): scan-phantom.sh existed as a
 # proper library but was NEVER sourced here, so W-3 never fired. A gate on disk
 # that never fires is a FALSE GREEN.
-source "$(dirname "$0")/lib/scan-phantom.sh" 2>/dev/null || true
+# FIXED 2026-09-23 (ocr round-3): `|| true` silently swallowed a missing or
+# broken library — the gate would then run with an undefined function and, under
+# `set -u`, die with an unhelpful unbound-variable error (or worse, pass). A lib
+# that cannot load is now a LOUD, named failure.
+if ! source "$(dirname "$0")/lib/scan-phantom.sh" 2>/dev/null; then
+  printf 'REJECT(GATE-LIB): scan-phantom.sh failed to load — the W-3 gate cannot run\n' >&2
+  exit 1
+fi
+command -v scan_phantom >/dev/null 2>&1 || {
+  printf 'REJECT(GATE-LIB): scan_phantom is not defined after sourcing — the W-3 gate cannot run\n' >&2
+  exit 1
+}
 
 REMOTE="${1:-}"
 REMOTE_URL="${2:-}"
@@ -107,11 +121,20 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     esac
 
     # Count non-test references using word-boundary grep.
-    # `\<$BASENAME\>` matches the stem as a whole word, preventing
-    # `run` from matching `runtime`, `plan` from matching `explain`.
-    REFS=$(grep -rlw --include='*.ts' --include='*.js' --include='*.sh' --include='*.json' \
-           -- "$BASENAME" src/ scripts/ gates/ bin/ 2>/dev/null \
-           | grep -v "^$f\$" | grep -v '^tests' | wc -l | tr -d ' ')
+    # `-w` matches the stem as a whole word, preventing `run` from matching
+    # `runtime`, `plan` from matching `explain`.
+    # FIXED 2026-09-23 (ocr round-3): (a) `git grep` against $local_sha — the
+    # PUSHED tree — not the working tree (a push of a branch that is not checked
+    # out, or with uncommitted edits, gave a wrong reference set); (b) the
+    # test-file filter now matches by SEGMENT/SUFFIX (`__tests__/`, `*.test.ts`,
+    # `*.spec.ts`); the old `grep -v '^tests'` was a NO-OP because every result
+    # path already began with src/ scripts/ gates/ bin/ — so a module whose only
+    # importer was a test file was NOT flagged as an orphan.
+    REFS=$(git grep -lw --include='*.ts' --include='*.js' --include='*.sh' --include='*.json' \
+           -e "$BASENAME" "$local_sha" -- src/ scripts/ gates/ bin/ 2>/dev/null \
+           | sed "s/^[^:]*://" \
+           | grep -vE '(^|/)(tests?|__tests__|__test__)/|\.(test|spec|_test)\.[a-z]+$' \
+           | grep -vxF "$f" | wc -l | tr -d ' ')
 
     if [ "$REFS" = "0" ]; then
       printf 'REJECT(W-2): ORPHAN:%s (0 non-test callers)\n' "$f" >&2

@@ -35,6 +35,13 @@ pattern_header() {
 # gate_reject <ID> <THE_REASON> — prints REJECT(<ID>): <reason> to stderr,
 # sets FAIL=1 (the pre-commit accumulation contract: return 0 so later
 # checks still run; the caller exits 1 iff FAIL != 0 at the end).
+# gate_init — THE CALLER'S CONTRACT (ocr round-3): the caller MUST initialize
+# FAIL=0 before any gate runs, then read it after. This lib deliberately does
+# NOT assign FAIL at source time (a sourced init would clobber a caller's
+# running count across multiple checks). Both hooks do `FAIL=0` at the top
+# (.githooks/pre-commit:7, .githooks/pre-push:59).
+gate_init() { FAIL=0; }
+
 gate_reject() {
   local id="${1:?"gate_reject <ID> <REASON>"}"
   local reason="${2:?"gate_reject <ID> <REASON>"}"
@@ -56,10 +63,15 @@ gate_pass() {
 header_ok() {
   local f="${1:?"header_ok <gate-file>"}"
   [ -f "$f" ] || return 1
-  grep -qE '^# GATE ' "$f" || return 1
-  grep -qE '^# JEV COUNT: ' "$f" || return 1
-  grep -qE '^# ARTIFACT CLASS: ' "$f" || return 1
-  grep -qE '^# SURFACE: ' "$f" || return 1
-  grep -qE '^# PREDICATE READS: ' "$f" || return 1
+  # FIXED 2026-09-23 (ocr round-3): search only the HEADER region. The old form
+  # grepped the WHOLE file, so a `# GATE ` line anywhere (a comment, a string, a
+  # doc body) falsely satisfied the check.
+  local head_part
+  head_part="$(head -n 12 "$f")"
+  printf '%s\n' "$head_part" | grep -qE '^# GATE ' || return 1
+  printf '%s\n' "$head_part" | grep -qE '^# JEV COUNT: ' || return 1
+  printf '%s\n' "$head_part" | grep -qE '^# ARTIFACT CLASS: ' || return 1
+  printf '%s\n' "$head_part" | grep -qE '^# SURFACE: ' || return 1
+  printf '%s\n' "$head_part" | grep -qE '^# PREDICATE READS: ' || return 1
   return 0
 }

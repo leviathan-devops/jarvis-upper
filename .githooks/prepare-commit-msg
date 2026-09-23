@@ -73,16 +73,21 @@ fi
 # - SHA evidence requires word boundaries and at least one hex letter.
 if printf '%s' "$MSG" | grep -qiE '\b(verified|passed|tested|works|green|done|complete|completed|finished|shipped|landed|delivered)\b'; then
   HAS_EVIDENCE=0
-  # Test count: "42 pass" / "3 tests"
-  printf '%s' "$MSG" | grep -qE '[0-9]+ (pass|tests)' && HAS_EVIDENCE=1
+  # FIXED 2026-09-23 (ocr round-3 HIGH): the claim-word test above is `-qiE`
+  # (case-insensitive), so `DONE`/`VERIFIED` trigger it — but the evidence
+  # tests were case-SENSITIVE, so uppercase evidence (`42 PASS`, `README.MD:100`)
+  # was not recognized and a valid message was falsely REJECTed. Every evidence
+  # test now carries `-i`, consistent with the claim detection.
+  # Test count: "42 pass" / "3 tests" (case-insensitive)
+  printf '%s' "$MSG" | grep -qiE '[0-9]+ (pass|tests)' && HAS_EVIDENCE=1
   # SHA: word-bounded, 7-40 hex chars with at least one letter
-  printf '%s' "$MSG" | grep -qE '\b[0-9a-f]*[a-f][0-9a-f]{6,39}\b' && HAS_EVIDENCE=1
+  printf '%s' "$MSG" | grep -qiE '\b[0-9a-f]*[a-f][0-9a-f]{6,39}\b' && HAS_EVIDENCE=1
   # file:line anchor: requires a path-like prefix (slash or known extension)
   # e.g. src/runtime.ts:233, packages/x/DPL1_SPEC.md:12, SKILL.md:100, pre-commit:24
   # Rejects: a:1, 12:30 (timestamps), bare word:NN
-  printf '%s' "$MSG" | grep -qE '\b[a-zA-Z0-9_/.-]+\.(ts|md|sh|yml|json|py|js):[0-9]+\b' && HAS_EVIDENCE=1
-  printf '%s' "$MSG" | grep -qE '\b[a-zA-Z0-9_/.-]+/[^ ]+:[0-9]+\b' && HAS_EVIDENCE=1
-  printf '%s' "$MSG" | grep -qE '\b[a-zA-Z][a-zA-Z0-9_-]{1,}:[0-9]+\b' && HAS_EVIDENCE=1
+  printf '%s' "$MSG" | grep -qiE '\b[a-zA-Z0-9_/.-]+\.(ts|tsx|md|sh|yml|yaml|json|py|js|txt|toml):[0-9]+\b' && HAS_EVIDENCE=1
+  printf '%s' "$MSG" | grep -qiE '\b[a-zA-Z0-9_/.-]+/[^ ]+:[0-9]+\b' && HAS_EVIDENCE=1
+  printf '%s' "$MSG" | grep -qiE '\b[a-zA-Z][a-zA-Z0-9_-]{1,}:[0-9]+\b' && HAS_EVIDENCE=1
   if [ "$HAS_EVIDENCE" -eq 0 ]; then
     echo 'REJECT(W-8): claim word (verified|passed|tested|works|green|done|complete|completed|finished|shipped|landed|delivered) with no artifact; include a test count ("N pass"/"N tests"), a sha ([a-f0-9]{7,40}), or a file:line (path.ext:NN)' >&2
     exit 1
