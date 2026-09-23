@@ -42,3 +42,40 @@ test("publisher_wired: an eligible PR POSTs factory/fence2 + factory/verdict", a
   expect(posted).toContain("factory/verdict");
   db.close();
 });
+
+test("rail-idle: an IDLE SSE stream is a CLEAN capture, never rail-failed", async () => {
+  const { defaultRails } = await import("../src/runtime");
+  const { openStore } = await import("../src/store");
+  const db = openStore(":memory:");
+  // serve an SSE stream that stays OPEN and idle (a healthy daemon with no events)
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    const stream = new ReadableStream({
+      start(c) { /* never enqueue, never close — an IDLE stream */ },
+      cancel() { /* the reader's cancel */ },
+    });
+    return new Response(stream, { status: 200 });
+  }) as never;
+  try {
+    const t0 = Date.now();
+    const cap = await defaultRails(db, "/tmp");
+    const ms = Date.now() - t0;
+    expect(cap.failed).toBeUndefined();      // NOT a failure
+    expect(cap.frames).toBe(0);              // no events, cleanly
+    expect(ms).toBeLessThan(6000);           // bounded (the deadline, not the 5s abort)
+  } finally { globalThis.fetch = orig; }
+  db.close();
+});
+
+test("rail-idle: a transport error IS reported (the failure travels)", async () => {
+  const { defaultRails } = await import("../src/runtime");
+  const { openStore } = await import("../src/store");
+  const db = openStore(":memory:");
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async () => { throw new Error("ECONNREFUSED"); }) as never;
+  try {
+    const cap = await defaultRails(db, "/tmp");
+    expect(cap.failed).toContain("ECONNREFUSED");
+  } finally { globalThis.fetch = orig; }
+  db.close();
+});

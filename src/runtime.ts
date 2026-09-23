@@ -83,9 +83,29 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = "";
-    const deadline = Date.now() + 3000;
-    while (Date.now() < deadline) {
-      const { done, value } = await reader.read();
+    // FIXED 2026-09-23 (a RAIL TIMEOUT bug found on the LIVE daemon): the loop
+    // checked `Date.now() < deadline` BEFORE `reader.read()`, but `read()` BLOCKS
+    // on an IDLE stream until the 5 s AbortSignal fires — so a HEALTHY idle stream
+    // reported `rail-failed:TimeoutError` on EVERY tick. The read now RACES the
+    // remaining deadline: an idle SSE stream yields a clean, empty (not a failed)
+    // capture, and a real network failure still surfaces.
+    const started = Date.now();
+    const DEADLINE_MS = 3000;
+    while (Date.now() - started < DEADLINE_MS) {
+      const remaining = DEADLINE_MS - (Date.now() - started);
+      if (remaining <= 0) break;
+      const readP = reader.read();
+      const result = await Promise.race([
+        readP,
+        new Promise<{ timeout: true }>((r) => setTimeout(() => r({ timeout: true }), remaining)),
+      ]);
+      if ("timeout" in result) {
+        // W-13: a catch must log or rethrow. The cancel is best-effort cleanup of
+        // an idle stream — the failure is named, the capture is still clean.
+        try { await reader.cancel(); } catch (e) { console.error(`rail-cancel:${String(e).slice(0, 60)}`); }
+        break;
+      }
+      const { done, value } = result;
       if (done) break;
       buf += dec.decode(value, { stream: true });
       if (buf.length > 65536) break;
