@@ -82,7 +82,12 @@ export async function guardrailRemote(
   }
   const latest: Record<string, string> = {};
   for (const r of rows) {
-    latest[r.context] = r.state; // last-wins: newer status overrides older
+    // FIXED 2026-09-23 (ocr round-4 HIGH): the GitHub /statuses API returns
+    // NEWEST FIRST. The old last-wins let the OLDEST status for a context
+    // OVERWRITE the newest — a CI re-run flipping factory/verdict
+    // failure->success would be ignored, blocking a legitimate merge.
+    // FIRST-wins keeps the newest.
+    if (!(r.context in latest)) latest[r.context] = r.state;
   }
   const reasons: string[] = [];
   const missing: string[] = [];

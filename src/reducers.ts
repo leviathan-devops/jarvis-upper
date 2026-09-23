@@ -23,9 +23,13 @@ export function reduceEvent(db: Database, ev: RailEvent): ReduceOutcome {
       const state = typeof rawState === "string" ? rawState : "open";
       const rawHead = pr.head_sha;
       const head = typeof rawHead === "string" ? rawHead : null;
+      // FIXED 2026-09-23 (ocr round-4 HIGH): an event WITHOUT a head_sha set
+      // `head=null`, and the conflict clause overwrote the stored head_sha with
+      // NULL — permanent data loss. COALESCE keeps the existing value when the
+      // incoming one is null.
       db.query(`INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state, minted_at)
                 VALUES (?, ?, ?, ?, ?, ?, strftime('%s','now'))
-                ON CONFLICT(id) DO UPDATE SET state=excluded.state, head_sha=excluded.head_sha`)
+                ON CONFLICT(id) DO UPDATE SET state=excluded.state, head_sha=COALESCE(excluded.head_sha, pr_node.head_sha)`)
         .run(id, project, num, sessionId, head, state);
       return "applied";
     }

@@ -1,6 +1,5 @@
 // attribute.ts: deterministic bug→origin commit→session→worker.
 // Every assignment carries method+inputs (auditable); <0.6 → triage.
-import { Database } from "bun:sqlite";
 
 export interface AttributionInput {
   repo: string;
@@ -38,7 +37,11 @@ const defaultRun = (cmd: string[], cwd: string, timeoutMs = 15000): Promise<{ co
       clearTimeout(killer);
       try {
         const [o, e] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-        resolve({ code: Number(code ?? 0), stdout: o, stderr: e });
+        // FIXED 2026-09-23 (ocr round-4 HIGH): a null exit code = an ABNORMAL
+        // termination (signal-kill, e.g. the timeout above). Defaulting it to 0
+        // reported SUCCESS, and callers skip via `code !== 0` — so a timed-out
+        // process's partial output was parsed as if it had succeeded. Null -> 1.
+        resolve({ code: Number(code ?? 1), stdout: o, stderr: e });
       } catch (err) {
         resolve({ code: Number(code ?? 1), stdout: "", stderr: `READ-FAILED:${String(err).slice(0, 80)}` });
       }
@@ -92,8 +95,11 @@ export interface SessionResolver {
   (commit: string): Promise<{ session: string | null; worker: string | null }>;
 }
 
+// FIXED 2026-09-23 (ocr round-4 HIGH): the `db` parameter was never referenced
+// (no persistence ever occurred), so it lied about the contract and dragged an
+// unused import. Removed — attribution is a pure function over the injected
+// `proc`.
 export async function attributeBug(
-  db: Database,
   input: AttributionInput,
   resolve: SessionResolver,
   proc?: Proc,

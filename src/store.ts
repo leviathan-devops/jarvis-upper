@@ -13,12 +13,19 @@ const MIGRATIONS: string[] = [
      CHECK(kind IN ('feature','fix','hardening')));
    CREATE TABLE IF NOT EXISTS pr_edge(
      id TEXT PRIMARY KEY, from_pr TEXT NOT NULL, to_pr TEXT NOT NULL,
-     kind TEXT NOT NULL, created_at INTEGER);
+     kind TEXT NOT NULL, created_at INTEGER,
+     -- FIXED 2026-09-23 (ocr round-4 HIGH): the schema set PRAGMA
+     -- foreign_keys=ON yet declared NO foreign keys, so referential integrity
+     -- was never enforced and orphans accumulated silently. These clauses
+     -- enforce it (the PRAGMA now has teeth).
+     FOREIGN KEY (from_pr) REFERENCES pr_node(id),
+     FOREIGN KEY (to_pr) REFERENCES pr_node(id));
    CREATE TABLE IF NOT EXISTS gate_pass(
      id TEXT PRIMARY KEY, pr_node TEXT NOT NULL, gate TEXT NOT NULL,
      verdict TEXT NOT NULL, evidence TEXT, sha16 TEXT, at INTEGER,
      -- Source of truth: GATE_TO_CONTEXT keys in src/status-contract.ts (internal gate names); keep this SQL list in sync.
-     CHECK(gate IN ('ci_green','audit','hardened','fence2')));
+     CHECK(gate IN ('ci_green','audit','hardened','fence2')),
+     FOREIGN KEY (pr_node) REFERENCES pr_node(id));
    CREATE TABLE IF NOT EXISTS bug_record(
      id TEXT PRIMARY KEY, found_by TEXT, category TEXT, severity INTEGER,
      dossier_path TEXT, origin_commit TEXT, origin_session TEXT,
@@ -29,7 +36,8 @@ const MIGRATIONS: string[] = [
      id TEXT PRIMARY KEY, bug_record TEXT NOT NULL, mode TEXT NOT NULL,
      target_session TEXT, spawned_session TEXT, dossier_path TEXT,
      dossier_sha16 TEXT, sent_at INTEGER, outcome TEXT, outcome_at INTEGER,
-     CHECK(mode IN ('live','spawn','direct')));
+     CHECK(mode IN ('live','spawn','direct')),
+     FOREIGN KEY (bug_record) REFERENCES bug_record(id));
    CREATE TABLE IF NOT EXISTS rail_seq(
      source TEXT PRIMARY KEY, last_seq INTEGER NOT NULL, updated_at INTEGER);`,
 ];

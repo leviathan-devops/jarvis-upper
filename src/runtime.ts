@@ -285,6 +285,12 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
     async stop() {
       state.running = false;
       if (timer) { clearInterval(timer); timer = null; }
+      // FIXED 2026-09-23 (ocr round-4 HIGH): `last ?? await tick()` launched a
+      // SECOND concurrent tick when the first was still in flight (state.inFlight
+      // true, `last` still null) — two ticks racing on the same db + status
+      // files. Wait for the in-flight tick to settle first (bounded).
+      if (last) return last;
+      for (let i = 0; i < 400 && state.inFlight; i++) await new Promise((r) => setTimeout(r, 25));
       return last ?? (await tick());
     },
     status() { return last; },

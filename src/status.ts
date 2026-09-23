@@ -1,6 +1,6 @@
 // status.ts — the runtime's observable output: status.json + ticks.log.
 // Atomic status writes; append-only tick rows. No external dependencies.
-import { mkdirSync, writeFileSync, appendFileSync, readFileSync, renameSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, appendFileSync, readFileSync, renameSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 export interface RuntimeStatus {
@@ -33,12 +33,16 @@ export function appendTick(root: string, s: RuntimeStatus): void {
   mkdirSync(join(root, "runtime"), { recursive: true });
   const line = `${s.ts} tick=${s.tick} daemonOk=${s.daemonOk} cursor=${s.cursor} prNodes=${s.prNodes} planKind=${s.planKind} errors=${s.errors.length}`;
   appendFileSync(ticksPath(root), line + "\n", "utf8");
-  // F54: rotation — truncate if log exceeds 10000 lines
+  // F54: rotation — truncate if log exceeds 10000 lines.
+  // FIXED 2026-09-23 (ocr round-4 HIGH): the rotation read the ENTIRE file
+  // synchronously on EVERY tick — O(n) per append, O(n^2) over the daemon's
+  // life. A cheap statSync size check now gates the expensive read, so the full
+  // read happens ONLY when the file is genuinely over the cap.
   try {
     const tp = ticksPath(root);
-    const content = readFileSync(tp, "utf8");
-    const lines = content.split("\n");
-    if (lines.length > 10000) {
+    const CAP_BYTES = 1024 * 1024; // ~1 MiB, well under 10000 short lines
+    if (statSync(tp).size > CAP_BYTES) {
+      const lines = readFileSync(tp, "utf8").split("\n");
       writeFileSync(tp, lines.slice(-5000).join("\n") + "\n", "utf8");
     }
   } catch { /* rotation is best-effort */ }

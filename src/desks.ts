@@ -2,7 +2,17 @@
 // Laws: no network, no daemon, no factory PRs. All claims are rows + files.
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
+import { resolve, relative, isAbsolute } from "node:path";
 import { writeDossier } from "./dossier";
+
+// FIXED 2026-09-23 (ocr round-4 HIGH): a `startsWith` prefix check is NOT a
+// path-containment check — "/root/history/../evil" starts with "/root/history/"
+// yet the OS resolves it OUTSIDE. `contained` compares RESOLVED paths via
+// `relative`, so `..`, an absolute path, or a nested target can never pass.
+function contained(base: string, candidate: string): boolean {
+  const rel = relative(resolve(base), resolve(candidate));
+  return rel !== "" && rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel);
+}
 
 export interface FixtureSet {
   root: string;
@@ -20,11 +30,12 @@ export async function waveA(db: Database, fx: FixtureSet, target: string): Promi
   await mkdir(dir, { recursive: true });
   const rows: { path: string; sha16: string }[] = [];
   for (const f of prs.files) {
-    const resolved = `${fx.root}/history/${f}`;
-    if (!resolved.startsWith(`${fx.root}/history/`)) throw new Error(`PATH-TRAVERSAL:${f}`);
+    const historyRoot = resolve(`${fx.root}/history`);
+    const resolved = resolve(historyRoot, f);
+    if (!contained(historyRoot, resolved)) throw new Error(`PATH-TRAVERSAL:${f}`);
     const body = await Bun.file(resolved).text();
-    const dest = `${dir}/${f}`;
-    if (!dest.startsWith(`${dir}/`)) throw new Error(`PATH-TRAVERSAL-DEST:${f}`);
+    const dest = resolve(dir, f);
+    if (!contained(dir, dest)) throw new Error(`PATH-TRAVERSAL-DEST:${f}`);
     await Bun.write(dest, body);
     rows.push({ path: f, sha16: sha16(body) });
   }
@@ -36,13 +47,25 @@ export async function waveA(db: Database, fx: FixtureSet, target: string): Promi
 export async function waveB(db: Database, fx: FixtureSet, target: string): Promise<{ hardened: boolean; token: string }> {
   let defect: { file: string; fix: string; test: string };
   try { defect = JSON.parse(await Bun.file(`${fx.root}/defect.json`).text()); } catch (e) { throw new Error(`FIXTURE-PARSE-ERROR:defect.json:${String(e).slice(0,80)}`); }
-  const path = `${fx.root}/ship/${target}-v1/${defect.file}`;
+  // FIXED 2026-09-23 (ocr round-4 HIGH): defect.file / defect.test are
+  // UNTRUSTED fixture input used directly in paths — `../../etc/cron.d/evil`
+  // wrote outside the fixture root. Both are containment-checked now.
+  const shipRoot = resolve(`${fx.root}/ship/${target}-v1`);
+  const path = resolve(shipRoot, defect.file);
+  if (!contained(shipRoot, path)) throw new Error(`PATH-TRAVERSAL-DEFECT:${defect.file}`);
   const before = await Bun.file(path).text();
   if (!before.includes(defect.fix)) {
     await Bun.write(path, before + `\n${defect.fix}\n`);
   }
-  const testOut = await Bun.file(`${fx.root}/${defect.test}`).text();
+  const fxRoot = resolve(fx.root);
+  const testPath = resolve(fxRoot, defect.test);
+  if (!contained(fxRoot, testPath)) throw new Error(`PATH-TRAVERSAL-TEST:${defect.test}`);
+  const testOut = await Bun.file(testPath).text();
   const after = await Bun.file(path).text();
+  // FIXED 2026-09-23 (the new FK): gate_pass references pr_node — a fixture
+  // gate-pass row must have its pr_node. Mint it (idempotent) first.
+  db.query("INSERT INTO pr_node(id, project, pr_number, session_id, state, minted_at) VALUES (?, 'fixture', 0, NULL, 'open', strftime('%s','now')) ON CONFLICT(id) DO NOTHING")
+    .run(target);
   db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, evidence, sha16, at) VALUES (?,?,?,?,?, ?,strftime('%s','now'))")
     .run(`w4b:${target}`, target, "hardened", "pass", testOut.slice(0, 200), sha16(after));
   return { hardened: true, token: "hardened" };

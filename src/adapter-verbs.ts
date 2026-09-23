@@ -29,7 +29,11 @@ export async function listPrsFromAo(opts: {
   project?: string;
 } = {}): Promise<PrRow[]> {
   const c = opts.callFn ?? call;
-  const sessions = (await c<{ sessions: SessionRow[] }>("listSessions")).sessions ?? [];
+  // FIXED 2026-09-23 (ocr round-4 HIGH): the inline `(await c(...)).sessions`
+  // crashed when the client returned a null body (the `?? []` guards only the
+  // PROPERTY). Reuse the null-safe listSessions so both call sites share one
+  // guarded path.
+  const sessions = await listSessions({ callFn: c });
   const scoped = opts.project ? sessions.filter((s) => s.projectId === opts.project) : sessions;
   const out: PrRow[] = [];
   const CONC = 8;

@@ -8,7 +8,15 @@ export interface DossierManifest {
 }
 
 export function dossierSha16(dossierMd: string, originJson: string): string {
-  return createHash("sha256").update(dossierMd, "utf8").update("\n", "utf8").update(originJson, "utf8").digest("hex").slice(0, 16);
+  // FIXED 2026-09-23 (ocr round-4 HIGH): hashing `md + "\n" + json` is
+  // AMBIGUOUS — ("a\nb","c") and ("a","b\nc") both encode "a\nb\nc", so an
+  // attacker who swaps the delimiter boundary between the two files passes the
+  // gate while serving different content. LENGTH-PREFIX each component so the
+  // encoding is injective.
+  const h = createHash("sha256");
+  h.update(`${Buffer.byteLength(dossierMd, "utf8")}:`, "utf8").update(dossierMd, "utf8");
+  h.update(`${Buffer.byteLength(originJson, "utf8")}:`, "utf8").update(originJson, "utf8");
+  return h.digest("hex").slice(0, 16);
 }
 
 const BUGID_RE = /^[A-Za-z0-9_-]+$/;

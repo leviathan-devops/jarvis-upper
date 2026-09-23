@@ -93,7 +93,7 @@ export async function verbBug(root: string, arg?: string): Promise<VerbResult> {
   const lineStr = colonIdx > 0 ? arg.slice(colonIdx + 1) : undefined;
   const line = Number(lineStr ?? 1);
   if (!Number.isFinite(line) || line < 1) return emit(2, { ok: false, refused: "INVALID-LINE", hint: "upper bug <file>:<positive-integer>" });
-  const a = await attributeBug(db, { repo: root, files: [file], lines: { [file]: [line] } }, async () => ({ session: null, worker: null }));
+  const a = await attributeBug( { repo: root, files: [file], lines: { [file]: [line] } }, async () => ({ session: null, worker: null }));
   return emit(a.confidence >= 0.6 ? 0 : 1, { ok: a.confidence >= 0.6, commit: a.commit, confidence: a.confidence, method: a.method });
   } finally { db.close(); }
 }
