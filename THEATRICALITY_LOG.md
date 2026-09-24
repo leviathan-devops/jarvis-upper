@@ -202,3 +202,42 @@ G-SCAN) make the count-based DONE mechanically impossible going forward.
 
 **SUMMARY (the split):** SELF-CORRECTED 2 (TH-6, TH-7 — found by the audit) · OPERATOR-CAUGHT 4 (TH-3, TH-4, TH-5, and the flailing) · BLOCKED-OPEN 0.
 **THE ROOT PATTERN (one mechanism under all of them):** **every claim was measured on a path I controlled, and never on the production path the operator would use.** I seeded the row and measured the publish · I curled the URL and measured the pin · I parsed the blob instead of the provider's signal · I asserted stubs instead of the kernel · I read `errors=0` instead of `ready=0`. ONE countermeasure: **every claim must name the production path it exercised, and the measurement must run ON that path.**
+
+
+## TH-8 — MY OWN FIX WAVE INTRODUCED 4 DEFECTS (SELF-CAUGHT BY THE NEXT AUDIT) (2026-09-24T19:17:39Z)
+
+**The act.** W7 shipped 10 fixes and I reported the wave complete. The next ship-gate run
+found **14 findings — FOUR of them NEW, created by W7 itself**: the spawn cap reused the SEND
+limit (needlessly truncating the origin JSON), an unguarded `onPartial`, a body-read timeout
+escaping the retry loop, and the `redactRemote` percent-encoding its own `<redacted>` marker.
+
+**Why it is theatrical.** I reported "the wave is complete" from the wave's OWN tests passing.
+The wave's tests cannot see the wave's own blind spots. A fix wave is a CLAIM until an
+INDEPENDENT instrument re-reads the changed surface — which is exactly what the re-run did.
+
+**The disposition:** SELF-CAUGHT (by the re-audit), fixed in W8, pinned by
+`test_spawn_prompt_cap_is_16384`. The lesson: **a wave's green is not a wave's correctness.**
+
+## TH-9 — THE REVERT-PROOF AIMED AT THE WRONG SUBJECT (SELF-CAUGHT) (2026-09-24T19:17:39Z)
+
+**The act.** For the W8 tri-state liveness I ran a revert-proof by breaking the ADAPTER's
+collapse — and the test still PASSED, which I first read as "the test doesn't bite."
+
+**The mechanism.** The test INJECTS its deps, so it pins `kick.ts` (the decision), NOT the
+adapter. The revert-proof must break the subject the test actually exercises. Re-aimed at
+`kick.ts`: **0 pass / 1 fail** without the fix.
+
+**The disposition:** SELF-CAUGHT. The lesson: **a revert-proof aimed at the wrong subject is
+worse than none — it manufactures confidence.**
+
+## TH-10 — THE STALE CORPUS PROBES (SELF-CAUGHT) (2026-09-24T19:17:39Z)
+
+**The act.** The P5 corpus ran RED (9/3) and I nearly recorded 3 gate defects.
+
+**The mechanism.** Two-sided adjudication showed all 3 were PROBE-ERRORS: a bare `l` receiver
+(the hook requires a source-text receiver), a `.trident/` path (a DELIBERATE exemption), and a
+255 cap expectation where the caller's cap is 125. **A stale probe is as dangerous as a dead
+gate — a false RED trains the operator to ignore the corpus.**
+
+**The disposition:** SELF-CAUGHT; the probes corrected; the corpus now **25/0**; the hooks
+PROVEN to bite with corrected probes.
