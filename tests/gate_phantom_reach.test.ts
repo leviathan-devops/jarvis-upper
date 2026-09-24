@@ -113,7 +113,11 @@ test("test_claim_evidence_hardened", () => {
   const r6 = runPreCommit("fix: verified the gate");
   expect(r6.code).toBe(1);
   expect(r6.err).toContain("REJECT(W-8)");
-});
+// FIXED (flake): this test spawns a REAL subprocess (git's prepare-commit-msg hook).
+// Under the full 39-file parallel battery the spawn can exceed bun's 5s default and
+// the test reads a killed process (exitCode -1). Measured: 5011ms once, 91ms alone.
+// A generous ceiling removes the load-dependent flake without weakening the assertion.
+}, 30000);
 
 // --- W1 headers ---
 
