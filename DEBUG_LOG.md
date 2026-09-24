@@ -1302,3 +1302,27 @@ the exact defect this entry's stamp line below fixes.
 **ANCHORS:** src/guardrail.ts:25, src/store.ts:64,123, .trident/runtime-ledger.md.
 
 **THE DOC HEAD STAMP: bbc1c3d** (the commit that carries EN-193/EN-194).
+
+## EN-195 - THE P5 CORPUS PASS: 3 PROBE-ERRORS ADJUDICATED, 25/0 GREEN (2026-09-24T19:14:34Z)
+
+**The corpus ran RED: 9 pass / 3 fail.** Per the two-sided adjudication law, each failure was
+judged BOTH ways BEFORE any fix — and all three were **Side A: the PROBE was wrong**, not the
+hook.
+
+| the probe | the observed | Side A (probe wrong) | Side B (real defect) | the verdict |
+|---|---|---|---|---|
+| W-6 POSITIVE | no REJECT | the probe used a bare `l` receiver; the hook (correctly) requires a SOURCE-TEXT receiver (`src\|content\|code\|text\|...`) | — | **PROBE-ERROR** |
+| W-9 POSITIVE | no REJECT | the probe staged under `.trident/`, a DELIBERATE exemption (machine-generated working state) | — | **PROBE-ERROR** |
+| EXIT-CAP (scan-silent) | no 255 | the probe grepped the LIB for 255; the cap is enforced by the CALLER and scan-silent's documented cap is **125** (pre-commit:215-218) | — | **PROBE-ERROR** |
+
+**THE PROOF THAT THE HOOKS STILL BITE (the corrected probes):**
+- W-9 at an AUTHORED path: `REJECT(W-9): docs/__p5_w9_thin.md has 3 lines (< 100)` +
+  `has 0 file:line anchors (< 3)`.
+- W-6 with a source-text receiver: `REJECT(W-6): tests/__p5_w6_pos.test.ts asserts a symbol
+  against SOURCE TEXT via .includes() ...`.
+
+**THE CORRECTED CORPUS:** `p5_corpus.sh` **12 pass / 0 fail** · `p5_corpus2.sh`
+**13 pass / 0 fail** — **25/0**, no residue.
+
+**WHY THIS MATTERS:** a stale probe is as dangerous as a dead gate — a false RED trains the
+operator to ignore the corpus. This is the skill's §6 law: publish your own instrument failures.
