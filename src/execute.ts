@@ -1,12 +1,15 @@
-// executePlan: the ONLY path to mergePR. Plan is printed, never executed,
+// executePlan: the ONLY path to ORDER merges. Plan is printed, never executed,
 // without {confirm:true}. Guardrail re-evaluated EVERY step; first
 // failure halts with partial state recorded (never auto-continues).
+// INVERSION (Plan A-3): GitHub decides MAY; the factory decides ORDER.
+// The factory NEVER merges — it orders and publishes. The human merges.
+// On publish success the PR lands in "merge_ordered", never "merged".
 import { Database } from "bun:sqlite";
 import { orderMerges } from "./plan";
 import { guardrail } from "./guardrail";
 
 export interface MergeAdapter {
-  merge(prId: string): Promise<{ ok: boolean }>;
+  publish(prId: string): Promise<{ ok: boolean }>;
 }
 
 export interface PlanExecution {
@@ -24,23 +27,47 @@ export async function executePlan(
   if (!opts.confirm) throw new Error("UNCONFIRMED-PLAN");
   const v = orderMerges(db);
   if (v.kind !== "ok") throw new Error("CYCLE");
-  const planId = opts.planId ?? `plan:${Date.now()}`;
+  const planId = opts.planId ?? `plan:${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
   const exec: PlanExecution = { planId, merged: [], haltedAt: null, haltReason: null };
   for (const pr of v.order) {
-    const g = guardrail(db, pr);
-    if (!g.ok) {
+    // FIXED 2026-09-23 (ocr round-4 HIGH): the documented contract is "first
+    // failure halts with partial state recorded". The old loop only handled
+    // RETURN-VALUE failures — a THROWN exception (guardrail/adapter.publish/
+    // db.query) propagated uncaught, so the caller never received the
+    // PlanExecution and the partial state was lost. Every step is now wrapped:
+    // a throw halts with the partial state AND names the throwing step.
+    try {
+      const g = guardrail(db, pr);
+      if (!g.ok) {
+        exec.haltedAt = pr;
+        exec.haltReason = g.reasons.join(";");
+        return exec;
+      }
+      const r = await adapter.publish(pr);
+      if (!r.ok) {
+        exec.haltedAt = pr;
+        exec.haltReason = "PUBLISH-CALL-FAILED";
+        return exec;
+      }
+      // NOTE (run 5): publish is EXTERNAL (GitHub) and the db update is LOCAL —
+      // they cannot share a transaction. The 0-row check below is the honest
+      // detector: a publish that succeeded with a db update that matched no row
+      // HALTS and NAMES the divergence rather than reporting a phantom merge.
+      // FIXED 2026-09-23 (qwen-code-audit high): the UPDATE result was ignored —
+      // a 0-row update (the PR absent) still pushed the id into `merged`, so the
+      // returned plan claimed a merge the DB never recorded.
+      const upd = db.query("UPDATE pr_node SET state='merge_ordered' WHERE id = ?").run(pr);
+      if (upd.changes === 0) {
+        exec.haltedAt = pr;
+        exec.haltReason = "MERGE-UPDATE-0-ROWS";
+        return exec;
+      }
+      exec.merged.push(pr);
+    } catch (e) {
       exec.haltedAt = pr;
-      exec.haltReason = g.reasons.join(";");
+      exec.haltReason = `THREW:${String(e).slice(0, 80)}`;
       return exec;
     }
-    const r = await adapter.merge(pr);
-    if (!r.ok) {
-      exec.haltedAt = pr;
-      exec.haltReason = "MERGE-CALL-FAILED";
-      return exec;
-    }
-    db.query("UPDATE pr_node SET state='merged', merged_at=strftime('%s','now') WHERE id = ?").run(pr);
-    exec.merged.push(pr);
   }
   return exec;
 }

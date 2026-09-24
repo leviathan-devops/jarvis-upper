@@ -7,6 +7,7 @@
 // The FORBIDDEN EVIDENCE SET (commit-exists · diff-changed · drift-gate-green ·
 // worker-tests-pass · PR-open · transcript-shows-spawn · "I read it") is never a source.
 import { readFileSync, existsSync } from "node:fs";
+import { resolve as resolvePath, relative as relativePath, isAbsolute } from "node:path";
 
 export interface FenceSource {
   ran: boolean;
@@ -29,8 +30,16 @@ export interface VerifyResult {
 }
 
 export const APPROVING_VERDICTS = ["approved", "approve", "lgtm", "pass", "passed"] as const;
-export const FENCE_DEFAULT = "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py";
-export const LEDGER_DEFAULT = "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl";
+// FIXED 2026-09-23 (muse round-4 HIGH): the mirror of APPROVING. A run whose
+// verdict is here BLOCKS the head — an approval must never outvote a rejection
+// on the SAME sha.
+export const REJECTING_VERDICTS = ["changes_requested", "changes-requested", "requested_changes",
+  "rejected", "reject", "changes_requested_by_reviewer", "blocked", "block", "fail", "failed", "denied"] as const;
+export const FENCE_DEFAULT = process.env.FENCE2_BIN ?? "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py";
+// FIXED (ao-review-4 finding): FENCE_LEDGER is now the ONE env var (FENCE2_LEDGER
+// kept as a back-compat alias) so fence-check.py, .githooks/pre-commit and this
+// module all resolve the SAME ledger.
+export const LEDGER_DEFAULT = process.env.FENCE_LEDGER ?? process.env.FENCE2_LEDGER ?? "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl";
 
 export interface VerifyOpts {
   jobDir: string;
@@ -44,10 +53,6 @@ export interface VerifyOpts {
   bind?: (jobDir: string, headSha: string) => { ok: boolean; reason: string };
 }
 
-export function sha16(s: string): string {
-  return new Bun.CryptoHasher("sha256").update(s).digest("hex").slice(0, 16);
-}
-
 async function defaultRunFence(argv: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   const p = Bun.spawn(["python3", ...argv], { stdout: "pipe", stderr: "pipe" });
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
@@ -56,7 +61,8 @@ async function defaultRunFence(argv: string[]): Promise<{ code: number; stdout: 
 }
 
 async function defaultFetchReviews(sessionId: string): Promise<unknown> {
-  const res = await fetch(`http://localhost:3001/api/v1/sessions/${sessionId}/reviews`, {
+  const daemon = process.env.AO_DAEMON ?? 'http://localhost:3001';
+  const res = await fetch(`${daemon}/api/v1/sessions/${sessionId}/reviews`, {
     signal: AbortSignal.timeout(6000),
   });
   if (!res.ok) throw new Error(`reviews HTTP ${res.status}`);
@@ -64,13 +70,23 @@ async function defaultFetchReviews(sessionId: string): Promise<unknown> {
 }
 
 /** the ledger's last row for a job-id substring, parsed; null when absent. */
-export function ledgerRowFor(ledgerPath: string, jobNeedle: string): { verdict: string | null; evidence: string | null; sha16: string | null } | null {
+export function ledgerRowFor(ledgerPath: string, jobNeedle: string | undefined): { verdict: string | null; evidence: string | null; sha16: string | null } | null {
   if (!existsSync(ledgerPath)) return null;
+  // An absent jobDir segment means there is no needle to match — return null
+  // (the caller handles it). Explicit, not a silent default.
+  if (jobNeedle === undefined) return null;
   const lines = readFileSync(ledgerPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
   for (let i = lines.length - 1; i >= 0; i--) {
-    if (!lines[i].includes(jobNeedle)) continue;
+    // F28: try exact JSON job-id match first, fallback to substring
+    let parsed: { job?: string; verdict?: string; evidence?: string } | null = null;
+    try { parsed = JSON.parse(lines[i]); } catch { continue; }
+    if (parsed && typeof parsed.job === 'string') {
+      if (parsed.job !== jobNeedle) continue;
+    } else if (!lines[i].includes(jobNeedle)) {
+      continue;
+    }
     try {
-      const row = JSON.parse(lines[i]) as { verdict?: string; evidence?: string };
+      const row = parsed as { verdict?: string; evidence?: string };
       const ev = row.evidence ?? "";
       const m = ev.match(/^([0-9a-f]{16})/);
       return { verdict: row.verdict ?? null, evidence: ev || null, sha16: m ? m[1] : null };
@@ -85,6 +101,11 @@ export function ledgerRowFor(ledgerPath: string, jobNeedle: string): { verdict: 
 export function artifactBoundToHead(jobDir: string, headSha: string): { ok: boolean; reason: string; actual?: string; worktree?: string } {
   const run = (argv: string[]) => {
     const p = Bun.spawnSync(argv);
+    // REFUTED (ocr round-4 CRITICAL claim: "stdout is a Uint8Array, so
+    // toString() gives comma-joined bytes"). MEASURED: Bun.spawnSync().stdout
+    // is a Buffer (Buffer.isBuffer === true) whose toString() decodes UTF-8 —
+    // it returns "/home/leviathan", not "104,101,...". Pinned by the decoded
+    // assertions in tests/spec_audit.test.ts (which pass).
     return { code: p.exitCode ?? -1, out: (p.stdout?.toString() ?? "").trim() };
   };
   const top = run(["git", "-C", jobDir, "rev-parse", "--show-toplevel"]);
@@ -97,13 +118,27 @@ export function artifactBoundToHead(jobDir: string, headSha: string): { ok: bool
   // the artifact in the job dir must be byte-identical to the head's committed copy
   const specDir = jobDir;
   try {
-    const spec = require("node:fs").readFileSync(`${specDir}/SPEC.md`, "utf8") as string;
+    const spec = readFileSync(`${specDir}/SPEC.md`, "utf8");
     const m = spec.match(/artifact:\s*(\S+)/);
-    if (m && m[1].startsWith("/")) {
+    // FIXED 2026-09-23 (qwen-code-audit re-run REAL): the artifact path came
+    // from SPEC.md with no containment — a crafted absolute path reached any file.
+    // It must resolve INSIDE the worktree root.
+    // FIXED 2026-09-23 (qwen-code-audit run 5 REAL): a STRING PREFIX is not
+    // containment — "/worktree/../../../etc/passwd" starts with "/worktree/" and
+    // readFileSync resolves it OUTSIDE. The check is now a RESOLVED-path
+    // containment (the same `contained()` law as the desks fix).
+    const insideWorktree = (cand: string): boolean => {
+      const rel = relativePath(resolvePath(top.out), resolvePath(cand));
+      return rel === "" || (rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel));
+    };
+    if (m && m[1].startsWith("/") && insideWorktree(m[1])) {
       const rel = m[1].slice(top.out.length + 1);
       const committed = run(["git", "-C", top.out, "show", `HEAD:${rel}`]);
-      const onDisk = require("node:fs").readFileSync(m[1], "utf8") as string;
-      if (committed.code === 0 && committed.out.length > 0 && !onDisk.startsWith(committed.out.slice(0, 64))) {
+      const onDisk = readFileSync(m[1], "utf8");
+      // FIXED 2026-09-23 (ocr round-4 HIGH): the comment promises a
+      // BYTE-IDENTICAL check; a 64-char prefix passed a file that diverged after
+      // the prefix. Compare the full content (trailing whitespace tolerated).
+      if (committed.code === 0 && committed.out.length > 0 && onDisk.trimEnd() !== committed.out.trimEnd()) {
         return { ok: false, reason: "FENCE-ARTIFACT-DRIFT: the job artifact != the head's committed copy", worktree: top.out };
       }
     }
@@ -120,6 +155,10 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   const fetchReviews = opts.fetchReviews ?? defaultFetchReviews;
   const bind = opts.bind ?? artifactBoundToHead;
   const reasons: string[] = [];
+  if (!opts.headSha || opts.headSha.length < 40) {
+    reasons.push('HEAD-SHA-INVALID');
+    return { verdict: 'UNVERIFIED', sources: { fence: { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: 'HEAD-SHA-INVALID' }, review: { ran: false, verdict: null, targetSha: null, harness: null, reason: 'HEAD-SHA-INVALID' } }, reasons };
+  }
 
   // ---- SOURCE 1: the fence, bound to the head sha -------------------------
   const fence: FenceSource = { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: "" };
@@ -129,16 +168,18 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     // here, then adjudicate against it.
     const inv = await runFence([fenceBin, "invariant-sha", opts.jobDir]);
     const invariant = inv.stdout.trim().split("\n").filter((l) => l.trim().length > 0).pop() ?? "";
+    if (!invariant) throw new Error("FENCE-NO-INVARIANT-SHA");
     const argv = [fenceBin, "adjudicate", opts.jobDir, "--expect-spec-sha", invariant];
     const r = await runFence(argv);
-    if (!invariant) throw new Error("FENCE-NO-INVARIANT-SHA");
     fence.ran = true;
     fence.exitCode = r.code;
   } catch (e) {
     fence.reason = `FENCE-NOT-RUN: ${String(e).slice(0, 120)}`;
     reasons.push(fence.reason);
   }
-  const row = ledgerRowFor(ledgerPath, opts.jobDir.split("/").filter(Boolean).pop() ?? "");
+  // The jobDir segment is passed through as-is (possibly undefined) and
+  // ledgerRowFor returns null for it — the null is handled below, not masked.
+  const row = ledgerRowFor(ledgerPath, opts.jobDir.split("/").filter(Boolean).pop());
   fence.ledgerVerdict = row?.verdict ?? null;
   if (fence.ran) {
     if (fence.exitCode !== 0) fence.reason = `FENCE-FAILED: exit ${fence.exitCode}`;
@@ -152,7 +193,8 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
       else fence.reason = "FENCE-GREEN";
     }
   }
-  if (fence.reason !== "FENCE-GREEN") reasons.push(fence.reason);
+  if (fence.reason !== "FENCE-GREEN" && !fence.reason.startsWith('FENCE-NOT-RUN')) reasons.push(fence.reason);
+  // F30: FENCE-NOT-RUN already pushed in catch block above
 
   // ---- SOURCE 2: the review, bound to the SAME head sha -------------------
   const review: ReviewSource = { ran: false, verdict: null, targetSha: null, harness: null, reason: "" };
@@ -164,15 +206,32 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     };
     review.ran = true;
     review.harness = payload.reviewerHarness ?? null;
-    const runs = payload.runs ?? [];
-    const approving = runs.find((r) => r.verdict != null && (APPROVING_VERDICTS as readonly string[]).includes(String(r.verdict).toLowerCase()));
+    const runs = [...(payload.runs ?? []), ...(payload.reviews ?? []).map((r) => ({ verdict: r.status, targetSha: r.targetSha }))]; // merge reviews into runs shape
     if (runs.length === 0) review.reason = "REVIEW-NO-RUNS";
-    else if (!approving) review.reason = `REVIEW-NOT-APPROVED: verdicts ${JSON.stringify(runs.map((r) => r.verdict ?? null))}`;
     else {
-      review.verdict = String(approving.verdict);
-      review.targetSha = approving.targetSha ?? null;
-      if (review.targetSha !== opts.headSha) review.reason = `REVIEW-STALE-SHA: ${String(review.targetSha).slice(0, 7)} != head ${opts.headSha.slice(0, 7)}`;
-      else review.reason = "REVIEW-GREEN";
+      // FIXED 2026-09-23 (muse round-4 HIGH): `runs.find(approving)` returned the
+      // FIRST approval and IGNORED a later rejection on the SAME head sha, so
+      // [approved@H, changes_requested@H] read REVIEW-GREEN and the verdict
+      // posted success for a REJECTED head — a fail-open. A rejection on the head
+      // sha now wins over any approval (the fail-closed polarity).
+      const verdictOf = (r: { verdict?: string | null }) => String(r.verdict ?? "").toLowerCase();
+      const isReject = (r: { verdict?: string | null }) => (REJECTING_VERDICTS as readonly string[]).includes(verdictOf(r));
+      const isApprove = (r: { verdict?: string | null }) => (APPROVING_VERDICTS as readonly string[]).includes(verdictOf(r));
+      // FIXED 2026-09-23 (qwen-code-audit re-run REAL): the previous fix checked
+      // EVERY run, so a rejection on a DIFFERENT sha blocked THIS head — over-
+      // blocking. The per-sha law: only a run BOUND to this head can decide it.
+      // FIXED (ao-review-4 round 2 finding): the OLD binds() returned true when
+      // targetSha was MISSING ("presume current") — so an UNBOUND approval read
+      // GREEN on any head. The binding is now EXPLICIT: a run must NAME this head.
+      const binds = (r: { targetSha?: string | null }) => r.targetSha === opts.headSha;
+      const rejecting = runs.find((r) => binds(r) && isReject(r));
+      const approving = runs.find((r) => binds(r) && isApprove(r));
+      // an approval on a DIFFERENT sha is STALE — named, never silently ignored
+      const staleApproval = runs.find((r) => !binds(r) && isApprove(r));
+      if (rejecting) review.reason = `REVIEW-REJECTED: ${verdictOf(rejecting)}`;
+      else if (approving) { review.verdict = String(approving.verdict); review.targetSha = approving.targetSha ?? null; review.reason = "REVIEW-GREEN"; }
+      else if (staleApproval) review.reason = `REVIEW-STALE-SHA: ${String(staleApproval.targetSha).slice(0, 7)} != head ${opts.headSha.slice(0, 7)}`;
+      else review.reason = `REVIEW-NOT-APPROVED: verdicts ${JSON.stringify(runs.map((r) => r.verdict ?? null))}`;
     }
   } catch (e) {
     review.reason = `REVIEW-NOT-RUN: ${String(e).slice(0, 120)}`;

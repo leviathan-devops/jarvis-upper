@@ -17,7 +17,14 @@ export function orderMerges(db: Database, onlyState: string = "ready_to_merge"):
   const adj = new Map<string, string[]>();
   const indeg = new Map<string, number>();
   for (const id of ids) { adj.set(id, []); indeg.set(id, 0); }
+  const seenEdges = new Set<string>();
   for (const e of edges) {
+    // FIXED 2026-09-23 (qwen-code-audit run 3): a `\0` delimiter is ambiguous if
+    // an id ever contains one (unreachable for pr:session:num ids, but free to
+    // make unambiguous). A JSON pair is injective.
+    const ek = JSON.stringify([e.f, e.t]);
+    if (seenEdges.has(ek)) continue;
+    seenEdges.add(ek);
     if (!indeg.has(e.f) || !indeg.has(e.t)) continue;
     adj.get(e.f)!.push(e.t);
     indeg.set(e.t, indeg.get(e.t)! + 1);
@@ -34,7 +41,8 @@ export function orderMerges(db: Database, onlyState: string = "ready_to_merge"):
     queue.sort();
   }
   if (order.length !== ids.length) {
-    return { kind: "cycle", nodes: ids.filter((id) => !order.includes(id)).sort() };
+    const orderedSet = new Set(order);
+    return { kind: "cycle", nodes: ids.filter((id) => !orderedSet.has(id)).sort() };
   }
   return { kind: "ok", order };
 }

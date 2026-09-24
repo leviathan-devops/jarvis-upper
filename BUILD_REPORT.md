@@ -96,6 +96,7 @@ dossier 1/0` · W4 `ship_manifest 4/0` + fence2 `exit=0` · W5 battery
 
 **The verification:** `OPERATIONAL_VERIFICATION.md` — every command re-run from a clean shell with its verbatim output (§1-§11), including the supervised-runtime seal (§10) and the declaration with its residual (§11).
 
+**Honest anchors:** .githooks/pre-push:151 (the W-2 fix) · packages/github-master-kernel/GOAL_PIN_RUNTIME_OPERATIONAL.md:1 · FAILURE_LOG.md:266
 **The honest notes:** the railway carries no live PR yet (`prNodes=0`); `kick` is unwired; the desk runner is not connected to the macro level; the legacy spec is REJECTED by its own audit (the new pin is audit-shaped but unaudited); ripwire's crawl root excludes this tree (EN-007) so structural edits here are exempt-by-record, not verified-by-graph.
 
 ## 2026-09-21 — W3 runtime wall + EN-010 closed + the gate made HONEST
@@ -153,3 +154,25 @@ dossier 1/0` · W4 `ship_manifest 4/0` + fence2 `exit=0` · W5 battery
   MODE-B checkpoint (both floors + a spaceless token + its honest gaps), and the transcript's
   verbatim runs. **Proven able to fail** (a truncated doc turns it red).
 - battery now **56 tests / 17 files** (the docs gate adds 6 cases); `bunx tsc --noEmit` exit 0.
+
+## 2026-09-24T09:13:04Z — THE CAPABILITY MEASUREMENT + THE ANTI-DERAIL FIREWALL
+
+**The built:** the common-sense firewall (5 gates: G-GREEN, G-RT, G-RATIO, G-SEAL,
+G-SCAN) committed and live; the goal pin (RUNTIME_OPERATIONAL) with the fence-green
+recipe; the planning suite (full-iteration-v2, the predicate PASSES); the gate wiring
+plan; the fence driven GREEN on a real git repo (exit 0, PASS, spec_bound:true).
+**The why:** the operator's rejection — 129 commits + 124 tests = theatrical slop
+because the green merge never happened.
+**The how:** the how-close probes (6 pre-registered, spec-derived); the fence's SPEC
+format read from source (fence2.py:441/:220); the publisher wired (main.ts:17); the
+push unblocked (pre-push:151 pathspec).
+**The evidence:** runtime/ticks.log:4429 (tick=4429 daemonOk=true errors=0); src/main.ts:17 (the wired publisher); .githooks/pre-commit:190 (G-RATIO); gates/rt-preflight.sh:1 (G-RT); the
+ledger's PASS row (real-branch-test, spec_bound:true); the merge gate 405 with
+"3 of 8 required status checks have not succeeded: 2 expected" (the raw API).
+**The verification:** CORE FUNCTIONAL: 50% (3 of 6). The remaining blockers:
+the diff-budget label (1 API call), a green factory/* on a real PR head (the fence
+green bound to a session worktree), one approval.
+**Honest anchors:** .githooks/pre-push:151 (the W-2 fix) · packages/github-master-kernel/GOAL_PIN_RUNTIME_OPERATIONAL.md:1 · FAILURE_LOG.md:266
+**The honest notes:** the merge has never happened. The fence is green on a synthetic
+worktree, not on a real PR head. The review source has never returned an approval.
+pr_edge is empty. No container test has exercised the full chain.

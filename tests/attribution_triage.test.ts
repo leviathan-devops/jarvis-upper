@@ -23,7 +23,7 @@ test("attribution_triage: single-author bug commit hits with confidence", async 
   await commit(dir, "f.txt", "line one\n", "first");
   const bug = await commit(dir, "f.txt", "line one\nline two BUG\n", "second adds bug");
   const db = openStore(":memory:");
-  const a = await attributeBug(db,
+  const a = await attributeBug(
     { repo: dir, files: ["f.txt"], lines: { "f.txt": [2] } },
     async () => ({ session: "s-9", worker: "w-9" }));
   expect(a.commit).toBe(bug);
@@ -38,7 +38,7 @@ test("attribution_triage: empty history lands no-candidates (triage)", async () 
   const dir = await repo();
   await $`touch ${dir}/empty.txt && git -C ${dir} add empty.txt && git -C ${dir} commit -qm seed`.quiet();
   const db = openStore(":memory:");
-  const a = await attributeBug(db,
+  const a = await attributeBug(
     { repo: dir, files: ["missing.txt"] },
     async () => ({ session: null, worker: null }));
   expect(a.confidence).toBe(0);
@@ -56,7 +56,7 @@ test("attribution_triage: branch-side commit scores below blame-exact (no overcl
   await commit(dir, "g.txt", "main\n", "main work");
   await $`git -C ${dir} merge --no-ff -qm merge side`.quiet();
   const db = openStore(":memory:");
-  const a = await attributeBug(db,
+  const a = await attributeBug(
     { repo: dir, files: ["f.txt"] },
     async () => ({ session: "s-m", worker: "w-m" }));
   // score for a branch-side commit visible only through `git log -- file`

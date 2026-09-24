@@ -15,7 +15,7 @@ function seededDb(root: string) {
   const pr: PrRow = { project: "p", pr_number: 1, session_id: "s-1", head_sha: "h1", state: "ready_to_merge" };
   db.query("INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state) VALUES ('pr:s-1:1','p',1,'s-1','h1','ready_to_merge')").run();
   for (const g of ["ci_green", "audit", "hardened", "fence2"]) {
-    db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, sha16, at) VALUES (?,?,?,?,?,0)")
+    db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, head_sha, at) VALUES (?,?,?,?,?,0)")
       .run(`pr:s-1:1:${g}`, "pr:s-1:1", g, "pass", "h1");
   }
   return { db, pr };

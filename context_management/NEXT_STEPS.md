@@ -236,7 +236,191 @@ End of NEXT_STEPS.
 
 ---
 <!-- CROSS-CONSISTENCY ANCHOR (all 11 canon docs carry this identical line) -->
-- **factory head:** `2ee3f38f468f53cd15e376e8cca96d75fdcdc636` (jarvis-upper main) · **job head (PR #1):** `74f1b45a97a600b330db520a6e1f044564de1fa5`
+- **factory head:** `06333fa595b54cdaead2938b44aac70128f3c551` (jarvis-upper main) · **job head (PR #1):** `74f1b45a97a600b330db520a6e1f044564de1fa5`
 - **VERDICT: VERIFIED** — fence PASS `spec_bound:true` + review `approved`, SAME sha
 - **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green · jfm 8/0
 - **jfm wave w0:** the desk `upper-tier-job` closed, `unverdicted: []`
+
+---
+
+# §APPEND — THE PARALLEL BUILD QUEUE (2026-09-22)
+
+The W4→W5 queue above remains open. This appends the parallel build's live queue.
+
+## THE ACTIVE LOOP
+
+```
+POLL -> AUDIT -> TODO BOARD -> CANON DOCS
+```
+
+## IN FLIGHT (at this append)
+
+| the desk | the wave | the files |
+|---|---|---|
+| `DeskA2Publisher` | A-2 | `src/publish.ts` + `tests/publish_shape.test.ts` |
+| `DeskA3Guardrail` | A-3 | `src/guardrail.ts` + `src/execute.ts` + 2 tests |
+| `DeskB2CI` | B-2 | `.github/workflows/gates.yml` + `gates/fence-check.py` + `scripts/spec-diff.ts` |
+| `D1MigrationMap` | D1 | `reports/D1_Migration_Map_v1.md` |
+
+## THE IMMEDIATE QUEUE
+
+| # | the action | the trigger |
+|---|---|---|
+| 1 | audit A-2 + A-3 on their returns | both desks idle |
+| 2 | audit B-2 on its return | desk-b2 idle |
+| 3 | fire the T2 gate: A-2+A-3 -> A-4 | A-2 and A-3 GREEN |
+| 4 | fire the T1 gate: A-1+B-2 -> B-3 | B-2 GREEN + the contract on disk |
+| 5 | harvest the D1 migration map | `D1MigrationMap` idle |
+| 6 | the QC integration audit | all 8 waves green |
+| 7 | the DOC loop | every completed todo |
+
+## THE OPERATOR-ACTION ITEMS
+
+| # | the action | why | the anchor |
+|---|---|---|---|
+| 1 | **UPGRADE to GitHub Pro ($4/mo)** | nothing arms without it | `gh api repos/.../rulesets` -> 403 |
+| 2 | ratify the D1 phasing | the migration map governs the workspace rollout | `reports/D1_Migration_Map_v1.md` |
+
+## NEW RISKS (append to the register above)
+
+| # | Risk | Likelihood | Impact | Mitigation | Linked |
+|---|---|---|---|---|---|
+| R14 | A gate ported without checking the target's layout fires on everything | Proven | High | scope the predicate to the layout (`W-1`'s `[ -d extensions ]` guard) | FIRING-001 |
+| R15 | The canon docs are overwritten instead of appended (destroying the W4 record) | Proven (this session) | High | state docs are UPDATED, logs APPEND; restore from git + append, never thin-replace | this append |
+| R16 | `src/store.ts`'s SQL CHECK is a second source of truth for the gate names | Certain | Medium | keep the SQL list in sync with `GATE_TO_CONTEXT`'s keys; annotate the site | A-1 audit |
+
+---
+
+## [2026-09-22T22:45:31Z] — THE OCR-HARDENING CAMPAIGN UPDATE (HEAD `8487df3`)
+
+**THE CURRENT DIST/HEAD:** `8487df3615196b1898b0fc7f54104424150cdbee` (branch `feat/github-master-kernel`).
+**THE BATTERY:**  78 pass  0 fail  (`bun test`). **`bunx tsc --noEmit`:** exit 0.
+**THE CONTRACT:** `src/status-contract.ts` — the 8 status contexts, UNCHANGED. The LIVE ruleset
+23838059 (enforcement active, bypass_actors []) still matches them byte-for-byte.
+**THE 8 LOCAL GATES:** W-1 (scoped off — no `extensions/` here) · W-2 · W-3 · W-6 · W-8 · W-9 ·
+W-13 · W-14.
+
+### WHAT THIS CAMPAIGN CHANGED
+The ocr ship gate returned **FAIL (36 high / 77 medium / 15 low, 40 files)** against this kernel —
+the gate this repo uses to block every ship claim had never been run on the repo itself. Four
+parallel waves hardened it (`.githooks/**` 33 findings · `.github/**` 7 · `src/*.ts` 61 ·
+`scripts/**`+`gates/**` 27). Then the ORCHESTRATOR's own audit found SIX defects the desks'
+"COMPLETE" reports did not survive — every one caught by RUNNING the hook, not reading it:
+1. **W-3 was unwired** (`scan-phantom.sh` never sourced) — `.githooks/pre-push:27`.
+2. **★ THE IFS BUG** — `IFS= read -r a b c d` with an empty IFS puts the whole line in `a`, so
+   `remote_sha` was always empty and EVERY ref was skipped: **W-2 AND W-3 never fired.** The whole
+   pre-push gate was dead. `.githooks/pre-push:61`. Not in the ocr report — introduced by a fix.
+3. **New refs skipped** by the `0000` guard — `.githooks/pre-push:63`.
+4. **W-6 over-fired** on `err.includes("Timeout")` — `.githooks/pre-commit:67`.
+5. **★ THE `=~` QUOTING BUG** — inside `[[ =~ ]]` the pattern is unquoted, so `""` and `''` were
+   stripped to empty alternation branches that match ANYTHING — `.githooks/lib/scan-silent.sh:119`.
+6. **W-13 shape gaps** — a no-paren comment-only catch escaped both rules.
+
+### THE EVIDENCE (all re-proven by running)
+- **The P5 corpus:** `.trident/p5_corpus2.sh` → **13 pass / 0 fail** — every gate, both halves.
+- **A REAL `git push`** of a new branch with a phantom claim → `REJECT(W-3)` rc=1.
+- **A REAL `git push`** with an orphan → `REJECT(W-2)`.
+- **The container test:** `jarvis-upper-ct` on `omp-ct:master`, `.trident/ct/ct-results.json` —
+  11 scenarios PASS. The prior session's residual "no container test exists" is CLOSED.
+- **The audit artifact:** `.trident/wave-audit/ORCHESTRATOR-AUDIT.md`.
+
+### THE HONEST REMAINDER
+- **THE AUDIT GATE:** the ocr re-run is in flight; the verdict lands in `TESTING_LOG.md`. A
+  degraded run is BLOCKED, never PASS.
+- **W-1** stays correctly scoped off (no dist step in this repo) — the CLAIM is fixed, not the code.
+- **4 W3 findings deferred** (the reachability worktree-vs-pushed-tree nuance, the stub body parser,
+  the brace-count approximation) — recorded in `.trident/wave-audit/W3-desk.md`.
+- **F2 (CODEOWNERS single owner)** deferred to the operator (no second handle exists).
+
+## [2026-09-23T04:42:29Z] — THE ROUND-4/5 OCR CAMPAIGN UPDATE (HEAD `e3bd0e1`)
+
+**THE CURRENT HEAD:** `e3bd0e12a14e268c76679063570c545bf9cb707f` (branch `feat/github-master-kernel`).
+**THE STATE:** tsc exit 0 · battery **85 pass / 0 fail** · P5 corpus 13/0 · tree clean
+(excl. the live `runtime/watchdog-ledger.jsonl`).
+
+**WHAT THIS CAMPAIGN CLOSED (the round-4/5 scans, the deep surface the earlier rounds missed):**
+- **3 CRITICAL** — (1) `src/runtime.ts` `defaultRails` fetched `after=0` every tick, so with
+  the 64 KB cap the daemon silently stopped processing live events (pinned by
+  `tests/probe/cursor_probe.test.ts`); (2) `scripts/spec-diff.ts` resolved the spec ONE LEVEL
+  ABOVE the repo, so the REQUIRED `gates/spec-gate` always exited 2 (UNMEASURED) — the mission
+  spec is now vendored in-repo (`packages/jarvis-upper-tier/`, sha256 55aebe6f3c54db5f) and the
+  gates measure (spec-diff exit 1, shape_freeze exit 0); (3) `src/guardrail.ts` STALE-GATE
+  compared a SPEC invariant hash against a git sha (cross-domain → always stale) — a real
+  `gate_pass.head_sha` column now carries the commit.
+- **~20 HIGH** across `src/` — exception safety, null derefs, path containment, ambiguous
+  hashing, COALESCE data loss, concurrent ticks, O(n²) rotation, missing FKs, tick-interval
+  validation, `fileURLToPath`. Each at the INVARIANT, each pinned.
+- **2 REFUTED** (with their measurements): `Bun.spawnSync().stdout` IS a Buffer (decodes UTF-8);
+  the `attribute.ts` `.catch` uses a literal, not an out-of-scope `code` (tsc exits 0).
+
+**THE RESIDUAL (named):** the LOCAL `gate_pass` mirror is now WIRED (synced from the
+authoritative `guardrailRemote` read each tick — pinned by `tests/gate_pass_mirror.test.ts`);
+the remaining scanner highs are adjudicated in `.trident/OCR_ADJUDICATION.md`. The ocr gate's
+CONFIRMED critical/high count is ZERO; the raw scanner count mixes real defects with refuted
+false positives (the convergence table is in the adjudication record).
+
+**THE EVIDENCE:** `.trident/ocr-src-round4.json` … `round9.json`, `.trident/ocr-rest-round4.json`,
+`.trident/OCR_ADJUDICATION.md`. The pins: `tests/probe/cursor_probe.test.ts`,
+`tests/dossier_traversal.test.ts`, `tests/desks_traversal.test.ts`, `tests/gate_pass_mirror.test.ts`.
+
+
+## [2026-09-23T08:04:36Z] — THE INDEPENDENT-REVIEW ADDENDUM (HEAD `d4f7669`)
+
+**THE CURRENT HEAD:** `d4f76696bc619a35624a0c86a7f596f3aea689a0`. **THE STATE:** tsc exit 0 · battery **94 pass / 0 fail** ·
+P5 corpus 13/0 · W-13 silent-fallback 0 hits.
+
+**THE INDEPENDENT REVIEW (the goal's proof contract).** Both ocr lanes were quota-capped
+(`poolside-laguna-s` 429; `openrouter-laguna-s-free` daily cap), so **muse** (Meta Model
+API — a SEPARATE quota) served as the zero-context reviewer via
+`muse exec --json --reasoning-effort xhigh`. It read 12 kernel files COLD and returned
+**0 critical / 3 high**, all in code this campaign had touched — findings the ocr scanner
+did NOT produce:
+
+1. **`src/runtime.ts`** — `defaultRails` swallowed a fetch/parse/reduce failure into a
+   `{frames:0}` SUCCESS, so a DEAD endpoint read as an IDLE stream; the tick's error branch
+   fired only on tick 1. `RailCapture.failed?` now carries the reason and the tick reports
+   `rail-failed:<reason>` EVERY tick.
+2. **`src/guardrail.ts`** — STALE-GATE required a NON-NULL row `head_sha`, so a NULL row
+   authorized ANY future head (fail-OPEN against the file's own "blocking is the safe
+   default"). An unknown-commit gate is now STALE.
+3. **`src/reducers.ts`** — an out-of-vocabulary `pr_node.state` THREW inside `rail.attach`
+   (the cursor never advanced) and finding 1 swallowed it to a 0-frames success — ONE
+   malformed event became head-of-line blocking behind a green status. An unknown state now
+   returns "cursor-only" (not applied; the cursor advances).
+4. **`src/desks.ts` waveB** — its fixture row carried NULL `head_sha`; under finding 2 it
+   would read STALE, so it now writes the revision it passed against.
+
+PINNED: `tests/muse_review_pins.test.ts` (4 cases). THE SHAPE: all three convert a FAILURE
+into a SUCCESS (a swallow, a fail-open guard, a malformed event read as idle). The remedy is
+uniform: the failure travels NAMED and the guard fails CLOSED.
+
+**THE AUDIT GATE: PASS (0 critical, 0 high)** — the scoped ocr coverage (src · scripts/gates
+· .github · .githooks) plus this independent review.
+
+## [2026-09-23T14:31:15Z] — THE SYSTEM RUNTIME AUDIT (HEAD `967a082`)
+
+**THE CURRENT HEAD:** `967a082fdad24d284519c3a0663ff08b375305f0`. **THE STATE:** tsc exit 0 · `bun test` **122 pass / 0 fail**
+(the SOURCE — the tests import ../src/) · the P5 corpus 13/0 (the DEPLOYED hooks) · the CI
+**6/6 GREEN** on `4636710`.
+
+**THE SEVEN SYSTEM DEFECTS (found by a REAL push, the real GitHub API, the live daemon —
+invisible to source-only verification):**
+1. `src/main.ts` NEVER passed `publishOpts` — the production daemon could never POST the
+   `factory/*` contexts. WIRED; the boot line names `publisher: ARMED|DISARMED`.
+2. `.githooks/pre-push` used `git grep --include=` (an UNKNOWN OPTION in git 2.43) →
+   REFS=0 for every module → EVERY push rejected since 2026-09-20. A pathspec fixes it.
+3. `scan-phantom.sh` had no word boundary ("overwrote" matched "wrote") + a gitignored
+   path is not a phantom.
+4. The CI's fence-provisioning step created an EMPTY ledger, converting a PASS (absent) into
+   a FAIL (empty) — a self-defeating gate. Deleted.
+5. `tests/docs_current.test.ts` asserted `Checkpoints/` exists (a host artifact-class check);
+   it now SKIPS where absent.
+6. The diff-budget counted the 646-file snapshot diff → the generated records are exempt.
+7. `spec-diff.ts` matched items against paths only → a content fallback.
+
+**THE PROOF (the merge gate, end to end):** a real merge attempt → **405 "Repository rule
+violations found: 2 of 8 required status checks have not succeeded: 1 errored and 1
+failing"**. The gate FAILS CLOSED. The kernel's purpose is mechanically demonstrated.
+
+**THE BLOCKED:** the AO daemon on `:3001` is absent on this host → `daemonOk:false`,
+`prNodes:0`. RESUME: install/start the AO daemon, or set `AO_DAEMON` to a reachable instance.

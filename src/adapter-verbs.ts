@@ -6,16 +6,22 @@ import type { PrRow } from "./sync";
 export interface ProjectRow { id: string; name: string }
 
 export async function listProjects(): Promise<ProjectRow[]> {
-  const res = await call<{ projects: ProjectRow[] }>("listProjects");
-  return res.projects ?? [];
+  const res = await call<{ projects?: ProjectRow[] } | null>("listProjects");
+  return (res && typeof res === 'object' && Array.isArray(res.projects) ? res.projects : []) ?? [];
 }
 
 export interface SessionRow { id: string; projectId?: string; kind?: string; harness?: string }
 
+// the pr_node.state vocabulary — the SAME set as the store's CHECK constraint.
+const PR_STATES = ["open", "ready_to_merge", "merge_ordered", "merged", "rejected", "kicked"] as const;
+
 export async function listSessions(opts: { callFn?: typeof call } = {}): Promise<SessionRow[]> {
   const c = opts.callFn ?? call;
-  const res = await c<{ sessions: SessionRow[] }>("listSessions");
-  return res.sessions ?? [];
+  const res = await c<{ sessions: SessionRow[] } | null>("listSessions");
+  // FIXED 2026-09-23 (ocr round-4 HIGH): `res.sessions` threw when the client
+  // returned null (the body is `text ? JSON.parse(text) : null`) — the `?? []`
+  // only guards the PROPERTY, not the null object. Guard the object too.
+  return res && typeof res === "object" && Array.isArray(res.sessions) ? res.sessions : [];
 }
 
 // EN-010: the REAL PR lister. Enumerates sessions through the typed client, asks AO
@@ -26,24 +32,47 @@ export async function listPrsFromAo(opts: {
   project?: string;
 } = {}): Promise<PrRow[]> {
   const c = opts.callFn ?? call;
-  const sessions = (await c<{ sessions: SessionRow[] }>("listSessions")).sessions ?? [];
+  // FIXED 2026-09-23 (ocr round-4 HIGH): the inline `(await c(...)).sessions`
+  // crashed when the client returned a null body (the `?? []` guards only the
+  // PROPERTY). Reuse the null-safe listSessions so both call sites share one
+  // guarded path.
+  const sessions = await listSessions({ callFn: c });
   const scoped = opts.project ? sessions.filter((s) => s.projectId === opts.project) : sessions;
   const out: PrRow[] = [];
-  for (const s of scoped) {
-    const res = await c<{ sessionId: string; prs: PrPayload[] }>("listSessionPRs", {
-      params: { sessionId: s.id },
-    });
-    for (const pr of res.prs ?? []) {
-      out.push({
+  const CONC = 8;
+  for (let i = 0; i < scoped.length; i += CONC) {
+    const batch = scoped.slice(i, i + CONC);
+    const results = await Promise.allSettled(batch.map(async (s) => {
+      const res = await c<{ sessionId: string; prs?: PrPayload[] } | null>("listSessionPRs", {
+        params: { sessionId: s.id },
+      });
+      const prs = (res && typeof res === 'object' && Array.isArray(res.prs)) ? res.prs : [];
+      return prs.map((pr) => ({
         project: s.projectId ?? "unknown",
         pr_number: pr.number,
         session_id: s.id,
         head_sha: pr.headSha ?? null,
         source_branch: pr.sourceBranch ?? null,
         target_branch: pr.targetBranch ?? null,
-        state: pr.state ?? "unknown",
+        // FIXED 2026-09-23 (muse re-review HIGH): `?? "unknown"` is OUTSIDE the
+        // pr_node.state CHECK vocabulary, so an event without a state THREW on
+        // insert and rolled back the WHOLE sync batch (the same head-of-line
+        // block class as the reducers fix). The default is a VALID vocabulary
+        // member; an unknown value is clamped to "open" (not applied-as-truth).
+        state: (pr.state && PR_STATES.includes(pr.state as typeof PR_STATES[number])) ? pr.state : "open",
         worker_hint: pr.repo ?? null,
-      });
+      }));
+    }));
+    // FIXED 2026-09-23 (qwen-code-audit C1): a REJECTED promise was dropped
+    // silently — a failed PR fetch vanished from the sync with no trace. The
+    // failure now travels NAMED (the loud-fail law).
+    // FIXED (ao-review-4 finding): throwing on the FIRST rejected session discarded
+    // every already-resolved session — one failed fetch blocked the whole sync
+    // (head-of-line blocking). The failure now travels NAMED (the loud-fail law)
+    // but the resolved sessions are kept.
+    for (const r of results) {
+      if (r.status === 'fulfilled') out.push(...r.value);
+      else console.error(JSON.stringify({ sync: "PR-FETCH-FAILED", reason: String(r.reason).slice(0, 100) }));
     }
   }
   return out;

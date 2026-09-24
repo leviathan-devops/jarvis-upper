@@ -8,15 +8,16 @@ set -uo pipefail
 ROOT="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$ROOT" || { echo "ORPHANS=-1"; exit 2; }
 
-ENTRIES="main.ts runtime.ts cli.ts status.ts"
+ENTRIES="main.ts runtime.ts cli.ts"
 orphans=0
 
 scan() { # scan <file>
   local f="$1" base refs
   base="$(basename "$f")"
   for e in $ENTRIES; do [ "$base" = "$e" ] && return 0; done
-  # callers OUTSIDE tests/ (any .ts/.js/.sh/.json that names the module stem)
-  refs=$(grep -rln --include='*.ts' --include='*.js' --include='*.sh' --include='*.json' \
+  # callers OUTSIDE tests/ (any .ts/.js/.sh/.json that names the module stem
+  # as a whole word: -wF so `plan` no longer matches `explain`/`planned`).
+  refs=$(grep -rlnwF --include='*.ts' --include='*.js' --include='*.sh' --include='*.json' \
          -- "$(basename "$f" .ts)" src/ ao-client/ gates/ scripts/ bin/ package.json 2>/dev/null \
          | grep -v "^$f$" | grep -v '^tests' | wc -l | tr -d ' ')
   if [ "$refs" = "0" ]; then
