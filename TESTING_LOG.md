@@ -662,3 +662,32 @@ the AO client's `call()` has NO timeout (W-05) · `kick()` is dead in prod (S1) 
 44 OPEN** (routed to W1-W4 in the pin). The 3 most likely to break in production, per the
 auditors: (1) the sync-promoted `merged` with no ledger row [FIXED]; (2) `mergeRecorded`
 duplicating terminal rows [FIXED]; (3) the swallowed status-write [FIXED].
+
+
+## TEST RESULT - 2026-09-24T19:15:09Z - THE P5 ADVERSARIAL CORPUS (the DEPLOYED hooks) @ 02cbc6d
+
+**THE COMMAND:** `bash .trident/p5_corpus.sh` + `bash .trident/p5_corpus2.sh`
+**THE FIRST RUN:** **9 pass / 3 fail** — the corpus was RED.
+**THE ADJUDICATION (two-sided, per the law):** all 3 were **Side A: the PROBE was wrong**.
+
+| probe | Side A (probe wrong) | Side B (real defect) | verdict |
+|---|---|---|---|
+| W-6 POSITIVE | a bare `l` receiver; the hook requires a SOURCE-TEXT receiver | — | PROBE-ERROR |
+| W-9 POSITIVE | staged under `.trident/` (a DELIBERATE exemption) | — | PROBE-ERROR |
+| EXIT-CAP (scan-silent) | grepped the LIB for 255; the caller's cap is 125 | — | PROBE-ERROR |
+
+**THE PROOF THE HOOKS BITE (corrected probes, verbatim):**
+```console
+$ bash .githooks/pre-commit   # a thin .md at docs/
+REJECT(W-9): docs/__p5_w9_thin.md has 3 lines (< 100)
+REJECT(W-9): docs/__p5_w9_thin.md has 0 file:line anchors (< 3)
+$ bash .githooks/pre-commit   # a source-text receiver
+REJECT(W-6): tests/__p5_w6_pos.test.ts asserts a symbol against SOURCE TEXT via .includes() instead of importing it: 3:it("x",()=>{ expect(srcText.includes("SomeSymbol")).toBe(true); });
+```
+
+**THE CORRECTED RUN:** `p5_corpus.sh` **12 pass / 0 fail** · `p5_corpus2.sh`
+**13 pass / 0 fail** — **25/0**, no residue.
+
+**WHY IT MATTERS:** a stale probe is as dangerous as a dead gate — a false RED trains the
+operator to ignore the corpus. Recorded per the skill's §6 (publish your own instrument
+failures).
