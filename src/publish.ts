@@ -92,6 +92,11 @@ export async function publishStatus(
       reason: e instanceof Error ? `FETCH-THREW:${e.message}` : `FETCH-THREW:${String(e)}`,
     };
   }
+  // FIXED (ocr audit high): a malformed injected fetchImpl result (null/non-Response)
+  // made res.ok throw an unhandled rejection. Guard it (the loud-fail law).
+  if (!res || typeof res.ok !== "boolean") {
+    return { context: payload.context, state: "error" as const, status: null, ok: false, reason: "BAD-RESPONSE: fetchImpl returned a non-Response" };
+  }
   if (!res.ok) {
     return {
       context: payload.context,

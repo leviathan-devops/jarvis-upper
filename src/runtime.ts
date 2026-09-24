@@ -211,12 +211,11 @@ export async function publishVerdictForPr(opts: PublishVerdictForPrOpts): Promis
   });
 }
 
-// the publish dedup ledger: (prId -> the head sha already published). Bounded by
-// the number of live PRs; reset is never needed (a stale entry only re-publishes
-// if that exact head returns, which is harmless).
-const lastPublished = new Map<string, string>();
-
 export function createRuntime(opts: { root: string; db?: Database; deps?: RuntimeDeps }): Runtime {
+  // FIXED (ocr audit high): the publish dedup map is PER-RUNTIME. A module-scoped
+  // map leaked across instances (tests, multiple roots) — a second instance skipped
+  // a (prId, head) it never published. Keyed on "<head>:<fence2Ok>:<verdictOk>".
+  const lastPublished = new Map<string, string>();
   const root = opts.root;
   const db = opts.db ?? openStore();
   const deps = opts.deps ?? {};

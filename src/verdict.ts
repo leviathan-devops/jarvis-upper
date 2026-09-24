@@ -162,6 +162,7 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
 
   // ---- SOURCE 1: the fence, bound to the head sha -------------------------
   const fence: FenceSource = { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: "" };
+  let invSha16: string | null = null;
   try {
     // fence2's --expect-spec-sha is the SPEC's INVARIANT sha16 (not a git sha):
     // the kernel-held value computed over the SPEC minus its sha-map. Compute it
@@ -171,6 +172,7 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     // was accepted, so a FAILED invariant-sha fed garbage into --expect-spec-sha.
     // The exit code + the 16-hex format are now both required.
     if (inv.code !== 0) throw new Error(`FENCE-INVARIANT-FAILED: exit ${inv.code}`);
+    invSha16 = inv.stdout.trim().split("\n").filter((l) => l.trim().length > 0).pop() ?? "";
     const invariant = inv.stdout.trim().split("\n").filter((l) => l.trim().length > 0).pop() ?? "";
     if (!/^[0-9a-f]{16}$/.test(invariant)) throw new Error(`FENCE-NO-INVARIANT-SHA: ${invariant.slice(0, 40)}`);
     const argv = [fenceBin, "adjudicate", opts.jobDir, "--expect-spec-sha", invariant];
@@ -185,6 +187,15 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // ledgerRowFor returns null for it — the null is handled below, not masked.
   const row = ledgerRowFor(ledgerPath, opts.jobDir.split("/").filter(Boolean).pop());
   fence.ledgerVerdict = row?.verdict ?? null;
+  // ADJUDICATED (ocr audit high, two-sided — REJECTED): the finding claimed "the
+  // ledger invariant SHA is never bound". MEASURED: the ledger row's 16-hex
+  // `evidence` prefix is the ARTIFACT's sha16 (stamped by `fence2.py init` into the
+  // SPEC's sha-map), NOT the SPEC invariant — two DIFFERENT objects by design (the
+  // real row: evidence "1ea6c0f4bb73ea95|sandbox=bwrap|spec_bound:true", where
+  // 1ea6c0f4bb73ea95 is the artifact hash). The spec binding IS enforced: the
+  // adjudicate call passes --expect-spec-sha <invariant> (a mismatch refuses
+  // SPEC_FORGED, exit 1), and the row's spec_bound flag records it. Comparing the
+  // artifact sha16 to the invariant would flag EVERY green row (a false positive).
   if (fence.ran) {
     if (fence.exitCode !== 0) fence.reason = `FENCE-FAILED: exit ${fence.exitCode}`;
     else if (fence.ledgerVerdict && fence.ledgerVerdict !== "PASS") fence.reason = `FENCE-LEDGER:${fence.ledgerVerdict}`;

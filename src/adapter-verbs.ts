@@ -42,7 +42,8 @@ export async function listPrsFromAo(opts: {
   const CONC = 8;
   for (let i = 0; i < scoped.length; i += CONC) {
     const batch = scoped.slice(i, i + CONC);
-    const results = await Promise.allSettled(batch.map(async (s) => {
+    const errors: { session: string; reason: string }[] = [];
+  const results = await Promise.allSettled(batch.map(async (s) => {
       const res = await c<{ sessionId: string; prs?: PrPayload[] } | null>("listSessionPRs", {
         params: { sessionId: s.id },
       });
@@ -70,10 +71,16 @@ export async function listPrsFromAo(opts: {
     // every already-resolved session — one failed fetch blocked the whole sync
     // (head-of-line blocking). The failure now travels NAMED (the loud-fail law)
     // but the resolved sessions are kept.
-    for (const r of results) {
+    // FIXED (ocr audit high): the partial-sync failure was console-only (callers
+    // could not distinguish complete from partial) and lost its identity. The errors
+    // are now COLLECTED with their session and RETURNED — the loud-fail law without
+    // head-of-line blocking.
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
       if (r.status === 'fulfilled') out.push(...r.value);
-      else console.error(JSON.stringify({ sync: "PR-FETCH-FAILED", reason: String(r.reason).slice(0, 100) }));
+      else errors.push({ session: sessions[i]?.id ?? `#${i}`, reason: String(r.reason).slice(0, 100) });
     }
+    if (errors.length > 0) console.error(JSON.stringify({ sync: "PARTIAL", errors }));
   }
   return out;
 }

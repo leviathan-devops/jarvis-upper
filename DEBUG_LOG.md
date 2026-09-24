@@ -743,3 +743,19 @@ guard's LOCATION (wrapper vs callee) was the mechanism; the unit battery was gre
 test drives safeTick+tick() together.
 
 **ANCHORS:** src/runtime.ts:356 (safeTick), src/runtime.ts:245 (the tick guard), runtime/ticks.log.
+
+## EN-167 - THE AUDIT ROUND 2 (the fixes + the adjudications) (2026-09-24T12:48:28Z)
+
+**THE RESULT:** after EN-166, the ocr audit re-ran (session 21128e2c): **GATE: FAIL (0 CRITICAL, 16 high)** — down from 1 critical / 24 high. The critical (the tick-starvation) is GONE.
+
+**THE ROUND-2 FIXES:**
+1. **src/runtime.ts:217 (MY fix's design):** the publish dedup map was module-scoped -> shared across runtime instances. Moved INSIDE createRuntime (per-runtime).
+2. **src/publish.ts:86:** a malformed injected fetchImpl result made res.ok throw an unhandled rejection. Guarded (BAD-RESPONSE -> a loud PublishResult).
+3. **src/adapter-verbs.ts:73 (MY fix):** the partial-sync failure was console-only. Now COLLECTED with the session identity + returned (the loud-fail law without head-of-line blocking).
+
+**THE ADJUDICATION (two-sided, REJECTED finding):**
+- **src/verdict.ts:186** ("the ledger invariant SHA is never bound"): MEASURED FALSE. The ledger row's 16-hex `evidence` prefix is the ARTIFACT's sha16 (stamped by fence2.py init into the SPEC's sha-map), NOT the SPEC invariant — two different objects by design. The spec binding IS enforced: adjudicate passes --expect-spec-sha <invariant> (a mismatch -> SPEC_FORGED exit 1); the row's spec_bound flag records it. Comparing the two would flag EVERY green row (a false positive). Recorded in the code.
+
+**THE VERIFICATION:** tsc 0; bun test 124 pass / 0 fail; the daemon advances after the restart (see runtime/ticks.log).
+
+**ANCHORS:** src/runtime.ts:213, src/publish.ts:86, src/adapter-verbs.ts:73, src/verdict.ts:186.
