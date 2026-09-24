@@ -156,7 +156,7 @@ export function openStore(path?: string): Database {
   // existence probe with LIMIT 1 short-circuits.
   const dup = db.query("SELECT 1 x FROM gate_pass GROUP BY pr_node, gate HAVING COUNT(*) > 1 LIMIT 1").get();
   const needsIndex = !db.query("SELECT 1 x FROM sqlite_master WHERE type='index' AND name='gate_pass_pr_gate'").get();
-  if (dup !== null || needsIndex) {
+  if (dup != null || needsIndex) {   // FIXED: .get() may return undefined, not null
     db.exec("BEGIN");
     try { for (const sql of POST_REBUILD) db.exec(sql); db.exec("COMMIT"); }
     catch (e) { db.exec("ROLLBACK"); throw e; }

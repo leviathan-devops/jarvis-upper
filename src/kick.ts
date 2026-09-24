@@ -66,6 +66,7 @@ export async function kick(
   // spawn — a transient daemon outage must not manufacture a second session for one bug.
   let mode: KickMode;
   if (input.mode) mode = input.mode;
+  // FIXED (the W15 ship gate MEDIUM): an explicit `live` skipped the liveness check entirely.
   else {
     // FIXED (ship gate MEDIUM): the old `.catch(()=>false)` tolerated a THROWING
     // KickDeps; the bare await let it escape as a raw error, bypassing the fail-closed

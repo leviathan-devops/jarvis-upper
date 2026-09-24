@@ -17,8 +17,13 @@ const SPAWN_MAX = 16384;
 /** FIXED (ship-gate MEDIUM): AttachmentInput has NO maxLength (openapi.yaml:7619) — bound
  *  the payload we send so a huge dossier cannot blow the spawn request. */
 const ATTACH_MAX = 262144;
-const clamp = (s: string, max: number): string =>
-  s.length > max ? s.slice(0, max - 16) + "\n[truncated]" : s;
+// FIXED (the W15 ship gate MEDIUM): a truncation was silent while an oversized attachment
+// THREW — inconsistent. It is now LOGGED loudly so a degraded spawn is observable.
+const clamp = (s: string, max: number): string => {
+  if (s.length <= max) return s;
+  console.error(`kick-prompt-truncated:${s.length}->${max}`);
+  return s.slice(0, max - 16) + "\n[truncated]";
+};
 
 export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readFile?: (p: string) => Promise<string> } = {}): KickDeps {
   const c = opts.callFn ?? call;   // injectable (the codebase's test seam, as listSessions does)
@@ -67,7 +72,9 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
           // file), and bound the RESULTING STRING (the size check could race a growing file
           // and byte-size != the JSON-encoded size).
           const data = await (opts.readFile ?? (async (q: string) => await Bun.file(q).text()))(p);
-          if (data.length > ATTACH_MAX) { dropped.push(`${p} (>${ATTACH_MAX}c)`); continue; }
+          // FIXED (the W15 ship gate MEDIUM): String.length is UTF-16 units; the daemon's
+          // limit is BYTES. Measure the wire size.
+          if (Buffer.byteLength(data, "utf8") > ATTACH_MAX) { dropped.push(`${p} (>${ATTACH_MAX}B)`); continue; }
           attachments.push({ data, mimeType: p.endsWith(".json") ? "application/json" : "text/markdown" });
         } catch { dropped.push(p); }
       }
@@ -87,8 +94,16 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
       // direct kick for the same bug always read KICK-BRANCH-FAILED. Idempotent: create if
       // absent, else check out the existing branch.
       const cwd = opts.cwd ?? process.cwd();
+      // FIXED (the W15 ship gate MEDIUM): bugId flowed to `git checkout -b fix/<bugId>` with
+      // NO validation inside the adapter (it relied solely on verbKick's regex) and the git
+      // stderr was DISCARDED. Both fixed.
+      if (!/^[A-Za-z0-9._-]{1,64}$/.test(bugId)) throw new Error(`KICK-BAD-BUG-ID:${String(bugId).slice(0, 32)}`);
       const git = (args: string[]): boolean => {
-        try { return Bun.spawnSync(["git", "-C", cwd, ...args], { stderr: "pipe" }).exitCode === 0; } catch { return false; }
+        try {
+          const p = Bun.spawnSync(["git", "-C", cwd, ...args], { stderr: "pipe", stdout: "pipe" });
+          if ((p.exitCode ?? -1) !== 0) console.error(`kick-git-failed:${args.join(" ")}:${(p.stderr?.toString() ?? "").trim().slice(0, 120)}`);
+          return (p.exitCode ?? -1) === 0;
+        } catch (e) { console.error(`kick-git-threw:${String(e).slice(0, 80)}`); return false; }
       };
       if (git(["checkout", "-b", `fix/${bugId}`])) return { ok: true };
       return { ok: git(["checkout", `fix/${bugId}`]) };

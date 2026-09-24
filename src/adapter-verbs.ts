@@ -101,10 +101,12 @@ export async function listPrsFromAo(opts: {
     // FIXED (ship gate LOW): the type was `void` while an async caller is supported — widen
     // it, and pass a COPY so the caller cannot mutate the accumulated errors.
     try {
-      const r = opts.onPartial?.([...allErrors]) as unknown;
-      // FIXED (ship gate LOW): a then-ONLY thenable was missed (the .catch check). Check .then.
+      // FIXED (the W15 ship gate LOW): a spread shares the element OBJECTS — map to copies.
+      const r = opts.onPartial?.(allErrors.map((e) => ({ ...e }))) as unknown;
+      // FIXED (the W15 ship gate MEDIUM): a then-ONLY thenable has no .catch — calling one
+      // threw a TypeError mis-reported as onPartial-threw. Promise.resolve wraps ANY thenable.
       if (r && typeof (r as { then?: unknown }).then === "function") {
-        (r as Promise<unknown>).catch((e) => console.error(`onPartial-rejected:${String(e).slice(0, 80)}`));
+        Promise.resolve(r as PromiseLike<unknown>).catch((e) => console.error(`onPartial-rejected:${String(e).slice(0, 80)}`));
       }
     } catch (e) { console.error(`onPartial-threw:${String(e).slice(0, 80)}`); }
   }

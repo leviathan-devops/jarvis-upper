@@ -95,7 +95,13 @@ elif [ -d "$WORKTREE_ROOT" ]; then
   shopt -u failglob 2>/dev/null || true
   shopt -u nullglob 2>/dev/null || true
   for wt in "$WORKTREE_ROOT"/*/; do
-    [ -d "$wt" ] || continue
+    # FIXED (the W15 ship gate MEDIUM): a NON-directory entry (a file, a broken symlink)
+    # was silently skipped — a session id matching that name still fails adjudication while
+    # this gate reported "nothing to fence yet". Fail closed.
+    if [ ! -d "$wt" ]; then
+      echo "REJECT(G-RT): the worktree entry ${wt%/} is not a directory — refusing to PASS unverified" >&2
+      FAIL=1; WT_N=$((WT_N + 1)); continue
+    fi
     WT_N=$((WT_N + 1))
     # FIXED (ship-gate MEDIUM): -f was weaker than the fence's own readability check, so an
     # unreadable/empty SPEC.md passed here and still failed as FENCE-NO-SPEC. Require readable
@@ -113,8 +119,10 @@ elif [ -d "$WORKTREE_ROOT" ]; then
     fi
   done
   if [ -n "$DOTGLOB_WAS" ]; then eval "$DOTGLOB_WAS"; else shopt -u dotglob 2>/dev/null || true; fi
-  if [ -n "$FAILGLOB_WAS" ]; then eval "$FAILGLOB_WAS"; fi
-  if [ -n "$NULLGLOB_WAS" ]; then eval "$NULLGLOB_WAS"; fi
+  # FIXED (the W15 ship gate LOW): symmetric restore (the -s/-u mutation must be undone even
+  # if the save was empty, so a SOURCED gate never leaks its option state).
+  if [ -n "$FAILGLOB_WAS" ]; then eval "$FAILGLOB_WAS"; else shopt -u failglob 2>/dev/null || true; fi
+  if [ -n "$NULLGLOB_WAS" ]; then eval "$NULLGLOB_WAS"; else shopt -u nullglob 2>/dev/null || true; fi
   if [ "$WT_NO_SPEC" -gt 0 ]; then
     FAIL=1
   elif [ "$WT_N" -eq 0 ]; then

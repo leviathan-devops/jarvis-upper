@@ -103,6 +103,7 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     let buf = "";
     let bufBytes = 0;   // the incremental wire-byte count (never a whole-buffer recompute)
     let oversizedFrame = false;   // a single frame > RAIL_MAX_BUF (a named, non-progressing state)
+    let readerCancelled = false;  // the timeout branch cancels; the post-loop cancel is skipped
     // FIXED 2026-09-23 (a RAIL TIMEOUT bug found on the LIVE daemon): the loop
     // checked `Date.now() < deadline` BEFORE `reader.read()`, but `read()` BLOCKS
     // on an IDLE stream until the 5 s AbortSignal fires — so a HEALTHY idle stream
@@ -123,7 +124,9 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
       if ("timeout" in result) {
         // W-13: a catch must log or rethrow. The cancel is best-effort cleanup of
         // an idle stream — the failure is named, the capture is still clean.
-        try { await reader.cancel(); } catch (e) { console.error(`rail-cancel:${String(e).slice(0, 60)}`); }
+        // FIXED (the W15 ship gate LOW): TRACK the cancel so the post-loop cancel is skipped
+        // (a second cancel on a healthy idle stream logged a spurious line every tick).
+        try { await reader.cancel(); readerCancelled = true; } catch (e) { console.error(`rail-cancel:${String(e).slice(0, 60)}`); }
         break;
       }
       const { done, value } = result;
@@ -145,7 +148,7 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     }
     // FIXED (ship-gate LOW): reader.cancel() returns a promise; a sync try/catch does not
     // catch an async rejection (an unhandled rejection). Await it, as the timeout branch does.
-    try { await reader.cancel(); } catch (e) { console.error(`rail-cancel:${String(e).slice(0, 60)}`); }
+    if (!readerCancelled) { try { await reader.cancel(); } catch (e) { console.error(`rail-cancel:${String(e).slice(0, 60)}`); } }
     // FIXED (ship-gate MEDIUM): parseSse's flush() emits the final PARTIAL frame, so a
     // torn buffer ran reducers on half an event and advanced rail_seq past it. When the
     // capture is truncated, cut back to the last COMPLETE frame boundary ("\n\n").

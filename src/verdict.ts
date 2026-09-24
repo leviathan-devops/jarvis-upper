@@ -7,7 +7,7 @@
 // The FORBIDDEN EVIDENCE SET (commit-exists · diff-changed · drift-gate-green ·
 // worker-tests-pass · PR-open · transcript-shows-spawn · "I read it") is never a source.
 import { readFileSync, existsSync } from "node:fs";
-import { resolve as resolvePath, relative as relativePath, isAbsolute } from "node:path";
+import { resolve as resolvePath, relative as relativePath, isAbsolute, normalize } from "node:path";
 
 export interface FenceSource {
   ran: boolean;
@@ -174,9 +174,13 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // FIXED (the W14 ship gate MEDIUM): collapsing slashes left "/." / "/.." intact — still
   // the filesystem root. Strip dot-segments too, then reject any root-equivalent.
   // (PRESERVE the leading slash — a join without it made every path RELATIVE.)
-  const segs = opts.jobDir ? opts.jobDir.split("/").filter((seg) => seg !== "" && seg !== "." && seg !== "..") : [];
-  const normJobDir = segs.length > 0 ? "/" + segs.join("/") : "";
-  if (!opts.jobDir || opts.jobDir.trim() === "" || normJobDir === "") {
+  // FIXED (the W15 ship gate HIGH): the hand-rolled normalization prefixed "/" (breaking a
+  // RELATIVE jobDir into "/e2e-job") and dropped `..` WITHOUT popping the previous segment
+  // ("/a/b/../c" -> "/a/b/c"). `path.normalize` does POSIX resolution correctly and
+  // preserves relativity. The normalized value is used EVERYWHERE below (the fence calls,
+  // the SPEC read, the bind) so no caller sees a different directory than the guard approved.
+  const normJobDir = opts.jobDir ? normalize(opts.jobDir) : "";
+  if (!opts.jobDir || normJobDir === "" || normJobDir === "." || normJobDir === "/") {
     return { verdict: "UNVERIFIED", sources: { fence: { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: "NO-JOB-DIR" }, review: { ran: false, verdict: null, targetSha: null, harness: null, reason: "NO-JOB-DIR" } }, reasons: ["NO-JOB-DIR"] };
   }
   const fenceBin = opts.fenceBin ?? FENCE_DEFAULT;
@@ -196,7 +200,7 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     // fence2's --expect-spec-sha is the SPEC's INVARIANT sha16 (not a git sha):
     // the kernel-held value computed over the SPEC minus its sha-map. Compute it
     // here, then adjudicate against it.
-    const inv = await runFence([fenceBin, "invariant-sha", opts.jobDir]);
+    const inv = await runFence([fenceBin, "invariant-sha", normJobDir]);
     // FIXED (ocr audit high): the exit code was never checked and any stdout line
     // was accepted, so a FAILED invariant-sha fed garbage into --expect-spec-sha.
     // The exit code + the 16-hex format are now both required.
@@ -205,7 +209,7 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     // (written to invSha16, never read) directly above the identical expression.
     const invariant = inv.stdout.trim().split("\n").filter((l) => l.trim().length > 0).pop() ?? "";
     if (!/^[0-9a-f]{16}$/.test(invariant)) throw new Error(`FENCE-NO-INVARIANT-SHA: ${invariant.slice(0, 40)}`);
-    const argv = [fenceBin, "adjudicate", opts.jobDir, "--expect-spec-sha", invariant];
+    const argv = [fenceBin, "adjudicate", normJobDir, "--expect-spec-sha", invariant];
     const r = await runFence(argv);
     fence.ran = true;
     fence.exitCode = r.code;
@@ -225,7 +229,7 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     try {
       // FIXED (ship gate LOW): the guard normalized the path but the READ used the RAW
       // jobDir, so "/./SPEC.md" etc. still probed. Use the normalized value.
-      const sp = readFileSync(`${normJobDir || opts.jobDir}/SPEC.md`, "utf8");
+      const sp = readFileSync(`${normJobDir}/SPEC.md`, "utf8");
       const m = sp.match(/^\s*job:\s*(\S+)\s*$/m);
       return m ? { job: m[1] } : { failure: "SPEC-NO-JOB" };
     } catch (e) { return { failure: `SPEC-UNREADABLE:${String(e).slice(0, 60)}` }; }
@@ -265,7 +269,7 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     // different objects. The honest binding is: the adjudicated JOB DIR must be a
     // git worktree whose HEAD IS the claimed head, with the artifact committed clean.
     else {
-      const b = bind(opts.jobDir, opts.headSha);
+      const b = bind(normJobDir, opts.headSha);
       if (!b.ok) fence.reason = b.reason;
       else fence.reason = "FENCE-GREEN";
     }

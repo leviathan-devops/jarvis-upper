@@ -66,7 +66,7 @@ export function redactRemote(url: string): string {
     // `git@github.com:o/r` into `<redacted>@github.com:o/r`. Redact only a `user:PASS@`
     // (a colon = a secret); keep a bare `user@`.
     return url
-      .replace(/^([^@/\s:]+:[^@/\s]+)@/, "<redacted>@")     // scp: user:PASS@host:
+      .replace(/^([^@/\s:]+:[^\s]+)@/, "<redacted>@")     // scp: user:PASS@host: (greedy to the LAST @)
       .replace(/\/\/[^/@\s:]*:[^/@\s]*@/g, "//<redacted>@"); // https: //user:PASS@host
   }
 }
