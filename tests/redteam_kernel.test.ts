@@ -10,6 +10,11 @@ import { dossierDir } from "../src/dossier";
 import { orderMerges } from "../src/plan";
 import { reduceEvent } from "../src/reducers";
 import { REQUIRED_CONTEXTS } from "../src/status-contract";
+// W5 corpus expansion — the remediated surfaces (each probe WOULD HAVE CAUGHT a real defect)
+import { targetMatchesRemote } from "../src/target-guard";
+import { syncPrs } from "../src/sync";
+import { mergeRecorded } from "../src/merge-record";
+import { listPrsFromAo } from "../src/adapter-verbs";
 
 const GREEN = Object.fromEntries(REQUIRED_CONTEXTS.map((c) => [c, "success"]));
 const readyDb = (head: string | null) => {
@@ -116,4 +121,66 @@ test("RT-N4: a null sha returns ok:false, never a crash", async () => {
   const e = await guardrailRemote({ owner: "o", repo: "r", sha: null as never, fetchImpl: (async () => new Response("[]")) as never });
   expect(e.ok).toBe(false);
   expect(e.reasons[0]).toContain("INVALID-SHA");
+});
+
+
+// ============================================================================
+// W5 CORPUS EXPANSION — the remediated surfaces. Each probe is the ATTACK that
+// would have caught the defect the remediation fixed (the red-team corpus law:
+// the probe must fail on the pre-fix code and pass on the fixed code).
+// ============================================================================
+
+// ---- POSITIVE: the wrong-target POST (W-01) ----
+test("RT-P7: a configured target != the tree's origin is REFUSED", () => {
+  const e = targetMatchesRemote({ root: "/tmp", owner: "someone-else", repo: "other",
+    readRemote: () => "https://github.com/leviathan-devops/jarvis-upper.git" });
+  expect(e.ok).toBe(false);
+  expect(e.reason).toContain("TARGET-MISMATCH");
+  // and a FAIL-CLOSED blind read refuses (never a silent pass)
+  expect(targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: () => { throw new Error("no git"); } }).ok).toBe(false);
+});
+
+// ---- POSITIVE: an AO payload claiming `merged` must NOT write the terminal state (R4) ----
+test("RT-P8: sync CLAMPS a `merged` payload (the terminal row needs the ledger proof)", async () => {
+  const db = openStore(":memory:");
+  await syncPrs(db, async () => ([{ project: "x", pr_number: 1, session_id: "rt-p8", head_sha: "a".repeat(40), state: "merged" }] as never));
+  const row = db.query("SELECT state FROM pr_node WHERE id = ?").get("pr:rt-p8:1") as { state: string } | null;
+  expect(row?.state).toBe("merge_ordered");
+  expect(row?.state).not.toBe("merged");
+});
+
+// ---- POSITIVE: one malformed row must NOT roll back the batch (R3) ----
+test("RT-P9: a malformed AO row is SKIPPED, the good rows land", async () => {
+  const db = openStore(":memory:");
+  const r = await syncPrs(db, async () => ([
+    { project: "x", pr_number: 1, session_id: "rt-p9", head_sha: "a".repeat(40), state: "open" },
+    { project: "x", pr_number: 2, session_id: "rt-p9", head_sha: "a".repeat(40), state: "BOGUS" },
+  ] as never));
+  expect(r.rows).toBe(1);
+  expect(r.skipped.length).toBe(1);
+  expect(r.skipped[0]).toContain("BAD-STATE");
+});
+
+// ---- POSITIVE: an UNREADABLE ledger must THROW (R5 — never a false "absent") ----
+test("RT-P10: an unreadable ledger THROWS, never a false 'not recorded'", () => {
+  expect(() => mergeRecorded("/proc/1/mem", "abcdef123456")).toThrow(/LEDGER-UNREADABLE/);
+});
+
+// ---- EDGE: the batch error must name the RIGHT session (R10) ----
+test("RT-E6: a batch-N failure names its OWN session, never a batch-0 shadow", async () => {
+  const sessions = Array.from({ length: 10 }, (_, i) => ({ id: `rt-${i}`, projectId: "p" }));
+  const captured: string[] = [];
+  const orig = console.error;
+  console.error = (...a: unknown[]) => { captured.push(a.map(String).join(" ")); };
+  try {
+    const callFn = (async (op: string, o: { params?: { sessionId?: string } }) => {
+      if (op === "listSessions") return { sessions };
+      if (op === "listSessionPRs") { if (o.params?.sessionId === "rt-9") throw new Error("AO-500"); return { sessionId: o.params?.sessionId, prs: [] }; }
+      return null;
+    }) as never;
+    await listPrsFromAo({ callFn, project: "p" });
+  } finally { console.error = orig; }
+  const line = captured.find((l) => l.includes("PARTIAL")) ?? "";
+  expect(line).toContain("rt-9");
+  expect(line).not.toContain('"rt-1"');
 });

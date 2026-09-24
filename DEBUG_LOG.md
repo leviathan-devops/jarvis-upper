@@ -1116,3 +1116,28 @@ EXPLICIT env (isolation, not result injection).
 
 **ANCHORS:** tests/w4_test_authenticity.test.ts:1, src/verdict.ts:167, src/verdict.ts:102,
 JARVIS-CORE/b6/fence2.py:39.
+
+## EN-190 - W5 THE SEAT + THE ADVERSARIAL SWEEP (2026-09-24T18:35:22Z)
+
+**THE HOST-LIVE SEAT (H1-H7), operated first-person:** the AO daemon UP (pid 2697); the kernel
+service ACTIVE (MainPID 1509636); the live status `{tick:183, daemonOk:true, cursor:941, errors:[]}`;
+13 live `pr_node` rows (2 merged, 11 open); the live CLI verbs green; **the daemon ADVANCES —
+tick 185 → 188 over 40s** (`UPPER_TICK_MS=15000`). Full record: .trident/RUNTIME_LEDGER.md.
+
+**R14 — the audit gate's prose false-positive:** tests/w5_audit_gate.test.ts exercises the REAL
+`register(pi)` surface with a crafted OCR_BIN. A COMPLETED scan (`llm_failures:0`) whose finding
+PROSE says "429/quota" is judged on its FINDINGS (`GATE: FAIL`, 1 high) — NEVER blocked as
+`PROVIDER_QUOTA_EXHAUSTED`. The negative control (a REAL provider error) still blocks.
+
+**THE RESTART:** tests/w5_daemon_restart.test.ts — the cursor is read from the persisted
+`rail_seq` store (99, never rewound to the pre-restart 42).
+
+**THE CORPUS PASS:** tests/redteam_kernel.test.ts expanded 15 → **20 probes** (RT-P7 target
+mismatch, RT-P8 the merged clamp, RT-P9 the malformed-row skip, RT-P10 the unreadable ledger,
+RT-E6 the batch-error index) — each probe is the ATTACK that would have caught a remediated
+defect. **FULL PASS: 20 pass / 0 fail, ZERO confirmed defects.**
+
+**THE VERIFICATION:** the FULL battery **154 pass / 0 fail**; tsc exit 0.
+
+**ANCHORS:** tests/w5_audit_gate.test.ts:1, tests/w5_daemon_restart.test.ts:1,
+tests/redteam_kernel.test.ts:120, .trident/RUNTIME_LEDGER.md:279.
