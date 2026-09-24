@@ -21,8 +21,18 @@ function tmpLedger(rows: object[]): string {
   writeFileSync(p, rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
   return p;
 }
-const greenFence = async () => ({ code: 0, stdout: "PASS", stderr: "" });
-const redFence = async () => ({ code: 1, stdout: "SPEC_FORGED", stderr: "" });
+// FAITHFUL stub (2026-09-24): the REAL fence2.py's `invariant-sha` returns a
+// 16-hex sha (measured: 763f2967da4fc061) and `adjudicate` prints PASS. The old
+// stub returned "PASS" for BOTH, which masked the invariant validation added by
+// the ocr audit (src/verdict.ts now requires exit 0 + /^[0-9a-f]{16}$/).
+const greenFence = async (argv: string[]) => {
+  if (argv.includes("invariant-sha")) return { code: 0, stdout: "763f2967da4fc061", stderr: "" };
+  return { code: 0, stdout: "PASS", stderr: "" };
+};
+const redFence = async (argv: string[]) => {
+  if (argv.includes("invariant-sha")) return { code: 0, stdout: "763f2967da4fc061", stderr: "" };
+  return { code: 1, stdout: "SPEC_FORGED", stderr: "" };
+};
 const greenReview = async () => ({ reviewerHarness: "muse", reviews: [{ status: "approved", targetSha: HEAD }], runs: [{ status: "completed", verdict: "approved", targetSha: HEAD }] });
 const emptyReviews = async () => ({ reviewerHarness: "muse", reviews: [], runs: [] });
 const greenBind = () => ({ ok: true, reason: "FENCE-GREEN" });

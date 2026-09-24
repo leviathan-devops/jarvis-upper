@@ -704,3 +704,21 @@ Battery 107 pass / 0 fail at tests/publisher_wired.test.ts:1
 **THE REMAINING BLOCKER (the merge):** PUT /pulls/2/merge -> 405 "New changes require approval from someone other than the last pusher." The ruleset 23838059 requires 1 approval from a NON-PUSHER. GitHub REJECTS a self-approval (422 "Can not approve your own pull request"); the repo has ONE identity (leviathan-devops); no GitHub App is installed. The 15 review threads were resolved (GraphQL resolveReviewThread) — the thread-resolution rule is satisfied.
 
 **ANCHORS:** src/sync.ts:33, src/main.ts:32, src/runtime.ts:286, src/verdict.ts:133, .github/workflows/gates.yml:64.
+
+## EN-165 - THE OCR AUDIT FINDINGS (GATE: FAIL 0 critical / 24 high) (2026-09-24T11:52:30Z)
+
+**THE FINDING:** the mandatory audit gate (ocr, provider muse-go, session 87fa8ecc) scanned the session's 10 changed files -> **GATE: FAIL (0 critical, 24 high)**. Several are in THIS session's own edits.
+
+**THE FIXES APPLIED (the merge-path + the self-introduced):**
+1. **scripts/spec-diff.ts:127 (SELF-INTRODUCED):** my tokenHit regex was case-sensitive while the keys are lowercased — a CamelCase symbol never matched its lowercased key (a false UNMAPPED). Fixed: both sides case-folded.
+2. **src/publish.ts:71:** the injected-fetch path skipped the NO-TOKEN guard but still built `Authorization: Bearer ` from an empty token. Fixed: the header is OMITTED when no token exists.
+3. **src/publish.ts:38:** a null opts/payload threw OUTSIDE the try/catch, violating the loud-fail law. Fixed: a named NO-INPUT refusal.
+4. **src/verdict.ts:169:** the invariant-sha's exit code was never checked and any stdout line was accepted. Fixed: `inv.code === 0` + `/^[0-9a-f]{16}$/`.
+5. **src/runtime.ts:240:** the tick overlap guard lived only in start()'s wrapper -> a concurrent tick raced. Fixed: the guard is INSIDE tick().
+6. **src/runtime.ts:360:** `if (last) return last` ran BEFORE awaiting the in-flight tick (a stale status on stop). Fixed: await the in-flight promise FIRST.
+7. **.githooks/pre-commit:207:** the G-SEAL `*Checkpoints/*` matched any substring (a false positive on e.g. src/Checkpoints_helper.ts) and the PASS grep missed the whitespace variant. Fixed: a line-wise match + a whitespace-tolerant grep.
+8. **tests/two_source_verdict.test.ts:** the greenFence stub returned "PASS" for BOTH invariant-sha and adjudicate (unrealistic — the real fence returns a 16-hex sha). The stub is made FAITHFUL (not the code relaxed).
+
+**THE VERIFICATION:** tsc exit 0; bun test 124 pass / 0 fail.
+
+**ANCHORS:** scripts/spec-diff.ts:127, src/publish.ts:38, src/publish.ts:71, src/verdict.ts:169, src/runtime.ts:240, src/runtime.ts:360, .githooks/pre-commit:207.

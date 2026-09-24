@@ -167,8 +167,12 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     // the kernel-held value computed over the SPEC minus its sha-map. Compute it
     // here, then adjudicate against it.
     const inv = await runFence([fenceBin, "invariant-sha", opts.jobDir]);
+    // FIXED (ocr audit high): the exit code was never checked and any stdout line
+    // was accepted, so a FAILED invariant-sha fed garbage into --expect-spec-sha.
+    // The exit code + the 16-hex format are now both required.
+    if (inv.code !== 0) throw new Error(`FENCE-INVARIANT-FAILED: exit ${inv.code}`);
     const invariant = inv.stdout.trim().split("\n").filter((l) => l.trim().length > 0).pop() ?? "";
-    if (!invariant) throw new Error("FENCE-NO-INVARIANT-SHA");
+    if (!/^[0-9a-f]{16}$/.test(invariant)) throw new Error(`FENCE-NO-INVARIANT-SHA: ${invariant.slice(0, 40)}`);
     const argv = [fenceBin, "adjudicate", opts.jobDir, "--expect-spec-sha", invariant];
     const r = await runFence(argv);
     fence.ran = true;

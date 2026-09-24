@@ -124,9 +124,13 @@ for (const item of items) {
     // FIXED (ao-review-4 round 2 finding): the content check used a bare
     // substring `includes`, so a key like "tick" matched "sticky" — the header
     // promised TOKEN equality. The match is now a WORD-BOUNDARY token test.
+    // FIXED (ocr audit high): the keys are lowercased by words() but the regex
+    // tested the RAW file text case-sensitively, so a CamelCase/UPPER symbol
+    // (SyncProject, WAL) never matched its lowercased key — a false UNMAPPED.
+    // The text is lowercased to match the keys (both sides case-folded).
     const tokenHit = (text: string, k: string): boolean => {
       const esc = k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      return new RegExp(`(^|[^A-Za-z0-9_])${esc}([^A-Za-z0-9_]|$)`).test(text);
+      return new RegExp(`(^|[^a-z0-9_])${esc}([^a-z0-9_]|$)`).test(text.toLowerCase());
     };
     for (const f of candidates) {
       let text = "";

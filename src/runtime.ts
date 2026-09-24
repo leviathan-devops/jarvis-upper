@@ -238,6 +238,13 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
   let everTicked = false;
 
   async function tick(): Promise<RuntimeStatus> {
+    // FIXED (ocr audit high): the overlap guard lived only in start()'s wrapper,
+    // so a direct/concurrent tick() interleaved state.tick++, the sync writes and
+    // the publish dedup. The guard is now INSIDE tick(): a concurrent call returns
+    // the last settled status instead of racing.
+    if (state.inFlight) return last ?? ({} as RuntimeStatus);
+    state.inFlight = true;
+    try {
     state.tick += 1;
     const errors: string[] = [];
     const daemonOk = await probe();
@@ -337,6 +344,7 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
     appendTick(root, s);
     last = s;
     return s;
+    } finally { state.inFlight = false; }
   }
 
   return {
@@ -357,7 +365,9 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       // fix's bounded loop could time out and STILL launch the second tick. Now
       // stop() awaits the ACTUAL in-flight promise (the tick is internally
       // timeout-bounded), so no racetick can ever run.
-      if (last) return last;
+      // FIXED (ocr audit high): `if (last) return last` ran BEFORE awaiting the
+      // in-flight tick, so stopping mid-tick returned a STALE status and left the
+      // publish unawaited. The in-flight promise is awaited FIRST.
       if (inFlightPromise) await inFlightPromise;
       if (last) return last;
       // FIXED 2026-09-23 (qwen-code-audit run 3 CRITICAL): if the awaited tick

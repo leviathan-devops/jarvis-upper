@@ -39,7 +39,12 @@ export async function publishStatus(
   opts: PublishOpts,
   payload: PublishPayload,
 ): Promise<PublishResult> {
-  const baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL;
+  // FIXED (ocr audit high): a null opts/payload threw synchronously OUTSIDE the
+  // try/catch, violating the file's own loud-fail law. An early named refusal.
+  if (!opts || !payload || !payload.context) {
+    return { context: String(payload?.context ?? ""), state: "error" as const, status: null, ok: false, reason: "NO-INPUT: opts and payload.context are required" };
+  }
+  const baseUrl = opts.baseUrl || DEFAULT_BASE_URL;
   // FIXED 2026-09-23 (qwen-code-audit high): `??` lets an EMPTY STRING through,
   // so a blank opts.token produced `Authorization: Bearer ` (invalid). `||`
   // falls through on "" too.
@@ -68,8 +73,11 @@ export async function publishStatus(
     res = await fetchFn(url, {
       method: "POST",
       signal: AbortSignal.timeout(15000),
+      // FIXED (ocr audit high): the injected-fetch path skipped the NO-TOKEN guard
+      // but still built `Authorization: Bearer ` from an empty token — an invalid
+      // header. The header is now OMITTED when no token exists (the mock owns auth).
       headers: {
-        Authorization: `Bearer ${token}`,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         Accept: "application/vnd.github+json",
         "Content-Type": "application/json",
       },
