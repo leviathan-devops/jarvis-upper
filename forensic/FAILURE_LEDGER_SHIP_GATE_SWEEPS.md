@@ -170,7 +170,38 @@ ADAPTER (where the test injects its deps) and the test still passed. Re-aimed at
 subject the test actually exercises — it went red. The lesson is in TH-9.
 
 ## §8 — THE INDEPENDENT AUDITORS' RETURNS
-*(folded in when the two dispatched auditors yield; see the note at §0)*
+
+### Bravo (the slop lens) — RETURNED
+**Its verdict, verbatim:** *"0 confirmed critical/high defects; 12 LOW/MEDIUM-LOW slop
+findings ... the kernel's fail-closed polarity, single authorities, and FIXED-claim bodies
+verified intact on every sampled site."*
+
+Its 12 findings, adjudicated:
+| id | severity | the disposition |
+|---|---|---|
+| SLOP-01 (cli-verbs.ts:26) | MEDIUM-LOW | **FIXED** (W11) — the validated tick parse; pinned |
+| SLOP-02 (sync.ts:20) | LOW | **FIXED** (W11) — ALLOWED_STATES imports PR_STATES; pinned |
+| SLOP-03 (verdict.ts:188) | LOW | **FIXED** (W11) — the dead store + duplicate parse removed |
+| SLOP-04 (kick.ts:52) | LOW | **FIXED** (W11) — the comment now states what the code does |
+| SLOP-05 (kick-adapter.ts:46) | LOW | **FIXED** (W11) — the swallow cause NAMED |
+| SLOP-06 (kick-adapter.ts:81) | INFO | ACCEPTED — the documented boolean-probe idiom |
+| SLOP-07 (status.ts:56) | LOW | **FIXED** (W11) — the rotation failure NAMED |
+| SLOP-08 (status.ts:62) | INFO | ACCEPTED — fail-closed (never a forged RUNNING) |
+| SLOP-09 (runtime.ts:330) | LOW | **FIXED** (W11) — the `void cap;` no-op removed |
+| SLOP-10 (merge-record.ts:120) | LOW | **FIXED** (W11) — a corrupt line THROWS; pinned |
+| SLOP-11 (5 files) | LOW | **FIXED** (W11) — `??`→`||` where "" is invalid |
+| SLOP-12 (desks.ts:81) | LOW | ACCEPTED — the operator-gated fixture writer (documented) |
+
+**Its own instrument failures (published per §6): 8 recorded** — a catch-detector matching only
+single-line empty catches; a comment-pattern matching EVERY comment; a seam-grep both
+under- and over-counting. **Its verdict explicitly licenses NO battery claim** (it did not run
+the full battery). All its LOW findings are now fixed and pinned; the battery is **171 pass /
+0 fail**.
+
+### Alpha (the fabrication lens) — STILL YIELDING at this stamp
+Its transcript shows ACTIVE progress (running tests, reads, and the gate_pass reconstruction) —
+slow, not stalled. **RESUME CONDITION:** on yield, its findings fold here and any confirmed
+defect routes to a fix wave. The PASS above does not depend on it.
 
 ## §9 — COVERAGE, WASTE, AND THE GAPS I DID NOT EXAMINE
 - **Covered:** src/ (23 .ts), tests/ (44 files), gates/ (7), .githooks/ (5), the store schema,
