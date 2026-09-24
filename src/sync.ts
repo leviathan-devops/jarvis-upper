@@ -26,7 +26,12 @@ export function upsertPr(db: Database, r: PrRow): void {
             ON CONFLICT(id) DO UPDATE SET state=CASE
               WHEN pr_node.state IN ('ready_to_merge','merge_ordered','merged') THEN pr_node.state
               ELSE excluded.state END,
-            head_sha=COALESCE(excluded.head_sha, pr_node.head_sha),
+            -- FIXED (ocr audit high): the state was frozen while head_sha kept
+            -- advancing — an APPROVED row could then point at a new, unvalidated
+            -- SHA (a review/verdict mismatch). The sha is frozen with the state.
+            head_sha=CASE
+              WHEN pr_node.state IN ('ready_to_merge','merge_ordered','merged') THEN pr_node.head_sha
+              ELSE COALESCE(excluded.head_sha, pr_node.head_sha) END,
             worker_hint=COALESCE(excluded.worker_hint, pr_node.worker_hint),
             base_sha=COALESCE(excluded.base_sha, pr_node.base_sha),
             source_branch = COALESCE(${EX}.source_branch, pr_node.source_branch),

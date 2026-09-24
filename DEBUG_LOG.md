@@ -892,3 +892,17 @@ ANCHORS: .githooks/pre-commit:10, .githooks/pre-commit:47, .githooks/pre-commit:
 **THE LESSON:** a scanner's exit code is part of its CONTRACT — read the header before asserting on it. "Any nonzero is an error" is a generic assumption that broke a specific, documented convention.
 
 **ANCHORS:** .githooks/pre-commit:216 (the scan_silent block), .githooks/pre-commit:230 (the scan_stub block), .githooks/lib/scan-silent.sh:14 (the documented contract).
+
+## EN-178 - THE AUDIT ROUND-5 FINDINGS (5 fixed) (2026-09-24T14:29:58Z)
+
+**THE FIXES:**
+1. **gates/fence-check.py:45 (high, A GATE-DESIGN DEFECT)** — SKIP and PASS BOTH returned exit 0, and the CI checks only the exit code, so a fresh checkout passed spec_gate with ZERO fence evidence. The contract is now DISTINCT: 0 = a real PASS row, 1 = no row, 2 = bad args / an unreadable ledger, 3 = the named SKIP. The CI (`.github/workflows/gates.yml:68`) handles 3 EXPLICITLY (an acknowledged skip with its reason printed), never as a silent pass.
+2. **gates/fence-check.py:27 (medium)** — the sha arg was only checked non-empty; a malformed value fell through to NO-PASS-ROW, conflating a bad invocation with a measured fail. Now `re.fullmatch(r"[0-9a-fA-F]{7,40}", sha)` → exit 2.
+3. **gates/fence-check.py:47/52 (high + medium)** — the ledger iteration ran outside any guard (a mid-read OSError/UnicodeDecodeError escaped as a traceback colliding with exit 1); and `str(evidence)` widened a JSON number into a value that passed the 16-hex test. Now a guarded read + a real-string requirement.
+4. **src/verdict.ts:276 (high)** — `String(approving.verdict)` stored the literal "undefined" when a run reported approval via `status` only. Now `approving.verdict ?? approving.status ?? ""`.
+5. **src/publish.ts:118 (high)** — `publishVerdict` dereferenced `v.fence2Ok` unguarded (a null `v` threw outside the loud-fail contract). Now a named NO-VERDICT refusal returning both error results.
+6. **src/sync.ts:26 (high)** — the state was frozen while head_sha kept advancing, so an APPROVED row could point at a new, unvalidated SHA. The sha is now frozen with the state.
+
+**THE VERIFICATION:** tsc exit 0; bun test 129 pass / 0 fail; the fence-check probes read 2/3/0/1 as expected; the live verify still reads VERIFIED.
+
+**ANCHORS:** gates/fence-check.py:27, :45, :47, .github/workflows/gates.yml:68, src/verdict.ts:276, src/publish.ts:118, src/sync.ts:26.

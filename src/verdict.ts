@@ -269,11 +269,20 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
       // GREEN on any head. The binding is now EXPLICIT: a run must NAME this head.
       const binds = (r: { targetSha?: string | null }) => r.targetSha === opts.headSha;
       const rejecting = runs.find((r) => binds(r) && isReject(r));
-      const approving = runs.find((r) => binds(r) && isApprove(r));
+      const approving = runs.find((r) => binds(r) && isApprove(r)) as
+        | { verdict?: string | null; status?: string | null; targetSha?: string | null }
+        | undefined;
       // an approval on a DIFFERENT sha is STALE — named, never silently ignored
       const staleApproval = runs.find((r) => !binds(r) && isApprove(r));
       if (rejecting) review.reason = `REVIEW-REJECTED: ${verdictOf(rejecting)}`;
-      else if (approving) { review.verdict = String(approving.verdict); review.targetSha = approving.targetSha ?? null; review.reason = "REVIEW-GREEN"; }
+      else if (approving) {
+        // FIXED (ocr audit high): `String(approving.verdict)` stored the literal
+        // "undefined" when the run carried `status: "approved"` and no `verdict`.
+        // The recorded value is the field that actually decided the approval.
+        review.verdict = String(approving.verdict ?? approving.status ?? "");
+        review.targetSha = approving.targetSha ?? null;
+        review.reason = "REVIEW-GREEN";
+      }
       else if (staleApproval) review.reason = `REVIEW-STALE-SHA: ${String(staleApproval.targetSha).slice(0, 7)} != head ${opts.headSha.slice(0, 7)}`;
       else review.reason = `REVIEW-NOT-APPROVED: verdicts ${JSON.stringify(runs.map((r) => r.verdict ?? null))}`;
     }

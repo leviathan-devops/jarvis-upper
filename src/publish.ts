@@ -119,6 +119,15 @@ export async function publishVerdict(
   opts: PublishOpts,
   v: VerdictInput,
 ): Promise<PublishResult[]> {
+  // FIXED (ocr audit high): `v.fence2Ok` was dereferenced unguarded, so a null `v`
+  // threw a synchronous TypeError OUTSIDE the loud-fail contract. A named refusal.
+  if (!v) {
+    return [
+      { context: STATUS_CONTEXTS.fence2, state: "error" as const, status: null, ok: false, reason: "NO-VERDICT" },
+      { context: STATUS_CONTEXTS.verdict, state: "error" as const, status: null, ok: false, reason: "NO-VERDICT" },
+    ];
+  }
+
   const [fence2, verdict] = await Promise.all([
     publishStatus(opts, {
       context: STATUS_CONTEXTS.fence2,
