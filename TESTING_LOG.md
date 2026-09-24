@@ -484,3 +484,26 @@ its fix proven by behavior).**
 ### THE REMAINING GAPS (both approval-shaped)
 1. `factory/verdict=success`: needs an AO review run APPROVING the published head 4942188. The AO rail's approvals are at 74f1b45/dcda4c27 (older session-branch commits); the rail cannot review 4942188 (no AO session hosts PR #2; jarvis-upper-2 is terminated, resume-agent -> 409).
 2. THE MERGE: the ruleset 23838059 requires 1 approval "from someone other than the last pusher". The repo has ONE identity (leviathan-devops); GitHub refuses self-approval (HTTP 422 "Can not approve your own pull request"). No second identity / App key exists on this host.
+
+## TEST RESULT - 2026-09-24T10:44:36Z - THE NEW HEAD 71fbe3d (the 5 fixes + the CI + the fence + the re-review)
+
+### HOST - the 5 review findings FIXED + verified
+- tsc: exit 0. bun test: 124 pass / 0 fail (the checkpoint-floor fix included).
+- publishStatus NO-TARGET probe: {owner:""} -> {"state":"error","reason":"NO-TARGET: owner/repo/sha are required"} (the negative bites; the real call still succeeds).
+
+### HOST - the CI on 71fbe3d (6/6 green)
+- the push carried the `oversized` label; the fresh pull_request payload ran the gates:
+  gates/test=success, gates/issue-link=success, gates/theatrical-verification=success,
+  gates/anti-theatrical=success, gates/spec-gate=success, gates/diff-budget=success. **6/6.**
+
+### HOST - the fence on 71fbe3d
+- a real git worktree at 71fbe3d + the fence job in its .trident/fence/ -> init OK ->
+  invariant-sha -> adjudicate -> step-0 PASS, exit 0; ledger verdict PASS, spec_bound:true.
+
+### HOST - the kernel store + guardrail at 71fbe3d
+- pr_node (pr:green-merge/.trident/fence:2, state ready_to_merge, head 71fbe3d) + the 4
+  internal gate_pass rows at 71fbe3d -> guardrail {"ok":true,"reasons":[]}.
+
+### HOST - the AO re-review (triggered via the CLI)
+- `ao review trigger jarvis-upper-4` -> "started a new review for jarvis-upper-4" (exit 0).
+- the reviewer spawned (pid 797407, 50-114% CPU) reviewing 71fbe3d.
