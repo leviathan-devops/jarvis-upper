@@ -10,11 +10,13 @@ import { syncPrs, type PrRow } from "./sync";
 import { listPrsFromAo } from "./adapter-verbs";
 import { orderMerges } from "./plan";
 import { guardrail, guardrailRemote, recordGatePass } from "./guardrail";
+import { fetchPrMerge, recordMerge, mergeRecorded } from "./merge-record";
 import { appendTick, writeStatus, type RuntimeStatus } from "./status";
 import { EventRail, parseSse } from "../ao-client/rail";
 import { reduceEvent } from "./reducers";
 import { health } from "../ao-client/client";
 import { wireCapturePath } from "./status";
+import { LEDGER_DEFAULT } from "./verdict";
 import { verify, type VerifyOpts, type VerifyResult } from "./verdict";
 import { publishStatus, publishVerdict, type PublishResult } from "./publish";
 import { STATUS_CONTEXTS } from "./status-contract";
@@ -229,6 +231,7 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
   // W5 — the publish target (absent by default: the tick publishes only when
   // a caller supplies it, so a bare runtime tick never POSTs to GitHub).
   const publishOpts = deps.publishOpts;
+  const ledgerPath = (publishOpts as { ledgerPath?: string } | undefined)?.ledgerPath ?? LEDGER_DEFAULT;
 
   const state = { running: false, tick: 0, inFlight: false };
   let last: RuntimeStatus | null = null;
@@ -294,6 +297,26 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       }));
     }
     const eligible = readyRows.filter((r) => guardrail(db, r.id).ok).length;
+
+    // W6 — RECORD THE TERMINAL EVENT (the DONE condition's second half). The
+    // factory never merges (the human does), but it OBSERVES the merge and records
+    // the merge commit's sha into the ledger. A PR in 'merge_ordered' that GitHub
+    // reports as merged lands a ledger row and advances to 'merged'. Idempotent: a
+    // re-polling tick never double-records the same merge sha.
+    if (publishOpts) {
+      const orderedRows = db.query("SELECT id, pr_number, head_sha, session_id FROM pr_node WHERE state='merge_ordered'").all() as
+        { id: string; pr_number: number; head_sha: string | null; session_id: string | null }[];
+      for (const r of orderedRows) {
+        try {
+          const m = await fetchPrMerge({ owner: publishOpts.owner, repo: publishOpts.repo, prNumber: r.pr_number, token: publishOpts.token ?? "", baseUrl: publishOpts.baseUrl, fetchImpl: publishOpts.fetchImpl });
+          if (m.merged && m.mergeCommitSha && !mergeRecorded(ledgerPath, m.mergeCommitSha)) {
+            const recorded = recordMerge(ledgerPath, { prId: r.id, prNumber: r.pr_number, mergeSha: m.mergeCommitSha, headSha: r.head_sha ?? "", session: r.session_id ?? "" });
+            if (recorded) db.query("UPDATE pr_node SET state='merged' WHERE id = ?").run(r.id);
+            else errors.push(`merge-record:${r.id}`);
+          }
+        } catch (e) { errors.push(`merge-poll:${String(e).slice(0, 60)}`); }
+      }
+    }
 
     // W5 — publish the verdict for every ELIGIBLE PR. The two `factory/*`
     // contexts the ruleset requires are posted here. A publish failure MUST

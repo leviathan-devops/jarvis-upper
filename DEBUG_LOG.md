@@ -759,3 +759,13 @@ test drives safeTick+tick() together.
 **THE VERIFICATION:** tsc 0; bun test 124 pass / 0 fail; the daemon advances after the restart (see runtime/ticks.log).
 
 **ANCHORS:** src/runtime.ts:213, src/publish.ts:86, src/adapter-verbs.ts:73, src/verdict.ts:186.
+
+## EN-168 - THE MISSING TERMINAL-EVENT RECORDER (a DONE-condition gap) (2026-09-24T13:08:57Z)
+
+**THE FINDING:** the goal's DONE condition is "the merge commit's sha is in the ledger AND the GitHub read-back shows factory/fence2=success". The FIRST half had NO CODE PATH: the kernel's design says "The factory NEVER merges — it orders and publishes. The human merges" (src/execute.ts:6-8), and a PR lands in `merge_ordered`, never `merged`. NOTHING observed the merge or recorded its sha. The ledger is written only by fence2.py (an adjudication), and a merge is not a fence job.
+
+**THE BUILD:** `src/merge-record.ts` — the TERMINAL-EVENT RECORDER. `fetchPrMerge` reads the authoritative merge state (GET /repos/{o}/{r}/pulls/{n}); `recordMerge` appends the ledger row (`job:"merge"`, `verdict:"MERGED"`, the evidence prefix = the MERGE COMMIT's sha); `mergeRecorded` makes a re-polling tick idempotent. Wired into the tick as W6: a `merge_ordered` PR that GitHub reports as merged lands the row and advances to `merged`.
+
+**THE VERIFICATION:** bun test 5 pass / 0 fail on tests/merge_record.test.ts (the positive + 3 negatives: NO-TARGET never fetches, HTTP-404 is named, idempotence detected); tsc exit 0; the full battery 129 pass / 0 fail.
+
+**ANCHORS:** src/merge-record.ts:20, src/merge-record.ts:62, src/runtime.ts:300 (the W6 tick section), src/execute.ts:6 (the design note it closes).
