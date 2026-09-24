@@ -850,3 +850,23 @@ ANCHORS: .githooks/pre-commit:10, .githooks/pre-commit:47, .githooks/pre-commit:
 **THE VERIFICATION:** tsc exit 0; bun test 129 pass / 0 fail; `bun scripts/spec-diff.ts` exit 0 with 0 UNMAPPED; the indented-item probe now parses the bullet as its OWN item (it was appended to item 1 before).
 
 **ANCHORS:** scripts/spec-diff.ts:60, scripts/spec-diff.ts:85, scripts/spec-diff.ts:153, scripts/spec-diff.ts:131.
+
+## EN-175 - THE AUDIT'S FINDINGS ON THE MERGE PATH (muse-go lane, session c29701df) (2026-09-24T14:07:21Z)
+
+**THE GATE:** the ocr audit was BLOCKED on the muse-free lane (PROVIDER_QUOTA_EXHAUSTED), so the lane was switched to **muse-go** (`ocr config set provider muse-go` + `protocol openai-responses`, the HT-BUG-19 fix). The muse-go seat was verified ALIVE (a real call returned MUSE_GO_ALIVE, HTTP 200). Re-ran the audit: **GATE: FAIL (0 critical, 25 high)** on a WIDER scope (filesReviewed=10).
+
+**THE FIXES (the merge path + my own code):**
+1. **src/verdict.ts:208 (THE BIG ONE)** — the ledger gate was `ledgerVerdict && ledgerVerdict !== "PASS"`, so a MISSING ledger row (null) FELL THROUGH to `bind()` → FENCE-GREEN. FIXED: a null verdict is a refusal (`FENCE-LEDGER:NO-ROW`).
+2. **src/verdict.ts:195 (EXPOSED BY #1)** — the ledger NEEDLE was the jobDir's BASENAME (the SEAT, "jarvis-upper-4") while fence2.py writes the row's `job` as the SPEC's job name ("fence") — so the lookup NEVER matched and the old null silently read green. FIXED: the needle is the SPEC's `job:` value.
+   MEASURED before/after: before, the live verify read VERIFIED *without* a matching row; now it reads VERIFIED *with* the row genuinely matched (the two-source law is truly enforced).
+3. **src/verdict.ts:239** — `verdictOf` read only `r.verdict`, ignoring `r.status` (the AO payloads carry "approved"/"completed"). FIXED: both fields honoured.
+4. **src/runtime.ts:332** — the tick's dedup filter keyed on the HEAD alone, so a verdict CHANGE on the same head never reached `publishVerdictForPr` (whose own dedup is keyed on the verdict state). FIXED: the head filter is removed.
+5. **src/runtime.ts:115** — `Math.max(...parsed.map(...))` spread the whole SSE array onto the call stack (a RangeError on a large backlog → tick-threw). FIXED: a bounded loop.
+6. **src/sync.ts:22 (MY FIX HAD NOT LANDED)** — the state-clobber was still present; the sticky-state CASE is now applied AND PROBED (a stale "open" poll leaves `ready_to_merge` intact).
+7. **src/merge-record.ts:94 (FATAL)** — an inline `require("node:fs")` in an ESM module (Bun tolerated it; Node/bundlers would throw). FIXED: hoisted to the top import.
+8. **src/merge-record.ts:61/95** — an empty/malformed sha was appended as a MERGED row, and `includes(mergeSha)` was true for an empty sha (every string contains ""). FIXED: both shas validated (`/^[0-9a-f]{7,40}$/`) + an exact-field dedup.
+9. **src/adapter-verbs.ts:78** — the inner loop index SHADOWED the outer batch offset (a failure on batch N>0 logged a batch-0 session id). FIXED: a distinct index.
+
+**THE VERIFICATION:** tsc exit 0; bun test 129 pass / 0 fail; the sync stickiness PROBED; the merge-record validation PROBED; the live verify reads VERIFIED with a genuinely matched ledger row; the missing-row probe now REFUSES.
+
+**ANCHORS:** src/verdict.ts:208, src/verdict.ts:195, src/verdict.ts:239, src/runtime.ts:332, src/runtime.ts:115, src/sync.ts:22, src/merge-record.ts:94, src/adapter-verbs.ts:78.

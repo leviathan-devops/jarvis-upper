@@ -99,7 +99,11 @@ test("two_source_verdict: the FORBIDDEN EVIDENCE SET is never consulted", async 
 
 test("two_source_verdict: NEGATIVE — a green fence that is NOT bound to the head does not count", async () => {
   // DEFAULT bind (no injection): /tmp is not a worktree at the claimed head → red.
-  const ledger = tmpLedger([{ job: "dt-shapes", verdict: "PASS", evidence: "abcdabcdabcdabcd|sandbox=bwrap" }]);
+  // FIXED (ocr audit): the fixture named job "dt-shapes" while the jobDir is "/tmp"
+  // (needle "tmp"), so the row did not match and the NEW missing-row refusal fired
+  // before the binding check this test targets. The row now names the JOB IT IS
+  // ABOUT ("tmp"), so the binding check is the one that refuses.
+  const ledger = tmpLedger([{ job: "tmp", verdict: "PASS", evidence: "abcdabcdabcdabcd|sandbox=bwrap" }]);
   const r = await verify({ jobDir: "/tmp", headSha: HEAD, sessionId: SESSION, runFence: greenFence, fetchReviews: greenReview, ledgerPath: ledger });
   expect(r.verdict).toBe("UNVERIFIED");
   expect(r.reasons.some((x) => x.startsWith("FENCE-NOT-IN-A-WORKTREE") || x.startsWith("FENCE-HEAD-MISMATCH"))).toBe(true);

@@ -192,7 +192,20 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   }
   // The jobDir segment is passed through as-is (possibly undefined) and
   // ledgerRowFor returns null for it — the null is handled below, not masked.
-  const row = ledgerRowFor(ledgerPath, opts.jobDir.split("/").filter(Boolean).pop());
+  // FIXED (ocr audit high, MEASURED): the needle was the jobDir's BASENAME — for a
+  // session worktree that is the SEAT ("jarvis-upper-4"), while fence2.py writes the
+  // row's `job` as the SPEC's job name ("fence"). The lookup therefore NEVER matched,
+  // the row read null, and (before the null-refusal fix above) a missing row silently
+  // read FENCE-GREEN. The needle is now the SPEC's `job:` value, falling back to the
+  // basename when no SPEC is readable.
+  const specJob = ((): string | undefined => {
+    try {
+      const sp = readFileSync(`${opts.jobDir}/SPEC.md`, "utf8");
+      const m = sp.match(/^\s*job:\s*(\S+)\s*$/m);
+      return m ? m[1] : undefined;
+    } catch { return undefined; }
+  })();
+  const row = ledgerRowFor(ledgerPath, specJob ?? opts.jobDir.split("/").filter(Boolean).pop());
   fence.ledgerVerdict = row?.verdict ?? null;
   // ADJUDICATED (ocr audit high, two-sided — REJECTED): the finding claimed "the
   // ledger invariant SHA is never bound". MEASURED: the ledger row's 16-hex
@@ -205,7 +218,11 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // artifact sha16 to the invariant would flag EVERY green row (a false positive).
   if (fence.ran) {
     if (fence.exitCode !== 0) fence.reason = `FENCE-FAILED: exit ${fence.exitCode}`;
-    else if (fence.ledgerVerdict && fence.ledgerVerdict !== "PASS") fence.reason = `FENCE-LEDGER:${fence.ledgerVerdict}`;
+    // FIXED (ocr audit high): the old guard was `ledgerVerdict && ledgerVerdict !== "PASS"`,
+    // so a MISSING ledger / no matching row / an undefined needle left ledgerVerdict
+    // null and FELL THROUGH to bind() -> FENCE-GREEN. The two-source law requires a
+    // PASS ROW: a null verdict is now a refusal, not a pass.
+    else if (fence.ledgerVerdict !== "PASS") fence.reason = `FENCE-LEDGER:${fence.ledgerVerdict ?? "NO-ROW"}`;
     // The ledger's sha16 is the SPEC's INVARIANT HASH, not a git sha — they are
     // different objects. The honest binding is: the adjudicated JOB DIR must be a
     // git worktree whose HEAD IS the claimed head, with the artifact committed clean.
@@ -236,9 +253,14 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
       // [approved@H, changes_requested@H] read REVIEW-GREEN and the verdict
       // posted success for a REJECTED head — a fail-open. A rejection on the head
       // sha now wins over any approval (the fail-closed polarity).
-      const verdictOf = (r: { verdict?: string | null }) => String(r.verdict ?? "").toLowerCase();
-      const isReject = (r: { verdict?: string | null }) => (REJECTING_VERDICTS as readonly string[]).includes(verdictOf(r));
-      const isApprove = (r: { verdict?: string | null }) => (APPROVING_VERDICTS as readonly string[]).includes(verdictOf(r));
+      // FIXED (ocr audit high): only `r.verdict` was read, but the merged type (and
+      // the AO daemon's payloads) also carry `status: "approved"|"completed"` — a run
+      // reporting approval via `status` alone read REVIEW-NOT-APPROVED. Both fields
+      // are now honoured (fail-closed either way).
+      const verdictOf = (r: { verdict?: string | null; status?: string | null }) =>
+        String(r.verdict ?? r.status ?? "").toLowerCase();
+      const isReject = (r: { verdict?: string | null; status?: string | null }) => (REJECTING_VERDICTS as readonly string[]).includes(verdictOf(r));
+      const isApprove = (r: { verdict?: string | null; status?: string | null }) => (APPROVING_VERDICTS as readonly string[]).includes(verdictOf(r));
       // FIXED 2026-09-23 (qwen-code-audit re-run REAL): the previous fix checked
       // EVERY run, so a rejection on a DIFFERENT sha blocked THIS head — over-
       // blocking. The per-sha law: only a run BOUND to this head can decide it.

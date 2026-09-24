@@ -19,7 +19,13 @@ export function upsertPr(db: Database, r: PrRow): void {
   db.query(`INSERT INTO pr_node(id, project, pr_number, session_id, head_sha,
             base_sha, source_branch, target_branch, state, worker_hint, minted_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s','now'))
-            ON CONFLICT(id) DO UPDATE SET state=excluded.state,
+            -- FIXED (ocr audit high, MEASURED): this line clobbered an ADVANCED state
+            -- (ready_to_merge/merge_ordered/merged) back to the API-reported "open" on
+            -- every poll — the publisher then never saw an eligible PR. An advanced
+            -- state is STICKY: the sync only advances an "open" row.
+            ON CONFLICT(id) DO UPDATE SET state=CASE
+              WHEN pr_node.state IN ('ready_to_merge','merge_ordered','merged') THEN pr_node.state
+              ELSE excluded.state END,
             head_sha=COALESCE(excluded.head_sha, pr_node.head_sha),
             worker_hint=COALESCE(excluded.worker_hint, pr_node.worker_hint),
             base_sha=COALESCE(excluded.base_sha, pr_node.base_sha),

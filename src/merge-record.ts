@@ -8,7 +8,7 @@
 // path. This module is that path: the factory OBSERVES the merge (it does not
 // perform it) and records the merge commit's sha into the same append-only ledger
 // the fence writes.
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 export interface PrMergeState {
@@ -62,6 +62,12 @@ export function recordMerge(
   ledgerPath: string,
   row: { prId: string; prNumber: number; mergeSha: string; headSha: string; session: string },
 ): boolean {
+  // FIXED (ocr audit high): an empty/malformed sha was appended as a MERGED
+  // terminal row (evidence "|pr=..." still satisfied a naive DONE check), and
+  // headSha.slice assumed a non-empty string. Both are validated LOUDLY first.
+  if (!/^[0-9a-f]{7,40}$/.test(row.mergeSha) || !/^[0-9a-f]{7,40}$/.test(row.headSha)) {
+    return false;
+  }
   try {
     const dir = dirname(ledgerPath);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -91,10 +97,22 @@ export function recordMerge(
 export function mergeRecorded(ledgerPath: string, mergeSha: string): boolean {
   try {
     if (!existsSync(ledgerPath)) return false;
-    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    // FIXED (ocr audit high): the inline `require("node:fs")` inside an ESM module
+    // throws `ReferenceError: require is not defined` under Node/bundlers (Bun
+    // tolerates it, which is why the tests passed) — readFileSync is now imported
+    // at the top. The substring match was also unsound: `includes(mergeSha)` is
+    // TRUE for an empty mergeSha (every string contains ""), so a blank sha
+    // deduped every merge. The match is now an EXACT field test on a validated sha.
+    if (!/^[0-9a-f]{7,40}$/.test(mergeSha)) return false;
     return readFileSync(ledgerPath, "utf8")
       .split("\n")
-      .some((l) => l.includes(`"job":"merge"`) && l.includes(mergeSha));
+      .some((l) => {
+        if (!l.includes('"job":"merge"')) return false;
+        try {
+          const row = JSON.parse(l) as { evidence?: string };
+          return (row.evidence ?? "").split("|")[0] === mergeSha;
+        } catch { return false; }
+      });
   } catch {
     return false;
   }

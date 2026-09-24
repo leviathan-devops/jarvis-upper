@@ -117,7 +117,11 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     const rail = new EventRail(db);
     const frames: number[] = [];
     await rail.attach([buf], (ev) => { frames.push(ev.seq); reduceEvent(db, ev); });  // reducers' real caller
-    const lastSeq = parsed.length > 0 ? Math.max(...parsed.map((e) => e.seq)) : 0;
+    // FIXED (ocr audit high): `Math.max(...arr)` spreads the WHOLE array onto the
+    // call stack — a large SSE backlog (tens of thousands of frames) throws
+    // RangeError and turned a busy stream into a tick-threw. A bounded loop.
+    let lastSeq = 0;
+    for (const e of parsed) if (e.seq > lastSeq) lastSeq = e.seq;
     if (parsed.length > 0) {
       // the wire-capture artifact: proof the adapter carried REAL bytes
       await Bun.write(wireCapturePath(root), JSON.stringify({ ts: new Date().toISOString(), parsedFrames: parsed.length, newlyProcessed: frames.length, bytes: buf.length, lastSeq }, null, 2) + "\n");
@@ -329,7 +333,11 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       // EVERY tick (a 15s POST storm per PR). A (pr, head) is published ONCE: the
       // dedup is keyed on the head sha, so a NEW head publishes again but an
       // unchanged head is skipped.
-      const publishable = readyRows.filter((r) => isEligible(r.id) && r.head_sha && lastPublished.get(r.id) !== r.head_sha);
+      // FIXED (ocr audit high): this filter keyed on the HEAD alone, so a verdict
+      // CHANGE on the same head (a review arriving after the fence published red)
+      // never reached publishVerdictForPr — whose OWN dedup is keyed on the verdict
+      // state. The head filter is removed; the verdict-state dedup below decides.
+      const publishable = readyRows.filter((r) => isEligible(r.id) && r.head_sha);
       // F23: bounded parallel publish (max 4 concurrent)
       const PUB_CONC = 4;
       for (let i = 0; i < publishable.length; i += PUB_CONC) {
