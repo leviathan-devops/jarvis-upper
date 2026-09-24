@@ -1087,3 +1087,32 @@ list stays clean; the first cut pushed it unconditionally and broke two_source_v
 **THE VERIFICATION:** tests/w3_slop.test.ts **3 pass / 0 fail**; the FULL battery green; tsc exit 0.
 
 **ANCHORS:** src/adapter-verbs.ts:80, src/cli-verbs.ts:11, src/cli-verbs.ts:106, src/verdict.ts:210.
+
+## EN-189 - W4 THE TEST-AUTHENTICITY WAVE (R15) (2026-09-24T18:28:59Z)
+
+**R15 — the battery was mock-majority:** only 1 test touched the real fence+reviews+ledger.
+W4 adds tests/w4_test_authenticity.test.ts — 3 tests that run the REAL fence2.py, REAL git,
+and a REAL ledger:
+
+| test | what it proves |
+|---|---|
+| test_real_fence_verified | a REAL fence job (git worktree + committed artifact) → fence2.py adjudicate PASS → verify() VERIFIED (ledgerVerdict PASS, reasons []) |
+| test_real_fence_refuses | an artifact flipped after the commit → the REAL fence/bind REFUSES (FENCE-FAILED / DRIFT) |
+| test_real_ledger_binding | the ledger row the REAL fence wrote names the SPEC's job; a mismatched head still refuses (FENCE-HEAD-MISMATCH) |
+
+**THE ONE SEAM, DOCUMENTED:** `fetchReviews` is stubbed (a live approval needs a LIVE AO
+session); the FENCE is NEVER injected — it runs for real. The ledger path is redirected via an
+EXPLICIT env (isolation, not result injection).
+
+**MEASURED TRAPS (both cost real debugging):**
+1. `Bun.spawnSync` does NOT inherit a MUTATED `process.env` (a probe child read "MISSING") —
+   the first cut's `process.env.FENCE_LEDGER = ...` was a NO-OP and the fence wrote the
+   PRODUCTION ledger (8 leaked rows, cleaned: 1286 → 1278). The env MUST be passed explicitly.
+2. A ledger placed INSIDE the job dir makes the worktree dirty → the (correct) bind refuses
+   FENCE-DIRTY-WORKTREE. The ledger lives outside.
+
+**THE VERIFICATION:** tests/w4_test_authenticity.test.ts **3 pass / 0 fail**; the FULL battery
+**147 pass / 0 fail**; tsc exit 0; the production ledger clean (0 test rows).
+
+**ANCHORS:** tests/w4_test_authenticity.test.ts:1, src/verdict.ts:167, src/verdict.ts:102,
+JARVIS-CORE/b6/fence2.py:39.
