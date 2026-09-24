@@ -882,3 +882,13 @@ ANCHORS: .githooks/pre-commit:10, .githooks/pre-commit:47, .githooks/pre-commit:
 **THE VERIFICATION:** bash -n clean; the nested-test probe bites; bun test 129 pass / 0 fail.
 
 **ANCHORS:** .githooks/pre-commit:213, .githooks/pre-commit:223, .githooks/pre-commit:89, scripts/spec-diff.ts:121.
+
+## EN-177 - THE CRITICAL I INTRODUCED (the scanner exit-code contract) (2026-09-24T14:23:26Z)
+
+**THE FINDING (ocr audit CRITICAL, .githooks/pre-commit:216):** my EN-176 fix treated ANY nonzero scanner exit as a crash. But scan_silent/scan_stub's DOCUMENTED contract (their own headers) is **"returns the hit count as the exit code (capped at 125/255)"**. So a file WITH hits exits nonzero → my block REJECTed it as W-14 and `continue`d, SKIPPING the per-hit W-13/W-14 reporting. A fix that silently disabled the gate's real job.
+
+**THE FIX:** the distinction is the CAP: 0 = clean, 1..125 (scan_silent) / 1..255 (scan_stub) = hits (the normal path), > the cap = anomalous (a crashed or undefined scanner). Both blocks now test `-gt` the cap.
+
+**THE LESSON:** a scanner's exit code is part of its CONTRACT — read the header before asserting on it. "Any nonzero is an error" is a generic assumption that broke a specific, documented convention.
+
+**ANCHORS:** .githooks/pre-commit:216 (the scan_silent block), .githooks/pre-commit:230 (the scan_stub block), .githooks/lib/scan-silent.sh:14 (the documented contract).

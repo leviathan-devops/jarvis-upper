@@ -210,14 +210,17 @@ while IFS= read -r f; do
     FAIL=1
     continue
   fi
-  # FIXED (ocr audit high): `|| true` + `2>/dev/null` converted a scanner CRASH
-  # into empty output, which the next test read as CLEAN — a fail-open. The exit
-  # code is captured and a nonzero one REJECTS.
+  # FIXED (ocr audit high then CRITICAL): the FIRST version of this fix treated any
+  # nonzero exit as a crash — but scan_silent's DOCUMENTED contract is "returns the
+  # HIT COUNT as the exit code (capped at 125)". So a file WITH hits exited nonzero,
+  # the block REJECTed it as W-14 and `continue`d, SKIPPING the per-hit W-13 report.
+  # The correct distinction: 0 = clean, 1..125 = hits (the normal path), > 125 =
+  # anomalous (a crashed/undefined scanner, since the cap is 125).
   SILENT_OUT="$(scan_silent "$TMPFILE" 2>/dev/null)"
   SC_RC=$?
-  if [ "$SC_RC" -ne 0 ]; then
+  if [ "$SC_RC" -gt 125 ]; then
     rm -f "$TMPFILE"
-    echo "REJECT(W-14): scan_silent failed on $f (exit $SC_RC) — a crashed scanner must not read as clean" >&2
+    echo "REJECT(W-14): scan_silent failed on $f (exit $SC_RC > the 125 hit-count cap) — a crashed scanner must not read as clean" >&2
     FAIL=1
     continue
   fi
@@ -230,13 +233,13 @@ while IFS= read -r f; do
       done <<< "$SILENT_OUT"
     fi
   fi
-  # FIXED (ocr audit high): the same fail-open as scan_silent — a crashed
-  # scan_stub read as clean. The exit code is captured and REJECTS.
+  # FIXED (ocr audit high then CRITICAL): same contract — scan_stub returns the hit
+  # count (capped at 255). > 255 is anomalous; 1..255 is the normal hit path.
   STUB_OUT="$(scan_stub "$TMPFILE" 2>/dev/null)"
   ST_RC=$?
-  if [ "$ST_RC" -ne 0 ]; then
+  if [ "$ST_RC" -gt 255 ]; then
     rm -f "$TMPFILE"
-    echo "REJECT(W-14): scan_stub failed on $f (exit $ST_RC)" >&2
+    echo "REJECT(W-14): scan_stub failed on $f (exit $ST_RC > the 255 hit-count cap)" >&2
     FAIL=1
     continue
   fi
