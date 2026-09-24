@@ -906,3 +906,21 @@ ANCHORS: .githooks/pre-commit:10, .githooks/pre-commit:47, .githooks/pre-commit:
 **THE VERIFICATION:** tsc exit 0; bun test 129 pass / 0 fail; the fence-check probes read 2/3/0/1 as expected; the live verify still reads VERIFIED.
 
 **ANCHORS:** gates/fence-check.py:27, :45, :47, .github/workflows/gates.yml:68, src/verdict.ts:276, src/publish.ts:118, src/sync.ts:26.
+
+## EN-179 - THE MUSE PIN (the operator's ruling): THREE SHADOWING LAYERS + A SINGLE-KEY LANE (2026-09-24T15:05:55Z)
+
+**THE OPERATOR'S RULING:** "PIN THE MUSE MODEL ON IT PERMANENTLY SO IT USES THIS BY DEFAULT." MEASURED: three separate layers kept the GO muse from being the default, and the audit lane used ONE key where the pool had EIGHT.
+
+**LAYER 1 — THE PROJECT OVERLAY (the decisive shadow).** `jarvis-upper/.omp/config.yml` (a REPO-LEVEL overlay — "the worker's cwd IS this directory in every AO worktree") pinned:
+- `default: poolside/poolside/laguna-s-2.1:high` and `task: poolside/...laguna-s-2.1:high` — **LAGUNA, not muse**;
+- `plan/slow/sonic/reviewer: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh` — the FREE zen lane (20/min), not GO.
+MEASURED with `omp config get modelRoles` IN THIS PROJECT: `default = poolside/poolside/laguna-s-2.1:high`. The GLOBAL config said muse; the PROJECT overlay overrode it. **FIXED:** every working role → `opencode-go/muse-spark-1.3-contributor:xhigh`; the fallback chain reordered muse-GO first. RE-MEASURED: `default = opencode-go/muse-spark-1.3-contributor:xhigh`.
+
+**LAYER 2 — THE AO WORKER PROFILE.** `~/.omp/profiles/jarvis-worker/agent/config.yml` (what every AO-spawned worker boots with) pinned the SAME laguna roles. **FIXED** identically; its `enabledModels` already admitted the GO muse (12 references), so only the roles needed it.
+
+**LAYER 3 — THE ocr AUDIT LANE'S SINGLE KEY.** `custom_providers.muse-go.api_key_cmd` was `go-key.sh`, which returns ONE key (auth.json's `opencode-go.apiKey`). MEASURED: of the pool's 8 keys, **only 3 answer (go-1/6/7 → HTTP 200); go-2..5 → HTTP 429; go-8 → HTTP 400** — while the pool's own aliveness claimed ALL 8 "ok" (STALE). So a burst hit one key's limit and ocr reported `PROVIDER_QUOTA_EXHAUSTED` with 7 keys idle. **FIXED:** (a) a NEW pool-aware ROTATING resolver `~/.omp/agent/bin/go-key-pool.sh` (consults the pool's aliveness, round-robins the alive set, falls back to the single key); (b) the measured-dead keys marked DEAD in the pool (`go-pool-ctl.ts dead`); (c) ocr's `api_key_cmd` repointed at the resolver.
+PROOF: the resolver returned 4 DIFFERENT keys across 4 calls; each alive key (go-1/6/7) answered HTTP 200; the audit then RAN (no quota error — it reached its own TIME limit after doing real work).
+
+**THE VERIFICATION:** both config files re-read (`default = opencode-go/muse-spark-1.3-contributor:xhigh` in BOTH); the pool snapshot shows 3 ok / 5 dead; a real muse call returns HTTP 200.
+
+**ANCHORS:** jarvis-upper/.omp/config.yml:1, ~/.omp/profiles/jarvis-worker/agent/config.yml:18, ~/.omp/agent/bin/go-key-pool.sh:1, ~/.opencodereview/config.json (muse-go.api_key_cmd).

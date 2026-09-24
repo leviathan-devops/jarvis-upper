@@ -1,31 +1,37 @@
 # jarvis-upper — REPO-LEVEL omp overlay. The worker's cwd IS this directory in
 # every AO worktree, so these roles apply to every AO-spawned omp worker here
 # regardless of the daemon's env. Mirrors ~/.omp/profiles/jarvis-worker/agent/config.yml.
-#   default/task = POOLSIDE DIRECT (inference.poolside.ai — NOT OpenRouter)
-#   sonic/reviewer/plan/slow = zen-free muse-spark-1.3 :xhigh
-#   smol/scout = openrouter nemotron-3.5-lightning :free
-#   LAW: muse-spark-1.3* -> ALWAYS :xhigh · laguna* -> ALWAYS :high
+#
+# OPERATOR RULING (2026-09-24): MUSE ON THE GO GATEWAY IS THE PINNED DEFAULT.
+# The previous overlay pinned `default`/`task` to poolside laguna and routed the
+# muse roles to the FREE zen lane. The GO muse seat is the sanctioned, non-rate-
+# limited route (the 8-key pool), so EVERY working role now runs it.
+#   default/task/plan/slow/sonic/reviewer/vision = GO muse-spark-1.3 :xhigh
+#   smol/scout/tiny = the free tiny model (a cost optimization for trivial work)
+#   LAW: muse-spark-1.3* -> ALWAYS :xhigh
 modelRoles:
-  default: poolside/poolside/laguna-s-2.1:high
-  task: poolside/poolside/laguna-s-2.1:high
-  sonic: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
-  reviewer: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
-  plan: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
-  slow: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
+  default: opencode-go/muse-spark-1.3-contributor:xhigh
+  task: opencode-go/muse-spark-1.3-contributor:xhigh
+  plan: opencode-go/muse-spark-1.3-contributor:xhigh
+  slow: opencode-go/muse-spark-1.3-contributor:xhigh
+  sonic: opencode-go/muse-spark-1.3-contributor:xhigh
+  reviewer: opencode-go/muse-spark-1.3-contributor:xhigh
+  vision: opencode-go/muse-spark-1.3-contributor:xhigh
   smol: openrouter/nvidia/nemotron-3.5-lightning:free
   scout: openrouter/nvidia/nemotron-3.5-lightning:free
+  tiny: openrouter/nvidia/nemotron-3.5-lightning:free:high
 retry:
   modelFallback: true
   fallbackChains:
+    "opencode-go/*":
+      - opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
+      - poolside/poolside/laguna-s-2.1:high
     "opencode-zen-free/*":
       - opencode-go/muse-spark-1.3-contributor:xhigh
       - poolside/poolside/laguna-s-2.1:high
-    "opencode-go/*":
-      - poolside/poolside/laguna-s-2.1:high
-      - opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
     "openrouter/*":
-      - opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
       - opencode-go/muse-spark-1.3-contributor:xhigh
+      - opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
     "poolside/*":
       - opencode-go/muse-spark-1.3-contributor:xhigh
       - opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
