@@ -6,7 +6,16 @@ set -uo pipefail
 
 FAIL=0
 
-STAGED="$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)"
+# FIXED (ocr audit high, the fail-open class): `|| true` masked EVERY git failure
+# (no repo, a locked index, OOM) to an EMPTY staged set, and the next line treated
+# empty as PASS — a broken git state disabled every gate. An empty set and a
+# FAILED command are now distinguished: a nonzero git exit is a LOUD refusal.
+STAGED="$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null)"
+GIT_RC=$?
+if [ "$GIT_RC" -ne 0 ]; then
+  echo "REJECT(W-14): git diff --cached failed (exit $GIT_RC) — a broken git state must not disable the gates" >&2
+  exit 1
+fi
 [ -z "$STAGED" ] && { echo 'PRE-COMMIT: PASS'; exit 0; }
 
 # W-9 doc-density: each staged *.md must be >= 100 lines AND carry
@@ -44,7 +53,15 @@ while IFS= read -r f; do
   case "$f" in
     *.md)
       # Read the staged blob, not the worktree file.
-      STAGED_BLOB="$(git show :"$f" 2>/dev/null)" || continue
+      # FIXED (ocr audit high): `|| continue` silently EXEMPTED a file the gate
+      # could not read (a path with spaces/quotes, a rename, an index lock) — the
+      # gate was bypassed by making it fail. A read failure is now a REJECT.
+      STAGED_BLOB="$(git show :"$f" 2>/dev/null)"
+      if [ $? -ne 0 ]; then
+        echo "REJECT(W-14): cannot read the staged blob for $f — an unreadable file must not be exempt" >&2
+        FAIL=1
+        continue
+      fi
       LINES="$(printf '%s\n' "$STAGED_BLOB" | wc -l | tr -d ' ')"
       ANCHORS="$(printf '%s\n' "$STAGED_BLOB" | grep -cE '[a-zA-Z0-9_/.-]+\.(ts|md|json|sh|yml):[0-9]+' 2>/dev/null || true)"
       if [ "$LINES" -lt 100 ]; then
@@ -71,7 +88,15 @@ while IFS= read -r f; do
   case "$f" in
     tests/*.ts)
       # Read the staged blob, not the worktree file.
-      STAGED_BLOB="$(git show :"$f" 2>/dev/null)" || continue
+      # FIXED (ocr audit high): `|| continue` silently EXEMPTED a file the gate
+      # could not read (a path with spaces/quotes, a rename, an index lock) — the
+      # gate was bypassed by making it fail. A read failure is now a REJECT.
+      STAGED_BLOB="$(git show :"$f" 2>/dev/null)"
+      if [ $? -ne 0 ]; then
+        echo "REJECT(W-14): cannot read the staged blob for $f — an unreadable file must not be exempt" >&2
+        FAIL=1
+        continue
+      fi
       # FIXED 2026-09-23 (ocr F5 / the audit's DEFECT B): the previous form
       # fired on ANY .includes("<PascalCase>"), blocking legitimate
       # string-containment assertions (err.includes("Timeout")). The ocr's
@@ -140,13 +165,22 @@ fi
 # Checkpoints/** copies (snapshots), *.md docs, tests/**, fixtures, and every
 # other path are NOT scanned — the predicate was derived for src diffs, and
 # firing elsewhere is the W-1/W-9 defect class this build exists to close.
-HOOK_LIB_DIR="$(cd "$(dirname "$0")/lib" && pwd)"
-# shellcheck disable=SC1091
-source "$HOOK_LIB_DIR/pattern-header.sh"
-# shellcheck disable=SC1091
-source "$HOOK_LIB_DIR/scan-silent.sh"
-# shellcheck disable=SC1091
-source "$HOOK_LIB_DIR/scan-stub.sh"
+# FIXED (ocr audit high): the lib dir resolution and the three `source` calls were
+# unchecked — a missing lib/ (or a symlinked $0) left gate_reject/scan_silent/
+# scan_stub UNDEFINED, and the later `$(scan_silent ... || true)` then silently
+# scanned nothing. A gate whose scanner failed to load must NOT pass: fail closed.
+HOOK_LIB_DIR="$(cd "$(dirname "$0")/lib" 2>/dev/null && pwd)"
+if [ -z "$HOOK_LIB_DIR" ] || [ ! -d "$HOOK_LIB_DIR" ]; then
+  echo "REJECT(W-14): cannot resolve the hook lib dir — the scanners are unavailable" >&2
+  exit 1
+fi
+for _lib in pattern-header.sh scan-silent.sh scan-stub.sh; do
+  # shellcheck disable=SC1091
+  if ! source "$HOOK_LIB_DIR/$_lib" 2>/dev/null; then
+    echo "REJECT(W-14): cannot source $_lib — a gate with no scanner must not pass" >&2
+    exit 1
+  fi
+done
 while IFS= read -r f; do
   [ -z "$f" ] && continue
   case "$f" in
@@ -158,12 +192,24 @@ while IFS= read -r f; do
       ;;
     *) continue ;;   # *.md, Checkpoints/**, tests/**, fixtures: out of class
   esac
-  [ -f "$f" ] || continue
-  # FIXED (W1 audit): read staged blob via git show, not worktree file;
-  # capture stdout only (no 2>&1 — stderr never merges into the hit stream);
-  # count hits from stdout lines, don't trust $?.
-  TMPFILE="$(mktemp --suffix=.ts 2>/dev/null)" || continue
-  git show :"$f" > "$TMPFILE" 2>/dev/null || { rm -f "$TMPFILE"; continue; }
+  # FIXED (ocr audit high x2): (1) `[ -f "$f" ]` checked the WORKTREE, not the
+  # staged blob — deleting the worktree file after `git add` skipped the scan;
+  # (2) `mktemp --suffix=.ts` is GNU-only, and `|| continue` exempted the file on
+  # BSD/macOS; (3) a failed `git show` also exempted it. The staged blob is now
+  # read directly and every failure is a REJECT (the fail-closed class).
+  TMPFILE="$(mktemp 2>/dev/null)"
+  if [ -z "$TMPFILE" ]; then
+    echo "REJECT(W-14): mktemp failed — cannot scan $f" >&2
+    FAIL=1
+    continue
+  fi
+  git show :"$f" > "$TMPFILE" 2>/dev/null
+  if [ $? -ne 0 ]; then
+    rm -f "$TMPFILE"
+    echo "REJECT(W-14): cannot read the staged blob for $f" >&2
+    FAIL=1
+    continue
+  fi
   SILENT_OUT="$(scan_silent "$TMPFILE" 2>/dev/null || true)"
   if [ -n "$SILENT_OUT" ]; then
     n=$(printf '%s\n' "$SILENT_OUT" | grep -c . || true)
@@ -210,7 +256,10 @@ fi
 # path segment) and the grep is whitespace-tolerant.
 if printf '%s\n' "$STAGED" | grep -qE '(^|/)Checkpoints/'; then
   GR_LEDGER="${FENCE_LEDGER:-$HOME/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl}"
-  if ! grep -qE '"verdict":[[:space:]]*"PASS"' "$GR_LEDGER" 2>/dev/null; then
+  # FIXED (ocr audit high): `grep` over the WHOLE ledger matched ANY historical
+  # PASS row — a weeks-old green unblocked a dead-system snapshot. The window is
+  # now BOUNDED (the most recent 200 rows), so a stale green falls out of it.
+  if ! tail -n 200 "$GR_LEDGER" 2>/dev/null | grep -qE '"verdict":[[:space:]]*"PASS"'; then
     echo 'REJECT(G-SEAL): no fence PASS row — a checkpoint now is a snapshot of a dead system' >&2
     FAIL=1
   fi

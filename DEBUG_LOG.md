@@ -791,3 +791,16 @@ test drives safeTick+tick() together.
 3. "PUT /pulls/2/merge returns 200" — STILL BLOCKED: PR #2 targets main; the ruleset requires a non-pusher approval; the host has one GitHub identity and no App.
 
 **ANCHORS:** src/merge-record.ts:20, src/merge-record.ts:62, src/runtime.ts:300, JARVIS-CORE/b6/verdicts.jsonl (the merge rows).
+
+## EN-170 - THE PRE-COMMIT FAIL-CLOSED HARDENING (2026-09-24T13:19:19Z)
+
+THE FINDING (ocr audit, 5 high on .githooks/pre-commit): the gate could be BYPASSED BY MAKING IT FAIL.
+(1) line 10: `git diff || true` masked every git failure to an empty staged set -> PASS.
+(2) line 47: `git show :"$f" || continue` silently EXEMPTED an unreadable file.
+(3) line 164: `[ -f "$f" ]` checked the worktree not the staged blob; `mktemp --suffix` is GNU-only; both `|| continue` paths exempted the file.
+(4) line 143: the lib dir + the three `source` calls were unchecked -> undefined scanners -> nothing scanned.
+(5) line 213: G-SEAL matched ANY historical PASS row -> a weeks-old green unblocked a dead snapshot.
+
+THE FIX: every path now fails CLOSED with a named REJECT(W-14) (or a bounded 200-row window for G-SEAL).
+THE VERIFICATION: bash -n clean; a real commit runs the hook; the W-9/G-RATIO/G-SEAL gates still fire.
+ANCHORS: .githooks/pre-commit:10, .githooks/pre-commit:47, .githooks/pre-commit:164, .githooks/pre-commit:143, .githooks/pre-commit:213.
