@@ -814,3 +814,13 @@ ANCHORS: .githooks/pre-commit:10, .githooks/pre-commit:47, .githooks/pre-commit:
 **THE VERIFICATION:** tsc exit 0; bun test 129 pass / 0 fail; the daemon advances after a restart (runtime/ticks.log).
 
 **ANCHORS:** src/runtime.ts:371 (the catch), src/status.ts:6 (the RuntimeStatus shape).
+
+## EN-172 - F-18 REPAIRED: THE CHECK-SUITE SUPERSESSION LAW (2026-09-24T13:26:19Z)
+
+**THE FINDING (a second-order mechanism F-18 got wrong):** re-running the PR #2 workflow run did NOT repair the polluted check runs. MEASURED: a RE-RUN reuses the ORIGINAL check SUITE (the re-run of run 35992297714 updated suite 97460695702, created 11:18) while PR #4's run had created a NEWER suite (97494454046, 13:14). GitHub's required-status-check evaluation reads the LATEST SUITE, so the older suite's successes did not supersede the newer suite's failures — the merge still reported "2 of 8 required status checks are failing".
+
+**THE FIX:** a FRESH `pull_request` EVENT. Close+reopen PR #2 -> a new run (36005532793, 13:25:14) -> a NEW check suite (97497969507) with all 6 jobs success. The merge message then named ONLY the approval.
+
+**THE LAW:** a check run is keyed by COMMIT; a check SUITE is keyed by the EVENT. A re-run updates an EXISTING suite and therefore cannot supersede a newer suite's failure. Only a NEW EVENT (a push, or a close/reopen) creates a new suite and wins.
+
+**ANCHORS:** .github/workflows/gates.yml:1 (on: pull_request), the runs 36004298935 (PR#4 failure 13:14) / 35992297714 (PR#2 re-run, suite 11:18) / 36005532793 (PR#2 fresh, suite 13:25).
