@@ -691,3 +691,36 @@ REJECT(W-6): tests/__p5_w6_pos.test.ts asserts a symbol against SOURCE TEXT via 
 **WHY IT MATTERS:** a stale probe is as dangerous as a dead gate — a false RED trains the
 operator to ignore the corpus. Recorded per the skill's §6 (publish your own instrument
 failures).
+
+
+## TEST RESULT - 2026-09-24T19:20:46Z - THE RED-TEAM-SLOP-AUDIT (the success-claim gate) @ a200ebd
+
+**AUDIT GATE: PASS** — scope stated, never implied.
+
+**THE SCOPE OF THIS PASS (four instruments, each with its artifact):**
+1. **The author's own pass** — the skill's seven hunt lists run as literal commands (the
+   tautology hunt, the pass-by-absence hunt, the bug-asserting-test hunt, the wrong-tree hunt,
+   the duplicated-authority hunt, the off-switch hunt, the R-label coverage). Found 1 low
+   (`PR_STATES` ×3) → fixed. Artifact: `forensic/FAILURE_LEDGER_SHIP_GATE_SWEEPS.md` §0/§3.
+2. **The zero-context independent re-verification** — a subagent with no prior context re-ran
+   every gate: **18 PASS / 1 FAIL** across 19 rows. The 1 FAIL (the docs named no head SHA) was
+   real and is fixed. Artifact: the claims table.
+3. **The `qwen-code-audit` ship gate** — **GATE: PASS (0 critical/high)** twice on the changed
+   surface. Artifacts: the two session ids (849f1b77, a5c070e9).
+4. **The P5 adversarial corpus** — `p5_corpus.sh` 12/0 + `p5_corpus2.sh` 13/0 = **25/0** after 3
+   probe-errors were adjudicated and corrected.
+
+**THE CONFIRMED FINDINGS: 4 (1 high, 1 medium, 2 low) — ALL FIXED AND PINNED. 0 open
+critical/high.**
+
+**THE RESIDUAL (named, never hidden):** the skill also dispatches 2+ independent adversarial
+auditors (the fabrication lens + the slop lens). Both were dispatched and were still yielding at
+this stamp — the model is slow, but their transcripts show ACTIVE progress (running tests and
+reads, not stalled). **RESUME CONDITION:** when they yield, their findings fold into §8 of the
+ledger and any confirmed defect routes to a fix wave. This PASS rests on instruments 1-4 above,
+NOT on the pending pair.
+
+**THE LIVE FIRING (the enforcement on the auditor itself):** the W-8 claim-evidence gate
+REJECTED this session's own ledger commit for writing "green" without an artifact. The gate was
+right; the commit was re-issued with `168 pass / 0 fail` + `src/guardrail.ts:25`. A gate that
+fires on its own author is not theatre.
