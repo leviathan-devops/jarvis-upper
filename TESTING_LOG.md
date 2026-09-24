@@ -724,3 +724,22 @@ NOT on the pending pair.
 REJECTED this session's own ledger commit for writing "green" without an artifact. The gate was
 right; the commit was re-issued with `168 pass / 0 fail` + `src/guardrail.ts:25`. A gate that
 fires on its own author is not theatre.
+
+
+## TEST RESULT - 2026-09-24T20:19:30Z - THE SHIP GATE: PASS (round 6) @ 29de519
+
+**AUDIT GATE: PASS** — `GATE: PASS (0 critical/high)`, 20 findings (13 medium, 7 low), 18 files
+reviewed, session cd157dc0. **The churn is closed.**
+
+**THE CHURN ARC (honest):** the gate's blocking count across rounds was
+**3 → 1 → 2 → 3 → 4 → 0**. Rounds 2-5 each found HIGHs that MY OWN previous fix had introduced
+(most notably: the W9 dedupe kept MAX(rowid) while the read ordered by `at`; the W13 CRLF
+normalization was applied to the parse but not to `attach`; the W15 `ON CONFLICT(pair)` needed
+the index; and the W15 commit message CLAIMED fixes that an aborted script never applied — see
+THEATRICALITY_LOG TH-11). **Round 6 is the first with ZERO blocking findings.**
+
+**THE INSTRUMENTS:** the author's pass + the independent re-verification (18/1) + the qwen ship
+gate + the P5 corpus (25/0) + the two dispatched adversarial auditors (both 0 critical/high).
+
+**THE RESIDUAL:** 13 medium + 7 low — real, non-blocking. The cheap ones were fixed in W17;
+the remainder is named in the ledger.

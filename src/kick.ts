@@ -66,6 +66,11 @@ export async function kick(
   // spawn — a transient daemon outage must not manufacture a second session for one bug.
   let mode: KickMode;
   if (input.mode) {
+    // FIXED (the W16 ship gate MEDIUM): an out-of-whitelist mode fell through to `direct`
+    // (openBranch) while returning the bogus mode. Fail closed.
+    if (input.mode !== "live" && input.mode !== "spawn" && input.mode !== "direct") {
+      throw new Error(`KICK-BAD-MODE:${String(input.mode).slice(0, 32)}`);
+    }
     mode = input.mode;
     // FIXED (the W15 ship gate HIGH): an explicit `live` SKIPPED the liveness check — the
     // CLI's `upper kick <id> live` would send to a DEAD session. Validate it.
@@ -73,7 +78,8 @@ export async function kick(
       if (!input.originSession) throw new Error("KICK-NO-SESSION");
       let lv: Liveness = "unknown";
       try { lv = await deps.sessionAlive(input.originSession); } catch { lv = "unknown"; }
-      if (lv !== "alive") throw new Error(`KICK-LIVENESS-${lv.toUpperCase()}`);
+      if (typeof lv === "boolean") lv = lv ? "alive" : "dead";   // FIXED: the legacy boolean
+      if (lv !== "alive") throw new Error(`KICK-LIVENESS-${String(lv).toUpperCase()}`);
     }
   }
   else {

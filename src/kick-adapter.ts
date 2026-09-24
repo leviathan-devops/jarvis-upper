@@ -40,7 +40,10 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
         const r = await c<{ session?: unknown } | null>("getSession", { params: { sessionId } });
         // FIXED (the W15 ship gate MEDIUM): an empty body (null) is a TRANSPORT anomaly, not
         // proof the session is gone. Only a PRESENT-but-empty session object is `dead`.
-        if (r === null || r === undefined) return "unknown";
+        // FIXED (the W16 ship gate MEDIUM): a non-object body (a string/number) or {} with
+        // no `session` mapped to `dead` -> a duplicate spawn on a transport anomaly.
+        if (typeof r !== "object" || r === null) return "unknown";
+        if (!("session" in r)) return "unknown";
         return r.session !== undefined && r.session !== null ? "alive" : "dead";
       } catch (e) {
         // FIXED (ship-gate MEDIUM): a 404 is a DEFINITIVE dead; a timeout / 5xx / network
@@ -94,9 +97,14 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
       // session worked from an incomplete dossier with the caller unable to detect it.
       // Loud-fail: an unreadable/oversized dossier FAILS the spawn.
       if (dropped.length > 0) throw new Error(`KICK-ATTACHMENTS-DROPPED:${dropped.join(",")}`);
-      const r = await c<{ session?: { id?: string } } | null>("spawnSession", {
-        body: { projectId: input.projectId, prompt, ...(attachments.length > 0 ? { attachments } : {}) },
-      });
+      // FIXED (the W16 ship gate MEDIUM): the spawnSession call was UNGUARDED — a 4xx/5xx/
+      // timeout escaped raw instead of a named fail-closed error.
+      let r: { session?: { id?: string } } | null;
+      try {
+        r = await c<{ session?: { id?: string } } | null>("spawnSession", {
+          body: { projectId: input.projectId, prompt, ...(attachments.length > 0 ? { attachments } : {}) },
+        });
+      } catch (e) { throw new Error(`KICK-SPAWN-FAILED:${String(e).slice(0, 120)}`); }
       const sessionId = r?.session?.id;
       if (!sessionId) throw new Error("KICK-SPAWN-NO-SESSION");
       return { sessionId };

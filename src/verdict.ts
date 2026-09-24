@@ -181,8 +181,10 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // the SPEC read, the bind) so no caller sees a different directory than the guard approved.
   // FIXED (the W15 ship gate LOW): normalize('   ') === '   ' (not ''), so a whitespace-only
   // jobDir slipped the guard. Trim first.
-  const normJobDir = opts.jobDir ? normalize(opts.jobDir.trim()) : "";
-  if (!opts.jobDir || normJobDir === "" || normJobDir === "." || normJobDir === "/") {
+  // FIXED (the W16 ship gate MEDIUM): a truthy NON-string jobDir threw a TypeError out of
+  // verify(), violating the never-reject contract.
+  const normJobDir = typeof opts.jobDir === "string" ? normalize(opts.jobDir.trim()) : "";
+  if (typeof opts.jobDir !== "string" || normJobDir === "" || normJobDir === "." || normJobDir === "/") {
     return { verdict: "UNVERIFIED", sources: { fence: { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: "NO-JOB-DIR" }, review: { ran: false, verdict: null, targetSha: null, harness: null, reason: "NO-JOB-DIR" } }, reasons: ["NO-JOB-DIR"] };
   }
   const fenceBin = opts.fenceBin ?? FENCE_DEFAULT;

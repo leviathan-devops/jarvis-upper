@@ -57,7 +57,8 @@ export function redactRemote(url: string): string {
   try {
     const p = new URL(url);
     // build it by hand: URL.toString() percent-encodes "<redacted>" into %3C...%3E
-    if (p.username || p.password) return `${p.protocol}//<redacted>@${p.host}${p.pathname}${p.search}${p.hash}`;
+    // FIXED (the W16 ship gate MEDIUM): search+hash could carry ?token= — strip them too.
+    if (p.username || p.password) return `${p.protocol}//<redacted>@${p.host}${p.pathname}`;
     return url;
   } catch {
     // FIXED (ship gate LOW): the fallback required "//" and never matched an scp-like
@@ -104,7 +105,8 @@ export function targetMatchesRemote(opts: {
   /** injectable for tests; defaults to a real `git rev-parse` + `git remote get-url origin` */
   readRemote?: (root: string) => RemoteRead;
 }): TargetCheck {
-  if (!opts.owner || !opts.repo || opts.owner.includes("/") || opts.repo.includes("/")) {
+  // FIXED (the W16 ship gate MEDIUM): a non-string config value threw instead of failing closed.
+  if (typeof opts.owner !== "string" || typeof opts.repo !== "string" || !opts.owner || !opts.repo || opts.owner.includes("/") || opts.repo.includes("/")) {
     return { ok: false, remote: "", reason: `TARGET-UNSET:${opts.owner || "?"}/${opts.repo || "?"}` };
   }
   const read = opts.readRemote ?? defaultReadRemote;

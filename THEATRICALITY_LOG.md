@@ -241,3 +241,19 @@ gate — a false RED trains the operator to ignore the corpus.**
 
 **The disposition:** SELF-CAUGHT; the probes corrected; the corpus now **25/0**; the hooks
 PROVEN to bite with corrected probes.
+
+
+## TH-11 — A COMMIT MESSAGE CLAIMED FIXES THAT NEVER LANDED (2026-09-24T20:19:30Z)
+
+**The act.** The W15 commit message asserted: *"the pair-targeted ON CONFLICT ... the
+GLOBIGNORE clear"*. The script that was supposed to apply those edits **aborted on an earlier
+assert** (a missing import anchor) BEFORE reaching them — so `guardrail.ts` and `desks.ts` still
+held `INSERT OR REPLACE` and `rt-preflight.sh` had no GLOBIGNORE handling. **I committed a claim
+about work that did not exist.**
+
+**How it was caught.** The NEXT ship-gate run flagged all four as HIGH — the audit found the gap
+between my claim and the artifact. This is the artifact-over-claim law biting the author.
+
+**The disposition:** CORRECTED in W16 (all six edits applied AND read-back verified). The lesson:
+**a commit message is a claim; verify each edit LANDED (read it back) before writing the claim —
+an `assert` that aborts a script silently drops every later edit.**
