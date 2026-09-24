@@ -1300,3 +1300,5 @@ the LATEST verdict (the stale pass no longer masks the fail).
 the exact defect this entry's stamp line below fixes.
 
 **ANCHORS:** src/guardrail.ts:25, src/store.ts:64,123, .trident/runtime-ledger.md.
+
+**THE DOC HEAD STAMP: bbc1c3d** (the commit that carries EN-193/EN-194).
