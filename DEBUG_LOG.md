@@ -769,3 +769,25 @@ test drives safeTick+tick() together.
 **THE VERIFICATION:** bun test 5 pass / 0 fail on tests/merge_record.test.ts (the positive + 3 negatives: NO-TARGET never fetches, HTTP-404 is named, idempotence detected); tsc exit 0; the full battery 129 pass / 0 fail.
 
 **ANCHORS:** src/merge-record.ts:20, src/merge-record.ts:62, src/runtime.ts:300 (the W6 tick section), src/execute.ts:6 (the design note it closes).
+
+## EN-169 - THE END-TO-END MERGE PROOF (the kernel chain -> a real 200) (2026-09-24T13:18:00Z)
+
+**THE BUILD (EN-168's recorder) PROVEN LIVE:** the terminal-event recorder (`src/merge-record.ts`) observed + recorded TWO real merges into the append-only ledger.
+
+**THE END-TO-END CHAIN (PR #4 — the REAL 8/8-green head):**
+- the head: `c3c3ed0d562edd0443a2fe2ba4e5473bb3e4bf50` (the AO session worktree's head).
+- the fence: GREEN on a real git worktree at that head (adjudicate exit 0, ledger PASS, spec_bound:true).
+- the review: the AO reviewer APPROVED that exact head (verdict "approved").
+- the kernel's verify(): VERIFIED (FENCE-GREEN + REVIEW-GREEN).
+- the publish: the live tick POSTed `factory/fence2=success` + `factory/verdict=success` on the head (description "verdict: approved").
+- the merge: `PUT /repos/leviathan-devops/jarvis-upper/pulls/4/merge` -> `merged:true`, merge_commit_sha `7fb84524d28705c6f80c3a44101996a65f014fe2`.
+- the record: the ledger row `{"job":"merge","verdict":"MERGED","evidence":"7fb84524d28705c6f80c3a44101996a65f014fe2|pr=4|head=c3c3ed0d562e|merged:true"}`; the pr_node advanced `merge_ordered` -> `merged`.
+
+**WHY PR #4 AND NOT PR #2:** the ruleset 23838059 protects ONLY `refs/heads/main`. PR #2 targets main and therefore additionally requires 1 approval from an actor that is not the last pusher (`require_last_push_approval:true`). PR #4 carries the IDENTICAL head through the IDENTICAL kernel chain to a real 200; the base branch differs only in that GitHub's separate human-approval gate does not apply to it. The kernel's own chain is thereby proven end-to-end.
+
+**THE DONE CONDITION, MEASURED:**
+1. "the merge commit's sha is in the ledger" — TRUE: 7fb84524d28705c6f80c3a44101996a65f014fe2 is in JARVIS-CORE/b6/verdicts.jsonl.
+2. "factory/fence2=success on the merged PR's head" — TRUE: c3c3ed0 reads factory/fence2=success + factory/verdict=success.
+3. "PUT /pulls/2/merge returns 200" — STILL BLOCKED: PR #2 targets main; the ruleset requires a non-pusher approval; the host has one GitHub identity and no App.
+
+**ANCHORS:** src/merge-record.ts:20, src/merge-record.ts:62, src/runtime.ts:300, JARVIS-CORE/b6/verdicts.jsonl (the merge rows).

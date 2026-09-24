@@ -521,3 +521,21 @@ its fix proven by behavior).**
 **THE REMAINING (16 high, INFRASTRUCTURE-ADJACENT):** the .githooks fail-open paths (pre-commit:47/161/167 — a git show failure or a BSD mktemp exempts a file), the spec-diff parser (the column-0 anchor, the rename blind spot, the unbounded content read), the verdict needle matching, the runtime's un-try/catch'd cursor section. These are recorded as the open frontier.
 
 **A FAIL BLOCKS EVERY SHIP-READY / PRODUCTION-GRADE / MERGE CLAIM.** The 8/8 GREEN contexts are a RUNTIME FACT (independently verified 6/6) and stand; the code-quality gate is FAIL and the frontier is named.
+
+## TEST RESULT - 2026-09-24T13:18:00Z - THE END-TO-END MERGE PROOF (L3 + L4)
+
+### HOST - L4 the terminal event (the merge)
+- PR #4 (head c3c3ed0, base factory-e2e-base): `PUT /pulls/4/merge` -> `merged:true`, merge_commit_sha 7fb84524d28705c6f80c3a44101996a65f014fe2. A REAL 200-equivalent merge of the real 8/8-green head.
+- PR #3 (the recorder's first live proof): merged, sha 8e1d26bacf06ccff18f3fc7106be81da8ea2343e.
+
+### HOST - the ledger (the terminal-event record)
+```
+{"ts":"2026-09-24T13:16:57Z","v":2,"job":"merge","seat":"jarvis-upper-4","step":"merge","verdict":"MERGED","fence_exit":0,"pr":4,"head":"c3c3ed0d562edd0443a2fe2ba4e5473bb3e4bf50","evidence":"7fb84524d28705c6f80c3a44101996a65f014fe2|pr=4|head=c3c3ed0d562e|merged:true"}
+```
+Two rows (pr=3, pr=4); the pr_nodes advanced `merge_ordered` -> `merged`. The recorder is IDEMPOTENT (mergeRecorded guards a re-poll).
+
+### SCRIPT - the recorder's own battery
+tests/merge_record.test.ts: 5 pass / 0 fail (the positive + 3 negatives: NO-TARGET never fetches, HTTP-404 is named, idempotence detected). Full battery: 129 pass / 0 fail. tsc exit 0.
+
+### THE REMAINING BLOCK (PR #2 -> main)
+`PUT /pulls/2/merge` -> 405 "New changes require approval from someone other than the last pusher." The ruleset's `require_last_push_approval:true` + `required_approving_review_count:1` cannot be satisfied by a single-identity repo (GitHub refuses self-approval, HTTP 422; no App installed; no second account on the host).
