@@ -66,3 +66,48 @@ The KEYSTONE (PROVEN, FIRING 011): a fresh clone's direct push to main is REFUSE
 3. `.github/workflows/gates.yml` — 6 jobs, each publishing one context.
 4. The ruleset: `gh api repos/<owner>/<repo>/rulesets` with `required_status_checks` = the 8.
 5. The keystone test: a fresh clone's push to main MUST be refused.
+
+## §9 THE CONTRACT FREEZE (the interface that never moves)
+The 8 status contexts are the frozen interface. They appear in THREE places that must never drift:
+1. `src/status-contract.ts:33` — `REQUIRED_CONTEXTS` (the source of truth).
+2. `.github/workflows/gates.yml` — the 6 CI job names (the `name:` field of each job).
+3. the ruleset 23838059 — `required_status_checks[].context` (the server-side enforcement).
+The keystone check is `scripts/interface-check.ts` — it prints `INTERFACE:MATCH` when all three
+agree and exits 1 otherwise. A drift here is the exact failure this build exists to close.
+
+## §10 THE TWO-SOURCE VERDICT LAW (why an approval alone is not enough)
+A job is VERIFIED iff BOTH sources are green ON THE SAME HEAD SHA:
+- SOURCE 1 (the fence): `fence2.py adjudicate <job> --expect-spec-sha <inv>` exits 0.
+- SOURCE 2 (the review): an AO review run APPROVES that SAME head sha.
+ONE source alone is UNVERIFIED. A stale sha on either is UNVERIFIED. The forbidden evidence set
+(commit-exists, diff-changed, drift-gate-green, worker-tests-pass, PR-open, transcript-shows-spawn)
+is never a source. The kernel's `verify()` (`src/verdict.ts:133`) enforces this.
+
+## §11 THE HONEST GAPS (what this blueprint does not claim)
+1. The factory/verdict context needs an AO review that APPROVES the head — a strict reviewer may
+   legitimately withhold approval; the kernel correctly refuses to certify.
+2. The merge needs a NON-PUSHER approval (ruleset 23838059); a single-identity host cannot supply it.
+3. The fence ledger is a HOST artifact (gitignored); the CI's absent-ledger is a named SKIP, and
+   the fail-closed check lives on the host (`.githooks/pre-commit:211`, G-SEAL).
+
+## §12 THE THREE LAYERS IN DETAIL (each with its refusal)
+LAYER 1 — the local hooks (`.githooks/`):
+- `pre-commit:12` (W-9 doc floor): a staged `.md` under 100 lines or under 3 anchors → REJECT(W-9).
+- `pre-commit:190` (G-RATIO): doc commits outpacing code commits → REJECT(G-RATIO).
+- `pre-commit:211` (G-SEAL): no fence PASS row in the ledger → REJECT(G-SEAL).
+- `pre-push:151` (W-2): an orphan/phantom diff on the pushed range → REJECT(W-2).
+LAYER 2 — the CI workflows (`.github/workflows/gates.yml`):
+- 6 jobs, each `name:` EQUAL to a required context; every job fails closed with exit 1.
+- the base ref is the event payload's (`pull_request.base.sha` | `merge_group.base_sha`).
+LAYER 3 — the ruleset (id 23838059, `production-factory-gates`):
+- `required_status_checks`: the 8 contexts, `strict_required_status_checks_policy: true`.
+- `pull_request`: 1 approval, dismiss-stale, thread-resolution required.
+- `bypass_actors: []`, `current_user_can_bypass: never`, plus `non_fast_forward` + `deletion`.
+
+## §13 THE MEASURED STATE (the blueprint's baseline)
+- HEAD at the build package's landing: `4942188` (the kernel + the 6 gates + the ruleset wiring).
+- the battery: 124 tests / 0 fail; `bunx tsc --noEmit` exit 0.
+- the fence: proven GREEN (exit 0, PASS, spec_bound:true) on a real git worktree at the PR head.
+- the live kernel: `factory/fence2=success` POSTed to the real head (the API read-back).
+- the review loop: r1 (5 findings) → r2 (4) → r3 (3) → r4 (1) — the adversarial reviewer converges.
+- the residual: the ruleset's non-pusher approval (a single-identity host cannot supply it).
