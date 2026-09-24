@@ -277,7 +277,14 @@ fi
 # whitespace variant `"verdict": "PASS"`. The match is now line-wise (a real
 # path segment) and the grep is whitespace-tolerant.
 if printf '%s\n' "$STAGED" | grep -qE '(^|/)Checkpoints/'; then
-  GR_LEDGER="${FENCE_LEDGER:-$HOME/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl}"
+  # FIXED (ocr audit high): $FENCE_LEDGER let the COMMITTER point the trust root at
+  # an attacker-chosen file (/tmp/fake-with-pass) — a local gate's adversary IS the
+  # committer, so the env must not select the root. The canonical path is fixed; the
+  # env override is honoured ONLY when it resolves to that same canonical path.
+  GR_LEDGER="$HOME/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl"
+  if [ -n "${FENCE_LEDGER:-}" ] && [ "$(readlink -f "$FENCE_LEDGER" 2>/dev/null)" = "$(readlink -f "$GR_LEDGER" 2>/dev/null)" ]; then
+    GR_LEDGER="$FENCE_LEDGER"
+  fi
   # FIXED (ocr audit high): `grep` over the WHOLE ledger matched ANY historical
   # PASS row — a weeks-old green unblocked a dead-system snapshot. The window is
   # now BOUNDED (the most recent 200 rows), so a stale green falls out of it.

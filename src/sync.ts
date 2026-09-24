@@ -24,13 +24,13 @@ export function upsertPr(db: Database, r: PrRow): void {
             -- every poll — the publisher then never saw an eligible PR. An advanced
             -- state is STICKY: the sync only advances an "open" row.
             ON CONFLICT(id) DO UPDATE SET state=CASE
-              WHEN pr_node.state IN ('ready_to_merge','merge_ordered','merged') THEN pr_node.state
+              WHEN pr_node.state IN ('ready_to_merge','merge_ordered','merged','rejected','kicked') THEN pr_node.state
               ELSE excluded.state END,
             -- FIXED (ocr audit high): the state was frozen while head_sha kept
             -- advancing — an APPROVED row could then point at a new, unvalidated
             -- SHA (a review/verdict mismatch). The sha is frozen with the state.
             head_sha=CASE
-              WHEN pr_node.state IN ('ready_to_merge','merge_ordered','merged') THEN pr_node.head_sha
+              WHEN pr_node.state IN ('ready_to_merge','merge_ordered','merged','rejected','kicked') THEN pr_node.head_sha
               ELSE COALESCE(excluded.head_sha, pr_node.head_sha) END,
             worker_hint=COALESCE(excluded.worker_hint, pr_node.worker_hint),
             base_sha=COALESCE(excluded.base_sha, pr_node.base_sha),

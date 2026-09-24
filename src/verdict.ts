@@ -116,40 +116,49 @@ export function artifactBoundToHead(jobDir: string, headSha: string): { ok: bool
   if (!head.out.toLowerCase().startsWith(headSha.toLowerCase().slice(0, 40)) && head.out !== headSha) {
     return { ok: false, reason: `FENCE-HEAD-MISMATCH: worktree ${head.out.slice(0, 12)} != claimed ${headSha.slice(0, 12)}`, worktree: top.out, actual: head.out };
   }
-  // the artifact in the job dir must be byte-identical to the head's committed copy
+  // THE ARTIFACT BINDING — FAIL-CLOSED (ocr audit CRITICAL, 2026-09-24).
+  // The old shape was a broad try whose handler only carried a comment
+  // ("the HEAD + clean checks hold"), and whose inner
+  // `if (artifactAbs && insideWorktree(...))` skipped EVERY failure:
+  // a missing SPEC.md, no `artifact:` line, an artifact outside the worktree, or —
+  // the core defect — a `git show HEAD:<rel>` that FAILED (the artifact is NOT
+  // committed at the claimed head) all fell through to FENCE-GREEN. An uncommitted
+  // artifact therefore proved nothing about the head and still read green.
+  // Now: the SPEC must be readable, must NAME an artifact, the artifact must resolve
+  // INSIDE the worktree, and it MUST exist at HEAD with byte-identical content.
   const specDir = jobDir;
+  let spec: string;
   try {
-    const spec = readFileSync(`${specDir}/SPEC.md`, "utf8");
+    spec = readFileSync(`${specDir}/SPEC.md`, "utf8");
+  } catch {
+    return { ok: false, reason: "FENCE-NO-SPEC: SPEC.md is unreadable in the job dir", worktree: top.out };
+  }
+  {
     const m = spec.match(/artifact:\s*(\S+)/);
-    // FIXED 2026-09-23 (qwen-code-audit re-run REAL): the artifact path came
-    // from SPEC.md with no containment — a crafted absolute path reached any file.
-    // It must resolve INSIDE the worktree root.
-    // FIXED 2026-09-23 (qwen-code-audit run 5 REAL): a STRING PREFIX is not
-    // containment — "/worktree/../../../etc/passwd" starts with "/worktree/" and
-    // readFileSync resolves it OUTSIDE. The check is now a RESOLVED-path
-    // containment (the same `contained()` law as the desks fix).
-    const insideWorktree = (cand: string): boolean => {
-      const rel = relativePath(resolvePath(top.out), resolvePath(cand));
-      return rel === "" || (rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel));
-    };
-    // FIXED (ocr audit high): the byte-identity check ran ONLY for an ABSOLUTE
-    // artifact path (`m[1].startsWith("/")`), so the normal relative SPEC form
-    // (`artifact: dist/out.js`) skipped it entirely and passed on HEAD+clean alone —
-    // a drifted/rewritten artifact read green. The path is now RESOLVED against the
-    // worktree root (absolute or relative) and the same containment + byte check runs.
-    const artifactAbs = m ? (m[1].startsWith("/") ? m[1] : resolvePath(top.out, m[1])) : null;
-    if (artifactAbs && insideWorktree(artifactAbs)) {
-      const rel = relativePath(top.out, artifactAbs);
-      const committed = run(["git", "-C", top.out, "show", `HEAD:${rel}`]);
-      const onDisk = readFileSync(artifactAbs, "utf8");
-      // FIXED 2026-09-23 (ocr round-4 HIGH): the comment promises a
-      // BYTE-IDENTICAL check; a 64-char prefix passed a file that diverged after
-      // the prefix. Compare the full content (trailing whitespace tolerated).
-      if (committed.code === 0 && committed.out.length > 0 && onDisk.trimEnd() !== committed.out.trimEnd()) {
-        return { ok: false, reason: "FENCE-ARTIFACT-DRIFT: the job artifact != the head's committed copy", worktree: top.out };
-      }
+    if (!m) {
+      return { ok: false, reason: "FENCE-NO-ARTIFACT: SPEC.md names no artifact to bind", worktree: top.out };
     }
-  } catch { /* no artifact binding available — the HEAD + clean checks above still hold */ }
+    const artifactAbs = m[1].startsWith("/") ? m[1] : resolvePath(top.out, m[1]);
+    const rel = relativePath(resolvePath(top.out), resolvePath(artifactAbs));
+    const contained = rel !== "" && rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel);
+    if (!contained) {
+      return { ok: false, reason: "FENCE-ARTIFACT-OUTSIDE: the artifact resolves outside the worktree", worktree: top.out };
+    }
+    const committed = run(["git", "-C", top.out, "show", `HEAD:${rel}`]);
+    if (committed.code !== 0 || committed.out.length === 0) {
+      return { ok: false, reason: `FENCE-ARTIFACT-UNCOMMITTED: ${rel} is not present at HEAD`, worktree: top.out };
+    }
+    let onDisk: string;
+    try {
+      onDisk = readFileSync(artifactAbs, "utf8");
+    } catch {
+      return { ok: false, reason: `FENCE-ARTIFACT-MISSING: ${rel} is unreadable on disk`, worktree: top.out };
+    }
+    // BYTE-IDENTICAL (trailing whitespace tolerated), the documented contract.
+    if (onDisk.trimEnd() !== committed.out.trimEnd()) {
+      return { ok: false, reason: "FENCE-ARTIFACT-DRIFT: the job artifact != the head's committed copy", worktree: top.out };
+    }
+  }
   const dirty = run(["git", "-C", top.out, "status", "--porcelain"]);
   if (dirty.out.length > 0) return { ok: false, reason: `FENCE-DIRTY-WORKTREE: ${dirty.out.split("\n").length} uncommitted path(s)`, worktree: top.out };
   return { ok: true, reason: "FENCE-GREEN", worktree: top.out, actual: head.out };

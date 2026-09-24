@@ -28,7 +28,10 @@ export async function fetchPrMerge(opts: {
   fetchImpl?: typeof fetch;
 }): Promise<PrMergeState> {
   // A missing target is a LOUD named refusal, never a request to .../undefined.
-  if (!opts.owner || !opts.repo || !opts.prNumber || !opts.token) {
+  // FIXED (ocr audit high): `!opts` threw before the guard, and `!prNumber` let
+  // NaN/negative/float through into the URL. Both are validated explicitly.
+  if (!opts || !opts.owner || !opts.repo || !opts.token
+      || !Number.isInteger(opts.prNumber) || opts.prNumber <= 0) {
     return { merged: false, mergeCommitSha: null, state: "NO-TARGET" };
   }
   const f = opts.fetchImpl ?? fetch;
@@ -65,7 +68,9 @@ export function recordMerge(
   // FIXED (ocr audit high): an empty/malformed sha was appended as a MERGED
   // terminal row (evidence "|pr=..." still satisfied a naive DONE check), and
   // headSha.slice assumed a non-empty string. Both are validated LOUDLY first.
-  if (!/^[0-9a-f]{7,40}$/.test(row.mergeSha) || !/^[0-9a-f]{7,40}$/.test(row.headSha)) {
+  // FIXED (ocr audit medium): a case-INSENSITIVE sha (git hex is case-insensitive;
+  // some tools uppercase) + a null guard on the row itself.
+  if (!row || !/^[0-9a-f]{7,40}$/i.test(row.mergeSha) || !/^[0-9a-f]{7,40}$/i.test(row.headSha)) {
     return false;
   }
   try {
@@ -103,7 +108,7 @@ export function mergeRecorded(ledgerPath: string, mergeSha: string): boolean {
     // at the top. The substring match was also unsound: `includes(mergeSha)` is
     // TRUE for an empty mergeSha (every string contains ""), so a blank sha
     // deduped every merge. The match is now an EXACT field test on a validated sha.
-    if (!/^[0-9a-f]{7,40}$/.test(mergeSha)) return false;
+    if (!/^[0-9a-f]{7,40}$/i.test(mergeSha)) return false;
     return readFileSync(ledgerPath, "utf8")
       .split("\n")
       .some((l) => {
