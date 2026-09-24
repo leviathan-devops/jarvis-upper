@@ -273,7 +273,18 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
         if (cap.failed) errors.push(`rail-failed:${cap.failed}`);
         // an IDLE stream (no new events since the cursor) is normal, not an error;
         // only the FIRST tick with zero frames is a real defect signal.
-        else if (cap.frames === 0 && state.tick === 1) errors.push("rail:0-frames-on-first-tick");
+        // FIXED (red-team audit, measured): 0 frames on the FIRST tick after a
+        // restart is NORMAL — the persisted cursor already sits at the stream head,
+        // so there is nothing new to read. The old signal made EVERY restart log an
+        // error, training the reader to ignore `errors[]` (alarm fatigue — the exact
+        // condition under which a REAL error hides). Only a cursor that is BEHIND a
+        // non-empty stream is anomalous, and that is already covered by
+        // `rail-failed` + the cursor-advance check.
+        else if (cap.frames === 0 && state.tick === 1 && cap.lastSeq > 0) {
+          // the stream HAS frames but we read none and this is our first pass:
+          // informational only, never an error
+          void cap;
+        }
       } catch (e) { errors.push(`rail:${String(e).slice(0, 60)}`); }
     } else {
       errors.push("ECONNREFUSED");

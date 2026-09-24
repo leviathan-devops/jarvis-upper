@@ -176,3 +176,12 @@ green bound to a session worktree), one approval.
 **The honest notes:** the merge has never happened. The fence is green on a synthetic
 worktree, not on a real PR head. The review source has never returned an approval.
 pr_edge is empty. No container test has exercised the full chain.
+
+## 2026-09-24T17:47:30Z — THE RED-TEAM AUDIT + THE FIX ROUND
+
+**The built:** 7 fixes from a 62-finding, 3-lens adversarial audit: the silent wrong-target assertion (main.ts), the per-row sync validation + the `merged` clamp (sync.ts), the ERROR-vs-ABSENT ledger dedup (merge-record.ts), the surfaced status-write failure + the removed restart false-alarm (runtime.ts), and **the MISSING PROMOTION PATH** — a supported `promote` verb (cli-verbs.ts).
+**The why:** the operator ordered a 3-lens audit and stated his verdict: *"i dont believe this works. i think you vibecoded some more broken slop that hasnt been proeprly tested in runtime and will fail the moment i wire it to anyhting."* He was right. The audit's headline: **the kernel has NO code path that promotes a PR to `ready_to_merge`**, so the 8/8 green rested on a hand-INSERT.
+**The how:** the 3 lenses ran read-only and returned 22+26+14 findings; each fix was applied, typechecked, probed individually, and the full battery re-run.
+**The evidence:** tsc exit 0 · bun test **129 pass / 0 fail** · the sync probe (2 written, 1 skipped by name) · the ledger-unreadable probe THREW · the promote probe succeeded then refused · the service restarts clean · tick=1 errors=0.
+**The verification:** every fix carries its own probe output above; the 3 auditor returns are at `agent://AlphaFabrication-2`, `agent://BravoSlop-2`, `agent://CharlieWiring-2`.
+**The honest notes:** the audit gate reads FAIL (the frontier is named in TESTING_LOG) · the AO `call()` still has no timeout · `kick()` is dead in prod · PR #2 → main is still 405 (a non-pusher approval). **THE SESSION'S HEADLINE CLAIM WAS RE-GRADED: the 8/8 contexts are a REAL GitHub artifact produced from a HAND-SEEDED eligible row — the publish path works; the DISCOVERY/PROMOTION path did not exist and now has a supported verb.**

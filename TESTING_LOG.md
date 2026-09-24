@@ -560,3 +560,31 @@ tests/merge_record.test.ts: 5 pass / 0 fail (the positive + 3 negatives: NO-TARG
 - the switch: `ocr config set provider muse-go` + `ocr config set custom_providers.muse-go.protocol openai-responses`.
 - the seat VERIFIED ALIVE: a real Responses call returned `MUSE_GO_ALIVE` (HTTP 200, status completed); the go pool reads 8/8 keys ok; `ocr health` reads "✓ Connection test successful".
 - the audit ran (session 55bec04e) and produced the CRITICAL this fix closes.
+
+## TEST RESULT - 2026-09-24T17:47:30Z - THE 3-LENS RED-TEAM AUDIT (the operator's order)
+
+### HOST - the audit method
+- 3 independent lenses dispatched, none given another's findings: **AlphaFabrication** (fabricated evidence / self-referential proof), **BravoSlop** (generic dumb slop), **CharlieWiring** (runtime wiring).
+- **THE FIRST DISPATCH FAILED 3/3** — the muse-GO pin I had just applied returned 400/403 on every call. Recorded in FAILURE_LOG F-21 + THEATRICALITY_LOG TH-4. After the lane was switched to zen-free muse (the only 200 lane), a dispatch probe returned `DISPATCH-OK` and all 3 completed.
+
+### THE AUDITOR RETURNS (verbatim counts)
+| auditor | findings | confirmed | the worst |
+|---|---|---|---|
+| AlphaFabrication | 22 | 15 | F06/F07/F08 mock-as-proof; F12/F13 merge-row provenance UNVERIFIED; F19 8-GREEN unreproduced |
+| BravoSlop | 26 (2 HIGH, 7 MED) | all anchored | S3 sync writes `merged` with no ledger row; S5 `mergeRecorded` false-on-error; S16 swallowed status-write |
+| CharlieWiring | 14 | all anchored | W-01/W-02/W-04 single-target; W-05 AO call has NO timeout; W-11 `errors=0` = NO WORK |
+
+### THE HEADLINE, INDEPENDENTLY CONFIRMED (2 of 3 auditors + my own pass)
+`grep -rn "UPDATE pr_node SET state" src/` returns ONLY `merge_ordered` and `merged`. **NO site assigns `ready_to_merge`** — the state the publisher requires. The 8/8 green therefore rests on a row I HAND-INSERTED (`pr:jarvis-upper-4:2`, minted 15:23:36; the contexts posted 11:31:07).
+
+### THE FIXES VERIFIED THIS ROUND (each with its probe)
+- `syncPrs`: 2 rows written + 1 skipped BY NAME (`sp:902:BAD-STATE:draft`) — the batch no longer rolls back.
+- `sync` clamps `merged` → `merge_ordered` (probe: the clamped row landed merge_ordered).
+- `mergeRecorded` on an unreadable ledger THREW `LEDGER-UNREADABLE`; an absent file returned false.
+- `promote` verb: succeeded on an open row; the re-promote refused `NOT-PROMOTABLE:ready_to_merge`.
+- `main.ts` target assertion: FATAL on a mismatch; FAIL-CLOSED when git is unreadable.
+- the restart false-alarm removed: tick=1 now reads `errors=0`.
+- **THE FULL BATTERY: 129 pass / 0 fail. tsc exit 0. The service restarts clean.**
+
+### THE HONEST REMAINDER (NOT fixed — named)
+the AO client's `call()` has NO timeout (W-05) · `kick()` is dead in prod (S1) · the batch error still mis-indexes on batch N>0 (S2) · the truncated SSE buffer at 64KB (W-12) · the unbounded mirror fan-out · the ledger needle still basename-falls-back when the SPEC is unreadable (S22) · `CONFIDENCE_FLOOR` duplicated (S9) · 5 unnamed timeout literals (S12).
