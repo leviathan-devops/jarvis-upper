@@ -18,6 +18,10 @@ export class ApiError extends Error {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** The per-attempt ceiling for an AO HTTP call. A hung daemon must not block the
+ *  tick forever (red-team audit W-05). */
+export const AO_CALL_TIMEOUT_MS = Number(process.env.AO_CALL_TIMEOUT_MS ?? 8000);
+
 export async function call<T = any>(operationId: string, opts: {
   params?: Record<string, string | number>;
   query?: Record<string, string | number | undefined>;
@@ -42,10 +46,15 @@ export async function call<T = any>(operationId: string, opts: {
   for (let attempt = 0; attempt <= retries; attempt++) {
     let res: Response;
     try {
+      // FIXED (red-team audit W-05/R8): this fetch had NO timeout — a hung AO
+      // daemon blocked the caller forever (the tick reported TICK-IN-FLIGHT while
+      // daemonOk stayed true). Bounded + named. The timeout is per-attempt, so the
+      // retry budget stays meaningful.
       res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+        signal: AbortSignal.timeout(AO_CALL_TIMEOUT_MS),
       });
     } catch (e) {
       lastErr = e;

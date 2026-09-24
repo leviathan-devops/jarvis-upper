@@ -23,6 +23,10 @@ import { STATUS_CONTEXTS } from "./status-contract";
 
 export const DAEMON = process.env.AO_DAEMON ?? "http://localhost:3001";
 
+/** The SSE capture ceiling. A buffer that hits it is TRUNCATED — a named failure,
+ *  never a clean read (red-team audit W-12). */
+export const RAIL_MAX_BUF = Number(process.env.RAIL_MAX_BUF ?? 65536);
+
 // FIXED 2026-09-23 (ocr round-4 HIGH): Number("")===0 / Number("abc")===NaN —
 // a present-but-invalid env var produced a 0/NaN interval. Validate the parse.
 function parseTickMs(raw: string | undefined, fallback = 15000): number {
@@ -93,6 +97,7 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     // capture, and a real network failure still surfaces.
     const started = Date.now();
     const DEADLINE_MS = 3000;
+    let truncated = false;
     while (Date.now() - started < DEADLINE_MS) {
       const remaining = DEADLINE_MS - (Date.now() - started);
       if (remaining <= 0) break;
@@ -110,7 +115,14 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
       const { done, value } = result;
       if (done) break;
       buf += dec.decode(value, { stream: true });
-      if (buf.length > 65536) break;
+      if (buf.length > RAIL_MAX_BUF) {
+        // FIXED (red-team audit W-12/R11): the old `break` abandoned the rest of
+        // the stream and then parsed the TRUNCATED buffer as if it were a clean
+        // capture — the cut frame was silently dropped and events past the window
+        // starved with no signal. The truncation is now NAMED and reported.
+        truncated = true;
+        break;
+      }
     }
     try { reader.cancel(); } catch { /* stream already closed */ }
     const parsed = parseSse(buf);           // what the wire actually carried
@@ -126,7 +138,9 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
       // the wire-capture artifact: proof the adapter carried REAL bytes
       await Bun.write(wireCapturePath(root), JSON.stringify({ ts: new Date().toISOString(), parsedFrames: parsed.length, newlyProcessed: frames.length, bytes: buf.length, lastSeq }, null, 2) + "\n");
     }
-    return { frames: parsed.length, bytes: buf.length, lastSeq };
+    // FIXED (red-team audit W-12): a truncated capture is a NAMED failure — the
+    // caller must not treat a partial read as a clean one.
+    return { frames: parsed.length, bytes: buf.length, lastSeq, ...(truncated ? { failed: `TRUNCATED-${RAIL_MAX_BUF}` } : {}) };
   } catch (e) { return { frames: 0, bytes: 0, lastSeq: 0, failed: String(e).slice(0, 80) }; }
 }
 

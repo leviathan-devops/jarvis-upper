@@ -1019,3 +1019,27 @@ PROOF: the resolver returned 4 DIFFERENT keys across 4 calls; each alive key (go
 **THE ROOT PATTERN (one mechanism under the five costumes):** every claim was measured on a path I controlled, never the production path. The pin's ANTI-DERAIL names all five (TH-3..TH-7) with that single countermeasure: **state the production path the claim exercised, and measure ON it.**
 
 **ANCHORS:** Checkpoints/redteam-audit-slop-remediation-20260924-215830/CHECKPOINT_MANIFEST.md:1, .trident/remediation-pkg/DPL1_REMEDIATION.md:1, THEATRICALITY_LOG.md:1, FAILURE_LOG.md:1.
+
+## EN-186 - W1 THE RUNTIME-WIRING WAVE (R2-R6, R8, R11) (2026-09-24T18:13:01Z)
+
+**THE WAVE:** W1 of the remediation pin — the runtime-wiring front. 7 fixes, each with a
+regression test that FAILS without it.
+
+| id | the fix | the test | the revert-proof |
+|---|---|---|---|
+| R2/W-01 | the target assertion extracted to `src/target-guard.ts` (testable), fail-closed | test_target_refuses_mismatch | the guard refuses a mismatch + git-unavailable |
+| R3/F-20 | per-row `validatePrRow` + skip-by-name (a bad row no longer rolls back the batch) | test_sync_skips_bad_row | 2 rows land, the bad one NAMED |
+| R4/S3 | sync CLAMPS `merged` → `merge_ordered` (the terminal state needs the ledger row) | test_sync_never_writes_merged | **WITHOUT the clamp: 0 pass / 1 fail. WITH: 1 pass / 0 fail** |
+| R5/S5 | `mergeRecorded` THROWS `LEDGER-UNREADABLE` (never a false "absent" → no duplicate rows) | test_ledger_unreadable_throws | /proc/1/mem THROWS; absent = false; recorded = true |
+| R6/S16 | a failed status write is SURFACED in the returned status | test_status_write_failure_surfaced | the forced-throw tick carries the failure |
+| R8/W-05 | the AO `call()` gets `AbortSignal.timeout(AO_CALL_TIMEOUT_MS)` | test_ao_call_has_named_timeout | the source carries the signal |
+| R11/W-12 | the SSE 64KB break is NAMED `TRUNCATED-` (never a clean read) | test_rail_truncation_is_named | the bare break is gone |
+
+**ALSO FIXED (found while wiring):** `src/main.ts` started the daemon on IMPORT (`rt.start()`
+at module scope) — a module must not spawn a daemon when imported. Now `if (import.meta.main)`.
+
+**THE VERIFICATION:** tests/w1_runtime_wiring.test.ts **7 pass / 0 fail** (idempotent, stable
+across runs); the FULL battery **136 pass / 0 fail**; tsc exit 0.
+
+**ANCHORS:** src/target-guard.ts:1, src/sync.ts:34, src/sync.ts:11, src/merge-record.ts:102,
+src/runtime.ts:113, src/runtime.ts:390, ao-client/client.ts:22, src/main.ts:96.

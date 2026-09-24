@@ -2,6 +2,7 @@
 // Run:  UPPER_TICK_MS=2000 bun src/main.ts
 import { fileURLToPath } from "node:url";
 import { createRuntime } from "./runtime";
+import { targetMatchesRemote } from "./target-guard";
 import { statusPath, ticksPath } from "./status";
 
 // FIXED 2026-09-23 (ocr round-4 HIGH): new URL().pathname is not a filesystem
@@ -34,22 +35,8 @@ const TOKEN = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
 const WORKTREE_ROOT = process.env.UPPER_WORKTREE_ROOT
   || `${process.env.HOME ?? "/home/leviathan"}/.ao/data/worktrees/${REPO}`;
 
-// THE TARGET ASSERTION: if this tree's origin is a DIFFERENT repo than the
-// configured target, refuse to arm the publisher. Prevents the silent
-// wrong-target class entirely (fail-closed, named).
-function targetMatchesRemote(): { ok: boolean; remote: string } {
-  try {
-    const out = Bun.spawnSync(["git", "-C", root, "remote", "get-url", "origin"], { stderr: "pipe" });
-    const url = (out.stdout?.toString() ?? "").trim();
-    if (!url) return { ok: true, remote: "(no remote)" }; // a bare tree: nothing to contradict
-    return { ok: url.toLowerCase().includes(`/${OWNER.toLowerCase()}/${REPO.toLowerCase()}`), remote: url };
-  } catch (e) {
-    // FAIL-CLOSED: if we cannot read the remote we cannot verify the target, and an
-    // unverified target is exactly the wrong-target risk. Refuse, naming the cause.
-    return { ok: false, remote: `(git unavailable: ${String(e).slice(0, 60)})` };
-  }
-}
-const tgt = targetMatchesRemote();
+// THE TARGET ASSERTION (extracted to src/target-guard.ts so it is TESTABLE).
+const tgt = targetMatchesRemote({ root, owner: OWNER, repo: REPO });
 if (!tgt.ok) {
   console.error(`FATAL: TARGET-MISMATCH — this tree's origin is ${tgt.remote} but UPPER_OWNER/UPPER_REPO name ${OWNER}/${REPO}. Refusing to arm the publisher (a wrong-target POST is unrecoverable). Set UPPER_OWNER + UPPER_REPO explicitly.`);
   process.exit(1);
@@ -89,5 +76,7 @@ async function stop(): Promise<void> {
 process.on("SIGTERM", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
 process.on("SIGINT", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
 
-rt.start();
+// FIXED (the test-hazard + a real robustness rule): a module must not start a
+// daemon on IMPORT. Guarded so tests can import this file without spawning one.
+if (import.meta.main) rt.start();
 console.log(JSON.stringify({ started: true, root, tickMs, publisher: TOKEN ? `ARMED:${OWNER}/${REPO}` : "DISARMED:no-token", status: statusPath(root), log: ticksPath(root) }));
