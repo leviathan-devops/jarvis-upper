@@ -547,3 +547,16 @@ tests/merge_record.test.ts: 5 pass / 0 fail (the positive + 3 negatives: NO-TARG
 - PROBE 2 (negative): the SAME job with the artifact DRIFTED after the commit -> `{"ok":false,"reason":"FENCE-ARTIFACT-DRIFT: the job artifact != the head's committed copy"}`.
 - BEFORE the fix, PROBE 2 returned GREEN: the check ran only for an ABSOLUTE path (`m[1].startsWith("/")`), so the normal relative SPEC form skipped it.
 - NO REGRESSION: the live verify() at c3c3ed0 still reads VERDICT: VERIFIED (FENCE-GREEN + REVIEW-GREEN).
+
+## TEST RESULT - 2026-09-24T14:24:37Z - THE SCANNER EXIT-CODE CONTRACT (the critical, both ways)
+
+### SCRIPT - the pre-commit scanner path (two-sided)
+- POSITIVE: a staged src file with `catch {}` (a known W-13 shape) -> `REJECT(W-13): SILENT-FALLBACK:...` — the per-hit reporting is RESTORED (my earlier fix had rejected it as a generic W-14 and skipped the report).
+- NEGATIVE: a staged src file whose catch LOGS + returns -> `PRE-COMMIT: PASS` (no false positive).
+- THE CONTRACT READ FIRST: `.githooks/lib/scan-silent.sh:14` — "returns the hit count as the exit code (capped at 125)". The test is now `> 125` (anomalous), not `!= 0`.
+
+### HOST - the muse-go audit lane (the sanctioned route)
+- the muse-free lane: BLOCKED (PROVIDER_QUOTA_EXHAUSTED) — recorded as BLOCKED, never PASS.
+- the switch: `ocr config set provider muse-go` + `ocr config set custom_providers.muse-go.protocol openai-responses`.
+- the seat VERIFIED ALIVE: a real Responses call returned `MUSE_GO_ALIVE` (HTTP 200, status completed); the go pool reads 8/8 keys ok; `ocr health` reads "✓ Connection test successful".
+- the audit ran (session 55bec04e) and produced the CRITICAL this fix closes.
