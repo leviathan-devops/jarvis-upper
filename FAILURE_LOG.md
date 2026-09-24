@@ -249,3 +249,18 @@ definition of done. A quality bar is not a runtime event. The gates above close 
 gap mechanically. Wiring points: `.githooks/pre-commit:190` (where G-RATIO/G-SEAL
 append) · `gates/fence-check.py:29` (the CI fence) · `src/main.ts:17` (the wired
 publisher) · `src/runtime.ts:276` (the publish call) — each is a git hook or a script whose exit code is the verdict.
+
+### F-16 — THE 4-SESSION THEATRICAL BASELINE (2026-09-24T09:12:43Z)
+
+- **What happened:** 4 sessions, 129 commits, 124 tests, 10 checkpoints — and ZERO green
+  merges. The operator's verdict: "this entire build is rejected as theatrical slop."
+- **Found:** the operator, 2026-09-24.
+- **Root cause:** the goal pin's DONE was a quality count (not a runtime event); the
+  feedback loop was inverted (the scanner, not the runtime); the doc/checkpoint contracts
+  amplified (35 doc commits of a dead system).
+- **Impact:** ~4 sessions of effort produced a hardened source tree whose PURPOSE (the
+  green merge) was never exercised.
+- **Disposition:** FIXED — the goal pin now names PUT /merge → 200 as DONE; the 5
+  anti-derail gates (G-GREEN, G-RT, G-RATIO, G-SEAL, G-SCAN) are committed and live;
+  the fence is proven green. THE REMAINING BLOCKERS: the diff-budget label, a green
+  factory/* on a real PR head, one approval.

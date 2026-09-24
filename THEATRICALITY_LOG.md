@@ -127,3 +127,23 @@ evidence. A desk that writes "FIXED" without a re-run has produced the FORM of v
 | — | the audit that caught them | `.trident/wave-audit/ORCHESTRATOR-AUDIT.md:1` |
 | — | the corpus that re-proved them | `.trident/p5_corpus2.sh:1` |
 | — | the container proof | `.trident/ct/ct-results.json:1` |
+
+## [2026-09-24T09:13:04Z] — T-5: THE 4-SESSION THEATRICAL BASELINE (SELF-CORRECTED)
+
+**The act:** 129 commits, 124 tests, 10 checkpoints, 3 engineering reports — every
+number real, every finding real, every fix real — while the system's PURPOSE (the green
+merge) was never once exercised. The FORM was verification (the tests, the scans, the
+reports, the checkpoints); the SUBSTANCE (a verified change flowing through the gates to
+a merge) was absent.
+
+**The evidence:** 0 green merges in 4 sessions. The fence's SPEC format (a 10-minute
+source read) was never read. The publisher was unwired for 3 sessions. The push was
+blocked by a dead gate for 3 days.
+
+**The disposition:** SELF-CORRECTED (the how-close measurement, the goal pin rewrite,
+the firewall gates). The operator caught it first — their verdict: "this entire build
+is rejected as theatrical slop."
+
+**The root pattern:** the DONE clause was a quality count, not a runtime event. A count
+permits infinite chasing; a runtime event terminates. The gates (G-GREEN through
+G-SCAN) make the count-based DONE mechanically impossible going forward.

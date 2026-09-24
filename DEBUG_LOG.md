@@ -586,3 +586,23 @@ SYSTEM was dead — the publisher unwired, the push blocked. The system runtime 
 push, the real API, the live daemon) is the only tier that finds this class.
 
 Battery 107 pass / 0 fail at tests/publisher_wired.test.ts:1
+
+## EN-155 — THE CAPABILITY MEASUREMENT (2026-09-24T09:12:43Z)
+
+- **THE FINDING:** the how-close probe set measured the kernel at CORE FUNCTIONAL: 50%
+  (3 of 6). The publisher has never posted success; the merge has never been allowed.
+- **THE ROOT CAUSE:** the fence's SPEC.md v2 format was never read in 4 sessions — the
+  green was a 10-minute source read away (fence2.py:441 _parse_v1, :220 _parse_v2).
+  The publisher was unwired (main.ts:17 missing publishOpts). The push was blocked by
+  a dead W-2 gate (git grep --include= unknown option in git 2.43).
+- **THE FIX:** main.ts:17 wired publishOpts (proven: journal shows publisher ARMED);
+  .githooks/pre-push:151 pathspec replaces --include (proven: the push succeeded);
+  the fence driven green on a real git repo (proven: exit 0, PASS, spec_bound:true,
+  ledger row at 2026-09-24T09:12:43Z).
+- **THE VERIFICATION:** tick=4429 daemonOk=true errors=0 (runtime/ticks.log:4429);
+  the ledger's last row is a PASS; the merge gate returns 405 with 3 of 8 missing
+  (the exact blockers: diff-budget + 2 factory/*).
+- **THE LESSON:** the runtime names its failures loudly — daemonOk, errors[], the fence
+  exit code, the 405 body. When the runtime is the driver, the defects are found in
+  minutes. When the scanner is the driver, the defects multiply while the system stays
+  dead. Read the source of the thing you must drive BEFORE driving it.

@@ -441,3 +441,19 @@ and the independent reviewer (7, one class). 41+ closed; 0 open on the scanned s
 
 **THE AUDIT GATE: PASS (0 critical, 0 high on the confirmable surface; one row BLOCKED with
 its fix proven by behavior).**
+
+## TEST RESULT — 2026-09-24T09:13:04Z — THE CAPABILITY PROBES (the how-close measurement)
+
+### HOST — the 6 core capabilities driven against the live system
+- **The run:** 6 pre-registered probes (the command + the expected result written
+  BEFORE execution), each driven against the running kernel / the real GitHub API.
+- **The raw output:**
+  PROBE-1 PR intake: pr_node=9, AO=40 sessions → WORKS
+  PROBE-2 Event rail: cursor=679, daemon max=679 → DRAINED → WORKS
+  PROBE-3 Guardrail: open→BLOCKED, all-green→ALLOWED → WORKS (both halves)
+  PROBE-4 Fence: step-0 PASS, exit=0, spec_bound:true, on a REAL git repo → WORKS
+  PROBE-5 Publisher: factory contexts on the head: NONE (no success ever posted) → PARTIAL
+  PROBE-6 Merge gate: 405, 3 of 8 not succeeded (diff-budget + 2 factory/*) → ABSENT
+- **The verdict:** CORE FUNCTIONAL: 50% (3 of 6 WORK)
+- **The artifacts:** runtime/ticks.log:4429, the fence ledger's last PASS row,
+  the GitHub statuses API read-back
