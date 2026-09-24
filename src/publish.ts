@@ -53,6 +53,13 @@ export async function publishStatus(
   if (!token && !opts.fetchImpl) {
     return { context: payload.context, state: "error" as const, status: null, ok: false, reason: "NO-TOKEN: set GH_TOKEN/GITHUB_TOKEN or pass opts.token" };
   }
+  // FIXED (ao-review-4 finding): owner/repo/sha were never validated — an
+  // undefined coerced to the literal string "undefined" and still POSTed (a
+  // silently wrong target). Mirrors the guardrail's target validation: a missing
+  // component is a LOUD refusal, never a POST to .../repos/undefined/undefined.
+  if (!opts.owner || !opts.repo || !opts.sha) {
+    return { context: payload.context, state: "error" as const, status: null, ok: false, reason: "NO-TARGET: owner/repo/sha are required" };
+  }
   const description = String(payload.description ?? "").slice(0, MAX_DESCRIPTION);
   const url = `${baseUrl}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/statuses/${encodeURIComponent(opts.sha)}`;
   const body = { context: payload.context, state: payload.state, description };

@@ -90,12 +90,11 @@ jobs:
           # merge_group run fails closed with a named reason.
           OVERSIZED=0
           if [ "$EVENT" = "pull_request" ] && echo "$LABELS" | grep -q oversized; then OVERSIZED=1; fi
-          # FIXED 2026-09-23: the 800-line bound was set for a single focused PR;
-          # a hardening campaign (the 20 src modules + the 8 gates + the tests +
-          # the docs) legitimately exceeds it. Raised to 10000 with the SAME
-          # escape hatch (the `oversized` label) for anything beyond — a bound
-          # that is always exceeded is not a bound, it is a disabled gate.
-          BUDGET=10000
+          # FIXED (ao-review-4 finding): 10000 removed most of the gate's force
+          # (nearly every PR slipped under it unreviewed). Restored to the
+          # original intent — a tight reviewable-diff bound — with the SAME
+          # `oversized` label escape hatch for a legitimately large change.
+          BUDGET=800
           if [ "$L" -gt "$BUDGET" ] && [ "$OVERSIZED" -ne 1 ]; then
             if [ "$EVENT" = "merge_group" ]; then
               echo "over budget on merge_group with no label escape hatch (pull_request labels unavailable)"; exit 1; fi
@@ -160,12 +159,15 @@ jobs:
             # F11: FILE-LEVEL co-occurrence. The normal theatrical shape is a
             # mock setup at the top of the file with expects lines later —
             # same-line adjacency (grep mock | grep expect) misses it.
-            HAS_MOCK=$(grep -nEi 'jest\.mock\(|jest\.spyOn\(|vi\.mock\(|vi\.spyOn\(' "$f" 2>/dev/null || true)
-            HAS_EXPECT=$(grep -nE 'expect\(' "$f" 2>/dev/null || true)
-            if [ -n "$HAS_MOCK" ] && [ -n "$HAS_EXPECT" ]; then
+            # FIXED (ao-review-4 finding): the check was FILE-LEVEL mock+expect co-
+            # occurrence, which flags EVERY legitimate mocked test (a mock setup at
+            # the top + expects below) and would block the whole queue. Narrowed to
+            # the REAL theatrical shape: a module mock with ZERO assertions in the file.
+            HAS_MOCK=$(grep -nEi 'jest\.mock\(|vi\.mock\(' "$f" 2>/dev/null || true)
+            EXPECT_N=$(grep -cE 'expect\(' "$f" 2>/dev/null || true)
+            if [ -n "$HAS_MOCK" ] && [ "${EXPECT_N:-0}" -eq 0 ]; then
               MOCK_AT=$(printf '%s\n' "$HAS_MOCK" | head -20)
-              EXPECT_N=$(printf '%s\n' "$HAS_EXPECT" | grep -c . || true)
-              HITS="${HITS}${NL}  mock-only: mock setup with expects in file: ${MOCK_AT} (+${EXPECT_N} expect( lines)"
+              HITS="${HITS}${NL}  mock-only: mock with ZERO assertions in file: ${MOCK_AT}"
             fi
             SYMBOL=$(grep -nE "includes\(['\"]Symbol['\"]|includes\([\"']Symbol[\"']\)" "$f" 2>/dev/null || true)
             if [ -n "$SYMBOL" ]; then HITS="${HITS}${NL}  source-string-assert: ${SYMBOL}"; fi

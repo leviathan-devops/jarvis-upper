@@ -66,9 +66,13 @@ export async function listPrsFromAo(opts: {
     // FIXED 2026-09-23 (qwen-code-audit C1): a REJECTED promise was dropped
     // silently — a failed PR fetch vanished from the sync with no trace. The
     // failure now travels NAMED (the loud-fail law).
+    // FIXED (ao-review-4 finding): throwing on the FIRST rejected session discarded
+    // every already-resolved session — one failed fetch blocked the whole sync
+    // (head-of-line blocking). The failure now travels NAMED (the loud-fail law)
+    // but the resolved sessions are kept.
     for (const r of results) {
       if (r.status === 'fulfilled') out.push(...r.value);
-      else throw new Error(`PR-FETCH-FAILED:${String(r.reason).slice(0, 100)}`);
+      else console.error(JSON.stringify({ sync: "PR-FETCH-FAILED", reason: String(r.reason).slice(0, 100) }));
     }
   }
   return out;

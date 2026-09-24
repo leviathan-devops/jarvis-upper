@@ -36,7 +36,10 @@ export const APPROVING_VERDICTS = ["approved", "approve", "lgtm", "pass", "passe
 export const REJECTING_VERDICTS = ["changes_requested", "changes-requested", "requested_changes",
   "rejected", "reject", "changes_requested_by_reviewer", "blocked", "block", "fail", "failed", "denied"] as const;
 export const FENCE_DEFAULT = process.env.FENCE2_BIN ?? "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py";
-export const LEDGER_DEFAULT = process.env.FENCE2_LEDGER ?? "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl";
+// FIXED (ao-review-4 finding): FENCE_LEDGER is now the ONE env var (FENCE2_LEDGER
+// kept as a back-compat alias) so fence-check.py, .githooks/pre-commit and this
+// module all resolve the SAME ledger.
+export const LEDGER_DEFAULT = process.env.FENCE_LEDGER ?? process.env.FENCE2_LEDGER ?? "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl";
 
 export interface VerifyOpts {
   jobDir: string;

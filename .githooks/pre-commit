@@ -205,7 +205,9 @@ fi
 # Measured cost: 10 checkpoints sealed of a system that had never driven a
 # green path. A Checkpoints/ commit requires a fence PASS row in the ledger.
 case "$STAGED" in *Checkpoints/*)
-  GR_LEDGER="$HOME/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl"
+  # FIXED (ao-review-4 finding): unify the ledger on FENCE_LEDGER (the same var
+  # fence-check.py and src/verdict.ts resolve).
+  GR_LEDGER="${FENCE_LEDGER:-$HOME/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl}"
   if ! grep -q '"verdict":"PASS"' "$GR_LEDGER" 2>/dev/null; then
     echo 'REJECT(G-SEAL): no fence PASS row — a checkpoint now is a snapshot of a dead system' >&2
     FAIL=1

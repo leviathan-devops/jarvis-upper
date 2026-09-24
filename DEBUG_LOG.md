@@ -633,3 +633,18 @@ Battery 107 pass / 0 fail at tests/publisher_wired.test.ts:1
 - **THE EVIDENCE:** review_run id 81332e54-e684-45c2-9ddb-eda11d631d11, session jarvis-upper-4, harness opencode, target_sha 4942188cbf7065d6f4ef52f2011bf4a4e5332565, status running. The reviewer process is LIVE: `opencode --agent ao-review-jarvis-upper-4` at 32.3% CPU (ptyhost-v1:review-jarvis-upper-4).
 - **THE LESSON:** the AO auto-review trigger is (an ACTIVE session) + (a PR BOUND to it) + (a head transition). A terminated session's PR is invisible to the sweep. The `/send` field is `message`.
 - **ANCHORS:** ~/.ao/data/ao.db (pr.session_id, review_run.target_sha), /api/v1/sessions/{id}/send (message field), /api/v1/sessions/{id}/pr.
+
+## EN-159 - THE 5 REVIEW FINDINGS (the AO reviewer's changes_requested) (2026-09-24T10:29:14Z)
+
+**THE FINDING:** the AO reviewer (opencode, session jarvis-upper-4) reviewed PR #2 @ 4942188 and DELIVERED a `changes_requested` verdict with 5 real findings (the GitHub inline comments on pull/2). The kernel CORRECTLY refused to certify it (factory/verdict stayed red — the two-source law).
+
+**THE 5 FIXES (each verified):**
+1. **gates.yml:165** (the theatrical mock-check) — it was FILE-LEVEL mock+expect co-occurrence, flagging EVERY legitimate mocked test. Narrowed to the real theatrical shape: a MODULE mock (jest.mock/vi.mock) with ZERO `expect(` in the file.
+2. **gates/fence-check.py:28 + src/verdict.ts:39 + .githooks/pre-commit:208** (three ledger defaults: `.trident/verdicts.jsonl` vs `$HOME/.../b6` vs a third) — unified on ONE env var `FENCE_LEDGER` (FENCE2_LEDGER kept as a back-compat alias) with the SAME canonical default = the fence2 ledger.
+3. **src/adapter-verbs.ts:71** (a rejected session promise THREW, discarding every already-resolved session — head-of-line blocking) — now logs the failure NAMED and CONTINUES, keeping the resolved sessions.
+4. **src/publish.ts** (owner/repo/sha never validated — `undefined` coerced to the string "undefined" and still POSTed) — added a `NO-TARGET` refusal before the URL is built. VERIFIED: publishStatus({owner:""}) -> {"state":"error","reason":"NO-TARGET: owner/repo/sha are required"}.
+5. **gates.yml:98** (the budget raised 800→10000 removed the gate's force) — restored to 800 with the `oversized` label escape hatch.
+
+**THE VERIFICATION:** tsc exit 0; bun test 124 pass / 0 fail (the checkpoint floor fix included — CHECKPOINT_STRUCTURE.md added + the manifest's HONEST GAPS section); fix 4 probed positive+negative.
+
+**ANCHORS:** .github/workflows/gates.yml:165, .github/workflows/gates.yml:98, gates/fence-check.py:28, src/verdict.ts:39, .githooks/pre-commit:208, src/adapter-verbs.ts:71, src/publish.ts:44.

@@ -25,7 +25,13 @@ def main(argv: list) -> int:
         return 2
     sha = argv[1].strip()
     needle = sha.lower()
-    ledger = os.environ.get("FENCE_LEDGER") or os.path.join(".trident", "verdicts.jsonl")
+    # FIXED (ao-review-4 finding): three different ledger defaults existed
+    # (here .trident/verdicts.jsonl, G-SEAL $HOME/.../b6, verdict.ts LEDGER_DEFAULT).
+    # Unified on ONE env var — FENCE_LEDGER (FENCE2_LEDGER a back-compat alias) —
+    # and the SAME canonical default as src/verdict.ts: the fence2 ledger.
+    ledger = (os.environ.get("FENCE_LEDGER") or os.environ.get("FENCE2_LEDGER")
+              or os.path.join(os.path.expanduser("~"), "JARVIS_WORKSPACE", "Shared_Workspace",
+                              "JARVIS-CORE", "b6", "verdicts.jsonl"))
     if not os.path.exists(ledger):
         print(f"FENCE:{sha}:NO-LEDGER-SKIP (nothing to check — no ledger at {ledger})")
         return 0
