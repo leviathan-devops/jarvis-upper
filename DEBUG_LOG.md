@@ -1171,3 +1171,28 @@ main.ts import proven side-effect-free.
 
 **ANCHORS:** src/kick-adapter.ts:14, src/target-guard.ts:44, src/verdict.ts:221,
 src/runtime.ts:28, src/main.ts:1, gates/rt-preflight.sh:54, tests/w6_ship_gate_fixes.test.ts:1.
+
+## EN-192 - W7 THE SHIP-GATE MEDIUM/LOW SWEEP (GATE PASS, 0 crit/high; 3 medium + 7 low) (2026-09-24T18:53:31Z)
+
+**The re-run returned GATE: PASS (0 critical/high)** — but the residual medium/low findings
+were real, and the bar is insanely-great. All 10 addressed:
+
+| id | the defect | the fix |
+|---|---|---|
+| target-guard:42 | the hostname was ignored (`https://evil.com/o/r` passed) | parse + compare the host (default github.com, `UPPER_HOST` override) |
+| target-guard:45 | only the last 2 segments compared (`/extra/o/r` passed) | require EXACTLY two path segments |
+| target-guard:49 | redact missed a password containing `@` | a URL-parse redact, hand-built (no percent-encoding) |
+| runtime:139 | the truncation cut assumed LF; a CRLF stream discarded ALL frames | cut at the later of `\n\n` / `\r\n\r\n` |
+| runtime:152 | a truncated-EMPTY capture wrote no artifact | write it whenever truncated |
+| runtime:32 | `RAIL_MAX_BUF` accepted floats | `Math.floor` |
+| verdict:221 | the guessed needle still populated `ledgerVerdict` (misleading) | skip the lookup on a SPEC failure |
+| verdict:212 | an empty jobDir built `/SPEC.md` | refuse immediately (NO-JOB-DIR) |
+| rt-preflight:70 | `-r`/`-s` are true for a DIRECTORY | require `-f` too |
+| rt-preflight:71 | `basename` mis-parsed a dash-prefixed name | `basename --` |
+
+**THE VERIFICATION:** tests/w1_runtime_wiring.test.ts 7 pass / 0 fail (incl. the 2 new
+host/segment attacks); the FULL battery green; tsc exit 0; the preflight proven on a
+directory-named SPEC.md.
+
+**ANCHORS:** src/target-guard.ts:42, src/runtime.ts:139, src/verdict.ts:212,
+gates/rt-preflight.sh:70.

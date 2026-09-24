@@ -67,8 +67,10 @@ if [ -d "$WORKTREE_ROOT" ]; then
     # FIXED (ship-gate MEDIUM): -f was weaker than the fence's own readability check, so an
     # unreadable/empty SPEC.md passed here and still failed as FENCE-NO-SPEC. Require readable
     # AND non-empty.
-    if [ ! -r "$wt/SPEC.md" ] || [ ! -s "$wt/SPEC.md" ]; then
-      echo "REJECT(G-RT): the worktree $(basename "$wt") has NO readable, non-empty SPEC.md — the fence would answer FENCE-NO-SPEC on every PR" >&2
+    # FIXED (ship-gate LOW): -r/-s are true for a DIRECTORY, so require -f too; and
+    # `basename --` stops a dash-prefixed name being parsed as an option.
+    if [ ! -f "$wt/SPEC.md" ] || [ ! -r "$wt/SPEC.md" ] || [ ! -s "$wt/SPEC.md" ]; then
+      echo "REJECT(G-RT): the worktree $(basename -- "$wt") has NO readable, non-empty SPEC.md — the fence would answer FENCE-NO-SPEC on every PR" >&2
       echo "  fix: write a SPEC.md naming a COMMITTED artifact (see .trident/remediation-pkg/)" >&2
       WT_NO_SPEC=$((WT_NO_SPEC + 1))
     fi

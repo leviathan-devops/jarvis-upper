@@ -165,6 +165,11 @@ export function artifactBoundToHead(jobDir: string, headSha: string): { ok: bool
 }
 
 export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
+  // FIXED (ship-gate LOW): an EMPTY jobDir made the SPEC path "/SPEC.md" (the filesystem
+  // root). Refuse immediately instead of reading an unrelated file.
+  if (!opts.jobDir) {
+    return { verdict: "UNVERIFIED", sources: { fence: { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: "NO-JOB-DIR" }, review: { ran: false, verdict: null, targetSha: null, harness: null, reason: "NO-JOB-DIR" } }, reasons: ["NO-JOB-DIR"] };
+  }
   const fenceBin = opts.fenceBin ?? FENCE_DEFAULT;
   const ledgerPath = opts.ledgerPath ?? LEDGER_DEFAULT;
   const runFence = opts.runFence ?? defaultRunFence;
@@ -218,7 +223,9 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // silently back to the jobDir basename, which for a session worktree is the SEAT
   // ("jarvis-upper-4"), not the SPEC's job name. The failure is surfaced in the
   // REFUSAL below (when the needle yields no row), never in a green case.
-  const row = ledgerRowFor(ledgerPath, specRead.job ?? opts.jobDir.split("/").filter(Boolean).pop());
+  // FIXED (ship-gate LOW): when the SPEC is unreadable, do NOT populate ledgerVerdict from a
+  // GUESSED needle (it is misleading for post-mortem) — the refusal below carries the cause.
+  const row = specRead.failure ? null : ledgerRowFor(ledgerPath, specRead.job ?? opts.jobDir.split("/").filter(Boolean).pop());
   fence.ledgerVerdict = row?.verdict ?? null;
   // ADJUDICATED (ocr audit high, two-sided — REJECTED): the finding claimed "the
   // ledger invariant SHA is never bound". MEASURED: the ledger row's 16-hex

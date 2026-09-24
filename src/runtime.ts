@@ -30,7 +30,7 @@ export const DAEMON = process.env.AO_DAEMON ?? "http://localhost:3001";
 // cap 0 (TRUNCATED on every read) or NaN (`buf.length > NaN` is ALWAYS false -> the cap
 // vanished and the buffer grew unbounded). Same guard as parseTickMs.
 export const RAIL_MAX_BUF = ((): number => {
-  const n = Number(process.env.RAIL_MAX_BUF ?? 65536);
+  const n = Math.floor(Number(process.env.RAIL_MAX_BUF ?? 65536));
   return Number.isFinite(n) && n > 0 ? n : 65536;
 })();
 
@@ -137,8 +137,12 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     // capture is truncated, cut back to the last COMPLETE frame boundary ("\n\n").
     let parseBuf = buf;
     if (truncated) {
-      const cut = buf.lastIndexOf("\n\n");
-      parseBuf = cut >= 0 ? buf.slice(0, cut + 2) : "";
+      // FIXED (ship-gate MEDIUM): handle CRLF too — a `\r\n\r\n` stream yielded no cut
+      // and discarded EVERY complete frame. Cut at the later of the two delimiters.
+      const lf = buf.lastIndexOf("\n\n");
+      const crlf = buf.lastIndexOf("\r\n\r\n");
+      const cut = Math.max(lf >= 0 ? lf + 2 : -1, crlf >= 0 ? crlf + 4 : -1);
+      parseBuf = cut > 0 ? buf.slice(0, cut) : "";
     }
     const parsed = parseSse(parseBuf);      // what the wire actually carried
     const rail = new EventRail(db);
@@ -149,7 +153,9 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     // RangeError and turned a busy stream into a tick-threw. A bounded loop.
     let lastSeq = 0;
     for (const e of parsed) if (e.seq > lastSeq) lastSeq = e.seq;
-    if (parsed.length > 0) {
+    // FIXED (ship-gate LOW): write the artifact whenever TRUNCATED, even with zero
+    // complete frames — a post-mortem must tell truncated-empty from idle-empty.
+    if (parsed.length > 0 || truncated) {
       // the wire-capture artifact: proof the adapter carried REAL bytes
       // FIXED (ship-gate LOW): the truncation flag is recorded IN the artifact, so a
       // post-mortem reader can tell a partial window from a complete one.

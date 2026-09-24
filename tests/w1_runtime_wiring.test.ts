@@ -43,6 +43,10 @@ test("test_target_refuses_mismatch", () => {
   expect(leak.remote).toContain("<redacted>");
   // scp-like remotes parse too
   expect(targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: repo("git@github.com:o/r.git") }).ok).toBe(true);
+  // ship-gate MEDIUM: a LOOKALIKE HOST must not pass
+  expect(targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: repo("https://github.com.evil.com/o/r.git") }).ok).toBe(false);
+  // ship-gate MEDIUM: EXTRA path segments are not this repo
+  expect(targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: repo("https://github.com/extra/o/r.git") }).ok).toBe(false);
 });
 
 // ── R3 / F-20: one malformed row must NOT roll back the whole batch ──────────

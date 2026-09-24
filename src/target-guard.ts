@@ -29,25 +29,37 @@ export interface RemoteRead {
   error?: string;
 }
 
-/** Parse a git remote into owner/repo. Handles https, ssh://, and scp-like git@host:o/r. */
-export function parseRemote(url: string): { owner: string; repo: string } | null {
+/** Parse a git remote into host + owner/repo. Handles https, ssh://, and scp-like git@host:o/r.
+ *  FIXED (ship-gate MEDIUM x2): the host is captured (a lookalike host must not pass), and the
+ *  path must be EXACTLY two segments — `.../extra/owner/repo` is NOT this repo. */
+export function parseRemote(url: string): { host: string | null; owner: string; repo: string } | null {
   const u = url.trim();
   if (!u) return null;
   let path: string | null = null;
-  const scp = u.match(/^[^@/\s]+@[^:/\s]+:(.+)$/);   // git@github.com:owner/repo.git
-  if (scp) path = scp[1];
+  let host: string | null = null;
+  const scp = u.match(/^[^@/\s]+@([^:/\s]+):(.+)$/);   // git@github.com:owner/repo.git
+  if (scp) { host = scp[1]; path = scp[2]; }
   else {
-    try { path = new URL(u).pathname; } catch { path = null; }
+    try { const p = new URL(u); host = p.hostname; path = p.pathname; } catch { path = null; }
   }
   if (!path) return null;
-  const parts = path.replace(/\.git$/i, "").split("/").map((p) => p.trim()).filter(Boolean);
-  if (parts.length < 2) return null;
-  return { owner: parts[parts.length - 2], repo: parts[parts.length - 1] };
+  const parts = path.replace(/\.git$/i, "").split("/").map((x) => x.trim()).filter(Boolean);
+  if (parts.length !== 2) return null;      // exactly owner/repo
+  return { host, owner: parts[0], repo: parts[1] };
 }
 
-/** Strip any userinfo (user:token@) before a remote is echoed into logs/status. */
+/** Strip any userinfo (user:token@) before a remote is echoed into logs/status.
+ *  FIXED (ship-gate LOW): a URL-parse redaction handles a password containing `@`
+ *  (e.g. `https://user:p@ss@host/o/r`) which a single-regex strip leaked. */
 export function redactRemote(url: string): string {
-  return url.replace(/\/\/[^/@\s]*@/, "//<redacted>@");
+  try {
+    const p = new URL(url);
+    // build it by hand: URL.toString() percent-encodes "<redacted>" into %3C...%3E
+    if (p.username || p.password) return `${p.protocol}//<redacted>@${p.host}${p.pathname}${p.search}${p.hash}`;
+    return url;
+  } catch {
+    return url.replace(/\/\/[^/@\s]*@/g, "//<redacted>@");
+  }
 }
 
 const defaultReadRemote = (root: string): RemoteRead => {
@@ -66,6 +78,8 @@ export function targetMatchesRemote(opts: {
   root: string;
   owner: string;
   repo: string;
+  /** the expected git host (FIXED ship-gate MEDIUM: a lookalike host must not pass) */
+  host?: string;
   /** injectable for tests; defaults to a real `git rev-parse` + `git remote get-url origin` */
   readRemote?: (root: string) => RemoteRead;
 }): TargetCheck {
@@ -86,6 +100,10 @@ export function targetMatchesRemote(opts: {
   if (!res.url) return { ok: true, remote: "(no remote)" };
   const parsed = parseRemote(res.url);
   if (!parsed) return { ok: false, remote: redactRemote(res.url), reason: `TARGET-UNPARSEABLE:${redactRemote(res.url)}` };
+  const wantHost = (opts.host ?? "github.com").toLowerCase();
+  if (parsed.host && parsed.host.toLowerCase() !== wantHost) {
+    return { ok: false, remote: redactRemote(res.url), reason: `TARGET-HOST-MISMATCH:${parsed.host} != ${wantHost}` };
+  }
   const ok = parsed.owner.toLowerCase() === opts.owner.toLowerCase()
     && parsed.repo.toLowerCase() === opts.repo.toLowerCase();
   return {
