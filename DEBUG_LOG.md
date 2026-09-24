@@ -624,3 +624,12 @@ Battery 107 pass / 0 fail at tests/publisher_wired.test.ts:1
 - **THE FIX:** UPDATE projects SET path='<the real path>' WHERE id='jarvis-upper'. MEASURED: a session then spawned successfully (jarvis-upper-4, branch ao/jarvis-upper-4/root, autoReviewEnabled=true).
 - **THE LESSON:** a moved repo silently kills every AO rail bound to it. The project path is a load-bearing config the move must update.
 - **ANCHORS:** ~/.ao/data/ao.db (projects.path), src/main.ts:29 (the kernel's own WORKTREE_ROOT default), /home/leviathan/.ao/data/worktrees/jarvis-upper/jarvis-upper-4 (the spawned worktree).
+
+## EN-158 - THE REVIEW RAIL RECOVERED (the auto-review trigger) (2026-09-24T10:13:09Z)
+
+- **THE FINDING:** after fixing the stale AO project path (EN-157), a session spawned (jarvis-upper-4) but the auto-review still produced 0 runs. The session's `prs` array was EMPTY despite the branch being pushed.
+- **THE ROOT CAUSE:** the auto-review sweep evaluates a session's BOUND PRs. A session whose `prs` array is empty has nothing to review. AO's `pr` table held PR #2 bound to the TERMINATED session jarvis-upper-2.
+- **THE FIX:** (1) rebind the PR to the ACTIVE session — `UPDATE pr SET session_id='jarvis-upper-4' WHERE url LIKE '%jarvis-upper/pull/2'`; (2) wake the session — `POST /api/v1/sessions/jarvis-upper-4/send {"message":"..."}` (the field is `message`, NOT `text` — `text` returns MESSAGE_REQUIRED). The session's `prs` array then populated with PR #2 @ 4942188, and the auto-review sweep fired.
+- **THE EVIDENCE:** review_run id 81332e54-e684-45c2-9ddb-eda11d631d11, session jarvis-upper-4, harness opencode, target_sha 4942188cbf7065d6f4ef52f2011bf4a4e5332565, status running. The reviewer process is LIVE: `opencode --agent ao-review-jarvis-upper-4` at 32.3% CPU (ptyhost-v1:review-jarvis-upper-4).
+- **THE LESSON:** the AO auto-review trigger is (an ACTIVE session) + (a PR BOUND to it) + (a head transition). A terminated session's PR is invisible to the sweep. The `/send` field is `message`.
+- **ANCHORS:** ~/.ao/data/ao.db (pr.session_id, review_run.target_sha), /api/v1/sessions/{id}/send (message field), /api/v1/sessions/{id}/pr.
