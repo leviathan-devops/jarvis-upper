@@ -57,7 +57,7 @@ that the source-level verification could not see — including two CRITICALs: th
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  THE RUNTIME LIFECYCLE — measured live at tick 3099                      │
+│  THE RUNTIME LIFECYCLE — measured live at tick 3110                      │
 ├──────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │  AO daemon (:3001)                                                       │
@@ -170,7 +170,7 @@ that the source-level verification could not see — including two CRITICALs: th
 
 ## THE RUNTIME TRACE (the 5-part simulator — a real tick, observed)
 
-**1. TIMELINE HEADER** — tick 3099, T+0ms → T+~30ms, the AO daemon UP, 9 PRs synced.
+**1. TIMELINE HEADER** — tick 3110, T+0ms → T+~30ms, the AO daemon UP, 9 PRs synced.
 
 **2. NUMBERED STEPS** (the calls the live process made):
 ```
@@ -299,6 +299,7 @@ that the source-level verification could not see — including two CRITICALs: th
 | R4 | the wire capture | the adapter's bytes | `{parsedFrames:5, newlyProcessed:5, bytes:2028, lastSeq:679}` |
 | R5 | the LIVE publish | REAL GitHub | **HTTP 201** — `factory/fence2` + `factory/verdict` (API-verified) |
 | R6 | the LIVE end-to-end | the real fence2.py | an eligible PR → **fence2.py ran, exit 1** → both contexts POSTed |
+| R6b | the LIVE end-to-end, REPRODUCED | the CURRENT head | the same POSTs on the head sha — **API-verified twice** |
 | R7 | the merge attempt | the REAL ruleset | **405** — '2 of 8 required status checks have not succeeded' |
 | R8 | the CI | GitHub Actions | **6/6 success** on `be46bd66` |
 | R9 | the push | the DEPLOYED hooks | the branch pushed (`e9ff02b..d18a6fd`) after the W-2 fix |
