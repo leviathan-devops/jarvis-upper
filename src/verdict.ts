@@ -171,7 +171,11 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // (the filesystem root) and a whitespace-only value passed then failed the read.
   // FIXED (ship gate LOW): "//" and "/./" are POSIX-equivalent to "/" and still built
   // "/SPEC.md". Normalize (collapse duplicate slashes, drop a trailing slash) first.
-  const normJobDir = opts.jobDir ? opts.jobDir.replace(/\/+/g, "/").replace(/\/+$/, "") : "";
+  // FIXED (the W14 ship gate MEDIUM): collapsing slashes left "/." / "/.." intact — still
+  // the filesystem root. Strip dot-segments too, then reject any root-equivalent.
+  // (PRESERVE the leading slash — a join without it made every path RELATIVE.)
+  const segs = opts.jobDir ? opts.jobDir.split("/").filter((seg) => seg !== "" && seg !== "." && seg !== "..") : [];
+  const normJobDir = segs.length > 0 ? "/" + segs.join("/") : "";
   if (!opts.jobDir || opts.jobDir.trim() === "" || normJobDir === "") {
     return { verdict: "UNVERIFIED", sources: { fence: { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: "NO-JOB-DIR" }, review: { ran: false, verdict: null, targetSha: null, harness: null, reason: "NO-JOB-DIR" } }, reasons: ["NO-JOB-DIR"] };
   }

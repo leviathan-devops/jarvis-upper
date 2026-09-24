@@ -62,9 +62,12 @@ export function redactRemote(url: string): string {
   } catch {
     // FIXED (ship gate LOW): the fallback required "//" and never matched an scp-like
     // `user:secret@host:o/r` (which has no scheme, so new URL threw). Redact the scp form too.
+    // FIXED (the W14 ship gate LOW): redacting ANY scp user mangled the conventional
+    // `git@github.com:o/r` into `<redacted>@github.com:o/r`. Redact only a `user:PASS@`
+    // (a colon = a secret); keep a bare `user@`.
     return url
-      .replace(/^([^@/\s]+)@([^@/\s]+:)/, "<redacted>@$2")   // scp: user:secret@host:
-      .replace(/\/\/[^/@\s]*@/g, "//<redacted>@");            // https: //user@host
+      .replace(/^([^@/\s:]+:[^@/\s]+)@/, "<redacted>@")     // scp: user:PASS@host:
+      .replace(/\/\/[^/@\s:]*:[^/@\s]*@/g, "//<redacted>@"); // https: //user:PASS@host
   }
 }
 
@@ -76,12 +79,18 @@ const defaultReadRemote = (root: string): RemoteRead => {
   const inside = run(["git", "-C", root, "rev-parse", "--is-inside-work-tree"]);
   if (inside.code !== 0 || inside.out !== "true") return { url: null, isRepo: false };
   const url = run(["git", "-C", root, "remote", "get-url", "origin"]);
-  if (url.code === 0) return { url: url.out || null, isRepo: true };
+  // FIXED (the W14 ship gate HIGH): `url.out || null` mapped an EMPTY origin URL ("") to
+  // null, and the caller treats a falsy `url` as "(no remote)" -> ok:true — a cleared/empty
+  // origin FAIL-OPENED. An empty url is UNVERIFIABLE, never an allow.
+  if (url.code === 0) {
+    if (!url.out) return { url: null, isRepo: true, error: "origin-url-empty" };
+    return { url: url.out, isRepo: true };
+  }
   // FIXED (the final ship gate HIGH): a git FAILURE inside a REAL worktree (a permission
-  // error, a corrupt config) collapsed to "(no remote)" -> ok:true, bypassing the guard
-  // and contradicting the FAIL-CLOSED header. `git remote get-url` exits 2 with
-  // "No such remote" when the remote is simply ABSENT — the ONLY legitimate no-origin.
-  if (url.code === 2 && /No such remote/i.test(url.err)) return { url: null, isRepo: true };
+  // error, a corrupt config) collapsed to "(no remote)" -> ok:true, bypassing the guard.
+  // `git remote get-url` exits 2 when the remote is ABSENT — that IS the exit code (no
+  // text match, which a locale/wrapper could break).
+  if (url.code === 2) return { url: null, isRepo: true };
   return { url: null, isRepo: true, error: `remote-read-failed:exit${url.code}:${url.err.slice(0, 80)}` };
 };
 
@@ -110,13 +119,15 @@ export function targetMatchesRemote(opts: {
   if (!res.isRepo) return { ok: false, remote: "", reason: "GIT-UNAVAILABLE:not-a-repo" };
   // a real work tree with no origin has nothing to contradict — allow it.
   if (!res.url) return { ok: true, remote: "(no remote)" };
+  // FIXED (the W14 ship gate LOW): redactRemote ran twice per branch — hoist it.
+  const safe = redactRemote(res.url);
   const parsed = parseRemote(res.url);
-  if (!parsed) return { ok: false, remote: redactRemote(res.url), reason: `TARGET-UNPARSEABLE:${redactRemote(res.url)}` };
+  if (!parsed) return { ok: false, remote: safe, reason: `TARGET-UNPARSEABLE:${safe}` };
   const wantHost = (opts.host ?? "github.com").toLowerCase();
   // FIXED (ship-gate MEDIUM): the host check was SKIPPED when `parsed.host` was null
   // (fail-OPEN past the lookalike-host guard). Require a host, compare unconditionally.
   if (!parsed.host) {
-    return { ok: false, remote: redactRemote(res.url), reason: `TARGET-NO-HOST:${redactRemote(res.url)}` };
+    return { ok: false, remote: safe, reason: `TARGET-NO-HOST:${safe}` };
   }
   if (parsed.host.toLowerCase() !== wantHost) {
     return { ok: false, remote: redactRemote(res.url), reason: `TARGET-HOST-MISMATCH:${parsed.host} != ${wantHost}` };

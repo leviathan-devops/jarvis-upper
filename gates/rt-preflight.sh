@@ -55,12 +55,21 @@ fi
 # adjudicates every session worktree, and one with NO SPEC.md makes every PR post
 # factory/fence2=failure forever with nobody told why. A worktree that exists but
 # carries no fence job is a NAMED refusal. (No worktrees yet = nothing to fence.)
-WORKTREE_ROOT="${UPPER_WORKTREE_ROOT:-$HOME/.ao/data/worktrees/jarvis-upper}"
+# FIXED (the W14 ship gate LOW x2): `set -u` + an unset HOME aborted BEFORE any named
+# REJECT; and the default root hardcoded "jarvis-upper" while src/main.ts derives it from
+# UPPER_REPO — so a daemon on another repo adjudicated a tree this gate never scanned.
+WORKTREE_ROOT="${UPPER_WORKTREE_ROOT:-${HOME:-/home/leviathan}/.ao/data/worktrees/${UPPER_REPO:-jarvis-upper}}"
 # FIXED (ship-gate MEDIUM): an EXPLICIT-but-missing override silently disabled the gate —
 # `UPPER_WORKTREE_ROOT=/nonexistent` took the else branch and passed as "nothing to fence
 # yet" while real worktrees under the default root went unfenced. Fail closed.
 if [ -n "${UPPER_WORKTREE_ROOT:-}" ] && [ ! -d "$UPPER_WORKTREE_ROOT" ]; then
-  echo "REJECT(G-RT): UPPER_WORKTREE_ROOT=$UPPER_WORKTREE_ROOT does not exist — refusing to PASS with an unverifiable worktree root" >&2
+  # FIXED (the W14 ship gate LOW): `[ ! -d ]` is also true for a regular file / broken
+  # symlink, so the message blamed a MISSING path for a WRONG-TYPE one.
+  if [ -e "$UPPER_WORKTREE_ROOT" ] || [ -L "$UPPER_WORKTREE_ROOT" ]; then
+    echo "REJECT(G-RT): UPPER_WORKTREE_ROOT=$UPPER_WORKTREE_ROOT exists but is not a directory — refusing to PASS with an unverifiable worktree root" >&2
+  else
+    echo "REJECT(G-RT): UPPER_WORKTREE_ROOT=$UPPER_WORKTREE_ROOT does not exist — refusing to PASS with an unverifiable worktree root" >&2
+  fi
   FAIL=1
 # FIXED (ship gate MEDIUM): a root that EXISTS but is not a LISTABLE directory (a regular
 # file, a broken symlink, a dir missing +r/+x) fell through to "nothing to fence yet" and
@@ -76,8 +85,15 @@ elif [ -d "$WORKTREE_ROOT" ]; then
   # bypassed the gate while still being adjudicated. dotglob makes the glob complete.
   # FIXED (ship-gate LOW): an unconditional `shopt -u` clobbered the CALLER's option state.
   # Save + restore it.
+  # FIXED (the W14 ship gate LOW): only dotglob was saved. A caller-exported failglob made
+  # an empty root raise `no match`; nullglob/GLOBIGNORE could FILTER entries (a hidden
+  # bypass). Save + clear them all.
   DOTGLOB_WAS=$(shopt -p dotglob 2>/dev/null || true)
+  FAILGLOB_WAS=$(shopt -p failglob 2>/dev/null || true)
+  NULLGLOB_WAS=$(shopt -p nullglob 2>/dev/null || true)
   shopt -s dotglob 2>/dev/null || true
+  shopt -u failglob 2>/dev/null || true
+  shopt -u nullglob 2>/dev/null || true
   for wt in "$WORKTREE_ROOT"/*/; do
     [ -d "$wt" ] || continue
     WT_N=$((WT_N + 1))
@@ -97,6 +113,8 @@ elif [ -d "$WORKTREE_ROOT" ]; then
     fi
   done
   if [ -n "$DOTGLOB_WAS" ]; then eval "$DOTGLOB_WAS"; else shopt -u dotglob 2>/dev/null || true; fi
+  if [ -n "$FAILGLOB_WAS" ]; then eval "$FAILGLOB_WAS"; fi
+  if [ -n "$NULLGLOB_WAS" ]; then eval "$NULLGLOB_WAS"; fi
   if [ "$WT_NO_SPEC" -gt 0 ]; then
     FAIL=1
   elif [ "$WT_N" -eq 0 ]; then

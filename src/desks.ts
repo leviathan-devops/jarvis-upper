@@ -88,10 +88,10 @@ export async function waveB(db: Database, fx: FixtureSet, target: string): Promi
   // recordGatePass upserts id=JSON([prId,g]) for the SAME (pr_node,gate) — and the new
   // UNIQUE(pr_node,gate) index made the second writer throw SQLITE_CONSTRAINT_UNIQUE.
   // The id is now the SAME JSON pair, so both writers upsert ONE row.
-  // FIXED (the ship gate HIGH, round 2): ON CONFLICT(id) does NOT cover the new
-  // UNIQUE(pr_node,gate) — a surviving LEGACY row (id=`w4b:...` or NULL) sharing the pair
-  // made the next waveB throw SQLITE_CONSTRAINT_UNIQUE. Target the PAIR constraint.
-  db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, evidence, sha16, head_sha, at) VALUES (?,?,?,?,?,?,?,strftime('%s','now')) ON CONFLICT(pr_node, gate) DO UPDATE SET id=excluded.id, verdict=excluded.verdict, evidence=excluded.evidence, sha16=excluded.sha16, head_sha=excluded.head_sha, at=excluded.at")
+  // FIXED (the ship gate HIGH, round 2): ON CONFLICT(id) did NOT cover UNIQUE(pr_node,gate).
+  // FIXED (the W14 ship gate MEDIUM): a named target THROWS without the index. OR REPLACE
+  // handles any uniqueness with no index dependency.
+  db.query("INSERT OR REPLACE INTO gate_pass(id, pr_node, gate, verdict, evidence, sha16, head_sha, at) VALUES (?,?,?,?,?,?,?,strftime('%s','now'))")
     .run(JSON.stringify([target, "hardened"]), target, "hardened", "pass", testOut.slice(0, 200), rev, rev);
     db.exec("COMMIT");
   } catch (e) { db.exec("ROLLBACK"); throw e; }

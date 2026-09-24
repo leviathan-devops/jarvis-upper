@@ -1417,3 +1417,34 @@ was correct; the test's fixture was incomplete.**
 
 **ANCHORS:** src/desks.ts:87, src/guardrail.ts:139, src/kick-adapter.ts:65,93, src/kick.ts:66,
 src/runtime.ts:128,151, src/verdict.ts:172, gates/rt-preflight.sh:68,89.
+
+## EN-199 - W14: THE SHIP GATE ROUND 3 (2 high, BOTH INTRODUCED BY W13) (2026-09-24T19:55:25Z)
+
+**GATE: FAIL (0 critical, 2 high)** — the re-audit caught TWO new HIGHs in my own W13 fixes:
+
+| id | the defect | the fix |
+|---|---|---|
+| runtime.ts:166 | **MY W13 BUG:** `parsed` used the CRLF-NORMALIZED buffer but `rail.attach` received the RAW one — the parse counted correctly while attach MERGED frames | normalize ONCE, use it for both |
+| target-guard.ts:79 | **MY W13 BUG:** `url.out \|\| null` mapped an EMPTY origin URL ("") to null, and the caller treats a falsy url as "(no remote)" -> ok:true — a cleared origin FAIL-OPENED | an empty url is UNVERIFIABLE (`error: origin-url-empty`); the absent-origin test is the EXIT CODE 2 (no locale-dependent text match) |
+
+**THE MEDIUMS:** guardrail.ts:150 + desks.ts:94 (a named `ON CONFLICT(pair)` THROWS when the
+index is absent — a raw db → `INSERT OR REPLACE`, which handles ANY uniqueness with no index
+dependency) · verdict.ts:174 (the normalization left "/." / "/.." → strip dot-segments; and
+the FIRST attempt dropped the leading slash, making paths RELATIVE — caught by 7 red tests) ·
+runtime.ts:151 (the cut ran only when truncated — a timeout/deadline break also tears a frame
+→ cut whenever the buffer does not end on a boundary) · runtime.ts:158 (a single oversize
+frame could never progress → a DISTINCT `TRUNCATED-SINGLE-FRAME` signal).
+
+**THE LOWS:** store.ts:155 (a full GROUP BY on every open → a LIMIT-1 existence probe) ·
+target-guard.ts:66 (the scp redact mangled `git@github.com:o/r` → only redact a `user:PASS@`
+form) · target-guard.ts:114 (a double redactRemote → hoisted) · rt-preflight.sh:58 (an unset
+HOME aborted under `set -u`; the default root ignored UPPER_REPO → both fixed) ·
+rt-preflight.sh:62 (a wrong-TYPE path reported as "does not exist" → an accurate message) ·
+rt-preflight.sh:79 (only dotglob was saved → failglob/nullglob saved + cleared).
+
+**THE VERIFICATION:** the FULL battery **174 pass / 0 fail** (599 expect, 47 files); tsc exit 0;
+the preflight measured three ways (a good worktree → exit 0; a wrong-type path → the accurate
+diagnostic; no HOME → exit 1, no crash).
+
+**ANCHORS:** src/runtime.ts:157,166, src/target-guard.ts:78, src/verdict.ts:174,
+src/guardrail.ts:139, src/desks.ts:87, gates/rt-preflight.sh:58,62,79.

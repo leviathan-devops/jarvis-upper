@@ -102,6 +102,7 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     const dec = new TextDecoder();
     let buf = "";
     let bufBytes = 0;   // the incremental wire-byte count (never a whole-buffer recompute)
+    let oversizedFrame = false;   // a single frame > RAIL_MAX_BUF (a named, non-progressing state)
     // FIXED 2026-09-23 (a RAIL TIMEOUT bug found on the LIVE daemon): the loop
     // checked `Date.now() < deadline` BEFORE `reader.read()`, but `read()` BLOCKS
     // on an IDLE stream until the 5 s AbortSignal fires — so a HEALTHY idle stream
@@ -149,21 +150,32 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     // torn buffer ran reducers on half an event and advanced rail_seq past it. When the
     // capture is truncated, cut back to the last COMPLETE frame boundary ("\n\n").
     let parseBuf = buf;
-    if (truncated) {
+    // FIXED (the W14 ship gate MEDIUM): the cut ran ONLY when truncated — a timeout/deadline
+    // break also leaves `buf` mid-frame, and parseSse's flush() would emit the PARTIAL and
+    // advance rail_seq past half an event. Cut whenever the capture did NOT end on a clean
+    // frame boundary.
+    const endsClean = /(?:\n\n|\r\n\r\n)$/.test(buf);
+    if (truncated || !endsClean) {
       // FIXED (ship-gate MEDIUM): handle CRLF too — a `\r\n\r\n` stream yielded no cut
       // and discarded EVERY complete frame. Cut at the later of the two delimiters.
       const lf = buf.lastIndexOf("\n\n");
       const crlf = buf.lastIndexOf("\r\n\r\n");
       const cut = Math.max(lf >= 0 ? lf + 2 : -1, crlf >= 0 ? crlf + 4 : -1);
       parseBuf = cut > 0 ? buf.slice(0, cut) : "";
+      // FIXED (the W14 ship gate MEDIUM): when a SINGLE frame exceeds the cap, cut is -1 and
+      // the capture can never advance (the same `after` refetches forever). A DISTINCT
+      // signal names the condition so a reader can tell it from an ordinary truncation.
+      if (cut <= 0) oversizedFrame = true;
     }
     // FIXED (ship gate MEDIUM): parseSse splits on "\n" and treats only an EMPTY line as a
     // boundary, so interior "\r" blank lines were skipped and CRLF-delimited frames MERGED.
-    // Cutting at \r\n\r\n preserved bytes but the parse still under-counted. Normalize.
-    const parsed = parseSse(parseBuf.replace(/\r\n/g, "\n"));   // what the wire actually carried
+    // FIXED (the W14 ship gate HIGH): normalize ONCE — `parsed` used the normalized buffer
+    // while `attach` received the RAW one, so the parse counted correctly but attach MERGED.
+    const normalized = parseBuf.replace(/\r\n/g, "\n");
+    const parsed = parseSse(normalized);      // what the wire actually carried
     const rail = new EventRail(db);
     const frames: number[] = [];
-    await rail.attach([parseBuf], (ev) => { frames.push(ev.seq); reduceEvent(db, ev); });  // reducers' real caller
+    await rail.attach([normalized], (ev) => { frames.push(ev.seq); reduceEvent(db, ev); });  // reducers' real caller
     // FIXED (ocr audit high): `Math.max(...arr)` spreads the WHOLE array onto the
     // call stack — a large SSE backlog (tens of thousands of frames) throws
     // RangeError and turned a busy stream into a tick-threw. A bounded loop.
@@ -181,7 +193,7 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     // caller must not treat a partial read as a clean one.
     // FIXED (ship gate MEDIUM): the cap check + the artifact use Buffer.byteLength, but
     // the RETURN used buf.length (UTF-16 units) — a non-ASCII stream mis-reported its size.
-    return { frames: parsed.length, bytes: Buffer.byteLength(buf, "utf8"), lastSeq, ...(truncated ? { failed: `TRUNCATED-${RAIL_MAX_BUF}` } : {}) };
+    return { frames: parsed.length, bytes: Buffer.byteLength(buf, "utf8"), lastSeq, ...(truncated ? { failed: oversizedFrame ? `TRUNCATED-SINGLE-FRAME-${RAIL_MAX_BUF}` : `TRUNCATED-${RAIL_MAX_BUF}` } : {}) };
   } catch (e) { return { frames: 0, bytes: 0, lastSeq: 0, failed: String(e).slice(0, 80) }; }
 }
 
