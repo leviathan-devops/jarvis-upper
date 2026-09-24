@@ -60,7 +60,11 @@ export function redactRemote(url: string): string {
     if (p.username || p.password) return `${p.protocol}//<redacted>@${p.host}${p.pathname}${p.search}${p.hash}`;
     return url;
   } catch {
-    return url.replace(/\/\/[^/@\s]*@/g, "//<redacted>@");
+    // FIXED (ship gate LOW): the fallback required "//" and never matched an scp-like
+    // `user:secret@host:o/r` (which has no scheme, so new URL threw). Redact the scp form too.
+    return url
+      .replace(/^([^@/\s]+)@([^@/\s]+:)/, "<redacted>@$2")   // scp: user:secret@host:
+      .replace(/\/\/[^/@\s]*@/g, "//<redacted>@");            // https: //user@host
   }
 }
 

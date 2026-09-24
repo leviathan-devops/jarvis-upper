@@ -219,7 +219,9 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // basename when no SPEC is readable.
   const specRead = ((): { job: string } | { failure: string } => {
     try {
-      const sp = readFileSync(`${opts.jobDir}/SPEC.md`, "utf8");
+      // FIXED (ship gate LOW): the guard normalized the path but the READ used the RAW
+      // jobDir, so "/./SPEC.md" etc. still probed. Use the normalized value.
+      const sp = readFileSync(`${normJobDir || opts.jobDir}/SPEC.md`, "utf8");
       const m = sp.match(/^\s*job:\s*(\S+)\s*$/m);
       return m ? { job: m[1] } : { failure: "SPEC-NO-JOB" };
     } catch (e) { return { failure: `SPEC-UNREADABLE:${String(e).slice(0, 60)}` }; }

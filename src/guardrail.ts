@@ -143,9 +143,11 @@ export function recordGatePass(db: Database, prId: string, headSha: string, stat
   for (const g of REQUIRED_GATES) {
     const ctxs = GATE_TO_CONTEXT[g] as readonly string[];
     const ok = ctxs.length > 0 && ctxs.every((c) => states[c] === "success");
+    // FIXED (the ship gate HIGH, round 2): ON CONFLICT(id) misses the UNIQUE(pr_node,gate)
+    // when a LEGACY row with a different id holds the pair. Target the PAIR.
     db.query(`INSERT INTO gate_pass(id, pr_node, gate, verdict, head_sha, at)
               VALUES (?, ?, ?, ?, ?, strftime('%s','now'))
-              ON CONFLICT(id) DO UPDATE SET verdict=excluded.verdict, head_sha=excluded.head_sha, at=excluded.at`)
+              ON CONFLICT(pr_node, gate) DO UPDATE SET id=excluded.id, verdict=excluded.verdict, head_sha=excluded.head_sha, at=excluded.at`)
       // FIXED (runs 3-6): a `:`-joined composite key is ambiguous if prId ever
       // contains one. JSON.stringify of the pair is injective.
       .run(JSON.stringify([prId, g]), prId, g, ok ? "pass" : "fail", headSha);

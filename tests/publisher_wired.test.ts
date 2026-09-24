@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRuntime } from "../src/runtime";
 import { openStore } from "../src/store";
+import { REQUIRED_CONTEXTS } from "../src/status-contract";
 
 test("publisher_wired: main.ts arms publishOpts (the entry point is wired)", () => {
   const src = readFileSync(join(import.meta.dir, "..", "src", "main.ts"), "utf8");
@@ -30,7 +31,10 @@ test("publisher_wired: an eligible PR POSTs factory/fence2 + factory/verdict", a
         fetchImpl: (async (url: any, init: any) => {
           const u = String(url);
           if (u.includes("/statuses/")) { posted.push(JSON.parse(init.body).context); return new Response("{}", { status: 201 }); }
-          if (u.includes("/commits/")) return new Response(JSON.stringify([{ context: "factory/fence2", state: "success" }, { context: "factory/verdict", state: "success" }]), { status: 200 });
+          // FIXED (W13): the mock returned only 2 of the 8 REQUIRED_CONTEXTS, so the
+          // tick's gate mirror wrote ci_green=fail (it needs all 6 GitHub job contexts) —
+          // the PR read ineligible. Now ALL 8 read success, so the mirror is a real PASS.
+          if (u.includes("/commits/")) return new Response(JSON.stringify(REQUIRED_CONTEXTS.map((c) => ({ context: c, state: "success" }))), { status: 200 });
           return new Response("{}", { status: 200 });
         }) as any,
         verifyImpl: async () => ({ verdict: "VERIFIED", reasons: [], sources: { fence: { ran: true, exitCode: 0, sha: "abc1234", ledgerVerdict: "PASS", reason: "FENCE-GREEN" }, review: { ran: true, verdict: "approved", targetSha: "abc1234", harness: "muse", reason: "REVIEW-GREEN" } } }) as any,

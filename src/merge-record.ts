@@ -135,7 +135,9 @@ export function mergeRecorded(ledgerPath: string, mergeSha: string): boolean {
     // FIXED (ship gate MEDIUM): the inner LEDGER-CORRUPT-LINE was re-wrapped into
     // LEDGER-UNREADABLE, losing the distinct corrupt-line signal. An ALREADY-NAMED
     // error propagates unwrapped.
-    if (String(e).includes("LEDGER-CORRUPT-LINE")) throw e;
+    // FIXED (ship gate LOW): a substring match could catch a WRAPPED message. Check the
+    // Error's own message.
+    if (e instanceof Error && e.message.startsWith("LEDGER-CORRUPT-LINE")) throw e;
     // an unreadable ledger is an ERROR, never a false "absent"
     throw new Error(`LEDGER-UNREADABLE:${String(e).slice(0, 80)}`);
   }

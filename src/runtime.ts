@@ -101,6 +101,7 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = "";
+    let bufBytes = 0;   // the incremental wire-byte count (never a whole-buffer recompute)
     // FIXED 2026-09-23 (a RAIL TIMEOUT bug found on the LIVE daemon): the loop
     // checked `Date.now() < deadline` BEFORE `reader.read()`, but `read()` BLOCKS
     // on an IDLE stream until the 5 s AbortSignal fires — so a HEALTHY idle stream
@@ -129,7 +130,10 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
       buf += dec.decode(value, { stream: true });
       // FIXED (ship-gate LOW): `buf.length` counts UTF-16 code units, not wire bytes, so a
       // non-ASCII stream hit the "memory" limit at a different point than the cap implies.
-      if (Buffer.byteLength(buf, "utf8") > RAIL_MAX_BUF) {
+      // FIXED (ship gate LOW): Buffer.byteLength over the WHOLE buffer each chunk made the
+      // capture O(n^2). The chunks ARE the wire bytes — accumulate their lengths.
+      bufBytes += value.byteLength;
+      if (bufBytes > RAIL_MAX_BUF) {
         // FIXED (red-team audit W-12/R11): the old `break` abandoned the rest of
         // the stream and then parsed the TRUNCATED buffer as if it were a clean
         // capture — the cut frame was silently dropped and events past the window
@@ -153,7 +157,10 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
       const cut = Math.max(lf >= 0 ? lf + 2 : -1, crlf >= 0 ? crlf + 4 : -1);
       parseBuf = cut > 0 ? buf.slice(0, cut) : "";
     }
-    const parsed = parseSse(parseBuf);      // what the wire actually carried
+    // FIXED (ship gate MEDIUM): parseSse splits on "\n" and treats only an EMPTY line as a
+    // boundary, so interior "\r" blank lines were skipped and CRLF-delimited frames MERGED.
+    // Cutting at \r\n\r\n preserved bytes but the parse still under-counted. Normalize.
+    const parsed = parseSse(parseBuf.replace(/\r\n/g, "\n"));   // what the wire actually carried
     const rail = new EventRail(db);
     const frames: number[] = [];
     await rail.attach([parseBuf], (ev) => { frames.push(ev.seq); reduceEvent(db, ev); });  // reducers' real caller

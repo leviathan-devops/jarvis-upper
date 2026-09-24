@@ -1389,3 +1389,31 @@ store re-verified (4 rows, no dupes, ci_green=fail).
 
 **ANCHORS:** src/store.ts:63,143, src/desks.ts:87, src/target-guard.ts:66, src/kick.ts:66,
 src/verdict.ts:172, gates/rt-preflight.sh:65,81.
+
+## EN-198 - W13: THE SHIP GATE ROUND 2 (1 high + 5 medium + 7 low) (2026-09-24T19:47:00Z)
+
+**GATE: FAIL (0 critical, 1 high)** — down from 3. The remaining HIGH was a follow-on of my
+own H2 fix: `ON CONFLICT(id)` does NOT cover the new `UNIQUE(pr_node,gate)`, so a surviving
+LEGACY row (id=`w4b:...` or NULL) sharing the pair made the next waveB throw
+SQLITE_CONSTRAINT_UNIQUE. **Both writers now target the PAIR: `ON CONFLICT(pr_node, gate)`.**
+
+**THE MEDIUMS:** kick-adapter.ts:93 (the exported readFile ignored `opts.readFile` — one seam
+for both) · kick-adapter.ts:74 (a dropped attachment degraded the spawn silently → now THROWS
+KICK-ATTACHMENTS-DROPPED) · kick.ts:77 (an unrecognized Liveness fell through to spawn →
+exhaustive) · runtime.ts:151 (the CRLF parse merged frames → normalize before parsing).
+
+**THE LOWS:** adapter-verbs.ts (the thenable check + the `void` type widened + a copy passed) ·
+runtime.ts:132 (the O(n²) byteLength → incremental) · merge-record.ts:138 (the substring check →
+the Error's own message) · verdict.ts:174 (the normalized path used in the read) ·
+target-guard.ts:56 (the scp-form redact) · rt-preflight.sh:68 (a dangling-symlink root fails
+closed) · rt-preflight.sh:89 (the grep end-of-options).
+
+**THE EXPOSED TEST:** the W13 pair-conflict fix made the tick's gate MIRROR actually take
+effect (one row per pair), which exposed that `publisher_wired`'s remote mock returned only 2
+of the 8 REQUIRED_CONTEXTS — so `ci_green` read fail. The mock now returns all 8. **The fix
+was correct; the test's fixture was incomplete.**
+
+**THE VERIFICATION:** the FULL battery **174 pass / 0 fail** (599 expect, 47 files); tsc exit 0.
+
+**ANCHORS:** src/desks.ts:87, src/guardrail.ts:139, src/kick-adapter.ts:65,93, src/kick.ts:66,
+src/runtime.ts:128,151, src/verdict.ts:172, gates/rt-preflight.sh:68,89.

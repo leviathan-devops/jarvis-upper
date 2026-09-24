@@ -33,7 +33,9 @@ export async function listPrsFromAo(opts: {
   /** FIXED (ship-gate HIGH): partial-sync errors were console-only, so a caller could
    *  not distinguish a complete sync from a truncated one. This receives every per-session
    *  failure (the loud-fail law, now OBSERVABLE by the caller). */
-  onPartial?: (errors: { session: string; reason: string }[]) => void;
+  // FIXED (ship gate LOW): the runtime supports an async callback (it attaches a .then),
+  // so the type must allow it — a `void`-only signature forced a cast at every async caller.
+  onPartial?: (errors: { session: string; reason: string }[]) => void | Promise<void>;
 } = {}): Promise<PrRow[]> {
   const c = opts.callFn ?? call;
   // FIXED 2026-09-23 (ocr round-4 HIGH): the inline `(await c(...)).sessions`
@@ -96,9 +98,12 @@ export async function listPrsFromAo(opts: {
   if (allErrors.length > 0) {
     // FIXED (ship gate MEDIUM): a sync try/catch misses an ASYNC callback's rejection
     // (an unhandled rejection). Handle both the throw and the returned thenable.
+    // FIXED (ship gate LOW): the type was `void` while an async caller is supported — widen
+    // it, and pass a COPY so the caller cannot mutate the accumulated errors.
     try {
-      const r = opts.onPartial?.(allErrors) as unknown;
-      if (r && typeof (r as { catch?: unknown }).catch === "function") {
+      const r = opts.onPartial?.([...allErrors]) as unknown;
+      // FIXED (ship gate LOW): a then-ONLY thenable was missed (the .catch check). Check .then.
+      if (r && typeof (r as { then?: unknown }).then === "function") {
         (r as Promise<unknown>).catch((e) => console.error(`onPartial-rejected:${String(e).slice(0, 80)}`));
       }
     } catch (e) { console.error(`onPartial-threw:${String(e).slice(0, 80)}`); }

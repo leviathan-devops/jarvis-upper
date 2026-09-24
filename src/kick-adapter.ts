@@ -71,7 +71,10 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
           attachments.push({ data, mimeType: p.endsWith(".json") ? "application/json" : "text/markdown" });
         } catch { dropped.push(p); }
       }
-      if (dropped.length > 0) console.error(`kick-spawn-attachments-dropped:${dropped.join(",")}`);
+      // FIXED (ship gate MEDIUM): a dropped attachment silently degraded the spawn — the
+      // session worked from an incomplete dossier with the caller unable to detect it.
+      // Loud-fail: an unreadable/oversized dossier FAILS the spawn.
+      if (dropped.length > 0) throw new Error(`KICK-ATTACHMENTS-DROPPED:${dropped.join(",")}`);
       const r = await c<{ session?: { id?: string } } | null>("spawnSession", {
         body: { projectId: input.projectId, prompt, ...(attachments.length > 0 ? { attachments } : {}) },
       });
@@ -90,6 +93,9 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
       if (git(["checkout", "-b", `fix/${bugId}`])) return { ok: true };
       return { ok: git(["checkout", `fix/${bugId}`]) };
     },
-    readFile: async (path: string): Promise<string> => await Bun.file(path).text(),
+    // FIXED (ship gate MEDIUM): this ignored opts.readFile, so an injected seam
+    // controlled the attachments but NOT the dossier reads — tests and production could
+    // see different bytes. One seam for both.
+    readFile: async (path: string): Promise<string> => await (opts.readFile ?? (async (q: string) => await Bun.file(q).text()))(path),
   };
 }

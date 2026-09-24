@@ -74,6 +74,11 @@ export async function kick(
     if (input.originSession) {
       try { alive = await deps.sessionAlive(input.originSession); } catch { alive = "unknown"; }
     }
+    // FIXED (ship gate MEDIUM): an unrecognized Liveness (a legacy boolean `true`, a typo)
+    // fell through to `spawn` — a duplicate session. Exhaustive.
+    if (alive !== "alive" && alive !== "dead" && alive !== "unknown") {
+      throw new Error(`KICK-LIVENESS-INVALID:${String(alive).slice(0, 32)}`);
+    }
     if (alive === "unknown") throw new Error("KICK-LIVENESS-UNKNOWN");
     mode = alive === "alive" ? "live" : "spawn";
   }

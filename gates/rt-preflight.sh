@@ -65,7 +65,9 @@ if [ -n "${UPPER_WORKTREE_ROOT:-}" ] && [ ! -d "$UPPER_WORKTREE_ROOT" ]; then
 # FIXED (ship gate MEDIUM): a root that EXISTS but is not a LISTABLE directory (a regular
 # file, a broken symlink, a dir missing +r/+x) fell through to "nothing to fence yet" and
 # PASSed without verifying anything. Fail closed on an unverifiable root.
-elif [ -e "$WORKTREE_ROOT" ] && { [ ! -d "$WORKTREE_ROOT" ] || [ ! -r "$WORKTREE_ROOT" ] || [ ! -x "$WORKTREE_ROOT" ]; }; then
+# FIXED (ship gate MEDIUM): `-e` is FALSE for a dangling symlink, so a broken-symlink root
+# skipped both this REJECT and the `-d` branch and fell through to PASS. `-L` covers it.
+elif { [ -e "$WORKTREE_ROOT" ] || [ -L "$WORKTREE_ROOT" ]; } && { [ ! -d "$WORKTREE_ROOT" ] || [ ! -r "$WORKTREE_ROOT" ] || [ ! -x "$WORKTREE_ROOT" ]; }; then
   echo "REJECT(G-RT): the worktree root $WORKTREE_ROOT is not a listable directory — refusing to PASS unverified" >&2
   FAIL=1
 elif [ -d "$WORKTREE_ROOT" ]; then
@@ -86,7 +88,7 @@ elif [ -d "$WORKTREE_ROOT" ]; then
     # `basename --` stops a dash-prefixed name being parsed as an option.
     # FIXED (ship gate LOW): -s passes a whitespace-only file (a single newline). Require
     # non-BLANK content (grep -q for a non-space char), matching the fence's own refusal.
-    if [ ! -f "$wt/SPEC.md" ] || [ ! -r "$wt/SPEC.md" ] || [ ! -s "$wt/SPEC.md" ] || ! grep -q '[^[:space:]]' "$wt/SPEC.md" 2>/dev/null; then
+    if [ ! -f "$wt/SPEC.md" ] || [ ! -r "$wt/SPEC.md" ] || [ ! -s "$wt/SPEC.md" ] || ! grep -q -e '[^[:space:]]' -- "$wt/SPEC.md" 2>/dev/null; then
       # FIXED (ship-gate LOW): `basename --` is GNU-only (fails on BSD/macOS). Strip in-shell.
       WT_NAME="${wt%/}"; WT_NAME="${WT_NAME##*/}"
       echo "REJECT(G-RT): the worktree $WT_NAME has NO readable, non-empty SPEC.md — the fence would answer FENCE-NO-SPEC on every PR" >&2
