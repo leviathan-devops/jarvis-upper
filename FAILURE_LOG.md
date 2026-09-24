@@ -203,3 +203,49 @@
 - **Impact:** **no ship-ready claim can be made for this pass.** Every prior "verified" statement in this session stands on its own evidence, but the independent code audit that would bless the new watchdog code has not run.
 - **Disposition:** **BLOCKED — OPEN.** Retry condition: run the same scope through the fallback lane (the zen-free adapter at `:4098`, or the poolside-direct lane) per the pinned judge chain, re-write `/tmp/sg-ocr-<sha>.json`, then flip this entry to FIXED+PROVEN with the verdict line quoted in TESTING_LOG. **Never report a degraded run as PASS.**
 - **THE LESSON:** the gate that enforces "no claim without proof" is itself only as live as its provider. **A single-provider audit lane is a single point of failure for the entire evidence chain** — the fix is the pinned multi-rung chain, not a re-run.
+
+---
+
+## [2026-09-24T05:16:17Z] — F-15: THE QUALITY-BAR DONE CLAUSE (the operator's rejection, 2026-09-24)
+
+**THE OPERATOR'S VERDICT:** "this entire build is rejected as theatrical slop" — because
+the goal pin's DONE clause was a QUALITY BAR ("the ocr gate re-runs PASS — 0 critical,
+0 high"), not a RUNTIME EVENT. **This is literally what the git kernel is being built to
+prevent.** The kernel exists to enforce that claims have artifacts; the goal pin itself
+was a claim with no runtime artifact behind its DONE.
+
+**THE FOUR WASTE MECHANISMS (each measured):**
+1. **THE QUALITY-BAR DONE** — a count ("0 critical") has no floor; a runtime event
+   ("PUT /merge → 200") terminates. The count permitted 6 scan-fix loops (~4 hours) of
+   real-bug-fixing that never drove the system.
+2. **THE ORDERING FAILURE** — each fix surfaced new surface (correctly — the scanner was
+   right every time); the error was treating the quality bar as the TERMINAL activity
+   instead of a PREREQUISITE to driving the system to green.
+3. **THE INVERTED FEEDBACK LOOP** — the system's own outputs (the tick's errors[], the
+   fence's exit codes, the GitHub API) were never the driver. When the runtime WAS
+   finally measured, the real defects (the unwired publisher, the blocked push, the
+   stopped daemon) were found in MINUTES.
+4. **THE DOC/CHECKPOINT AMPLIFICATION** — 35 doc commits + 10 checkpoints of a system
+   that had never driven a green path. The contracts were satisfied while the purpose
+   was not.
+
+**THE CORRECTED LAW:** The qwen code review is MANDATORY and was RIGHT — every finding
+was real, every one was fixed. The misallocation was ORDERING: the scanner is a GATE,
+never the WORK SOURCE. Its findings are prerequisites to the green merge, never a
+substitute for it.
+
+**THE ANTI-PATTERN GATES (each wired to a git hook or event):**
+
+| Gate | What it prevents | The git hook/event it attaches to | The mechanism |
+|---|---|---|---|
+| G-GREEN | A goal whose DONE is a count | The goal pin's STOP clause | The DONE must name a command whose exit code IS the verdict |
+| G-RT | A session proceeding with a dead runtime | A bash script at session start | curl :3001 \|\| exit 1; systemctl \|\| exit 1; fence \|\| exit 1 |
+| G-RATIO | The doc mass outpacing the code | .githooks/pre-commit (after W-14) | git log --format=%s \| grep -c docs vs code; exit 1 |
+| G-SEAL | A checkpoint of a dead system | .githooks/pre-commit (after G-RATIO) | grep PASS verdicts.jsonl \|\| exit 1 (on Checkpoints/*) |
+| G-SCAN | A fix→scan→fix loop | The goal pin's L2 + a bounded CI job | The scan runs once per PR; the session returns to the runtime |
+
+**THE LESSON:** The enforcement kernel enforced everything EXCEPT the goal's own
+definition of done. A quality bar is not a runtime event. The gates above close that
+gap mechanically. Wiring points: `.githooks/pre-commit:190` (where G-RATIO/G-SEAL
+append) · `gates/fence-check.py:29` (the CI fence) · `src/main.ts:17` (the wired
+publisher) · `src/runtime.ts:276` (the publish call) — each is a git hook or a script whose exit code is the verdict.
