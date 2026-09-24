@@ -49,6 +49,23 @@ const MIGRATIONS: string[] = [
      source TEXT PRIMARY KEY, last_seq INTEGER NOT NULL, updated_at INTEGER);`,
 ];
 
+// FIXED (the runtime seat, H2/H5 — MEASURED LIVE, then caught by its own test):
+// gate_pass's PK is a surrogate `id`, so (pr_node, gate) could hold MANY rows.
+// `recordGatePass` upserts on a JSON-pair id, but a LEGACY row with `id = NULL` never
+// conflicts (NULLs are distinct in a SQLite TEXT PK), so stale rows survived forever and
+// a stale verdict masked the current one (measured: ci_green = pass(rowid 1, NULL id) +
+// fail(rowid 5, the live mirror), and the unordered read returned the stale PASS).
+//
+// THE ORDER MATTERS AND THE FIRST ATTEMPT GOT IT WRONG: placed in MIGRATIONS, the
+// CREATE INDEX ran BEFORE `rebuildIfNoFks` — and a table rebuild DROPS its indexes, so on
+// any store whose gate_pass lacked FKs (a fresh or pre-FK store) the index was silently
+// destroyed. It survived on the live store only because that one had already been rebuilt.
+// This runs AFTER the rebuilds, so it always lands last. Idempotent.
+const POST_REBUILD: string[] = [
+  `DELETE FROM gate_pass WHERE rowid NOT IN (SELECT MAX(rowid) FROM gate_pass GROUP BY pr_node, gate);
+   CREATE UNIQUE INDEX IF NOT EXISTS gate_pass_pr_gate ON gate_pass(pr_node, gate);`,
+];
+
 // FIXED 2026-09-23 (ocr round-4 HIGH): CREATE TABLE IF NOT EXISTS is a no-op on
 // a PRE-EXISTING db, so a store.sqlite created before the FK clauses kept its
 // FK-less schema forever (orphans kept accumulating despite foreign_keys=ON).
@@ -116,6 +133,8 @@ export function openStore(path?: string): Database {
   try {
     for (const { table, sql } of FK_REBUILDS) rebuildIfNoFks(db, table, sql);
   } finally { db.exec("PRAGMA foreign_keys=ON;"); }
+  // POST-REBUILD: must run AFTER the rebuilds (a rebuild drops a table's indexes).
+  for (const sql of POST_REBUILD) db.exec(sql);
   return db;
 }
 

@@ -1230,3 +1230,73 @@ SUBJECT — the test injects deps, so it pins kick.ts, not the adapter. Re-aimed
 **ANCHORS:** src/kick-adapter.ts:20,39,40, src/kick.ts:14, src/adapter-verbs.ts:94,
 ao-client/client.ts:62, src/target-guard.ts:46,104, src/runtime.ts:32,125,134,
 src/verdict.ts:170,228, gates/rt-preflight.sh:58,78.
+
+## EN-194 - W9 THE RUNTIME SEAT (H2/H5) - the stale-verdict defect, FOUND BY RUNNING (2026-09-24T19:08:26Z)
+
+**The stance (declared before H1):** *I am the driver of `jarvis-upper.service`.* The live
+daemon was operated FIRST PERSON; the runtime ledger is `.trident/runtime-ledger.md`.
+
+**THE FINDING (H3 - the first measurement was already a defect).** `runtime/status.json` read
+`planHash=e3b0c44298fc1c14` == `sha256("")` with `ready=0` - the goal's own **TH-7
+IDLE-GREEN** ("citing `errors=0` when ready=0 and the plan hash is sha256(\"\")"). `errors=[]`
+meant NO WORK. Root cause: ZERO `pr_node` rows are in `ready_to_merge` (11 `open`, 2
+`merged`), and only `verbPromote` sets that state - a HUMAN step, by design.
+
+**THE REAL DEFECT (H2/H3, measured).** `gate_pass`'s PK is a surrogate `id`, so
+`(pr_node, gate)` can hold MANY rows. Measured on the LIVE store:
+```
+pr:jarvis-upper-4:2 ci_green pass,fail 2
+```
+`recordGatePass` upserts on `id = JSON.stringify([prId, g])`, but the LEGACY rows carry
+`id = NULL` - and NULLs are DISTINCT in a SQLite TEXT PK, so a legacy row NEVER conflicts
+and survives forever. The guardrail's read had **NO ORDER BY**, so `.get()` returned
+whichever row SQLite yielded first:
+```
+the row .get() returns: {"id":null,"verdict":"pass"}
+all ci_green rows by rowid: [{"rowid":1,"id":null,"verdict":"pass"},
+                            {"rowid":5,"id":"[\"pr:jarvis-upper-4:2\",\"ci_green\"]","verdict":"fail"}]
+```
+**The STALE legacy `pass` (rowid 1) MASKED the NEWER `fail` (rowid 5).** The verdict
+depended on unspecified row order.
+
+**THE BLAST RADIUS (measured, not guessed).** `ripwire verb=callers target=guardrail` ->
+`count="4"`: `verbGates` (cli-verbs.ts:70) · **`executePlan` (execute.ts:22)** · `tick`
+(runtime.ts:290) · `isEligible` (runtime.ts:386). **The stale pass reached the MERGE path.**
+
+**THE FIX (H5, in the hot seat).**
+1. `src/guardrail.ts` - the read is `ORDER BY at DESC, rowid DESC LIMIT 1` (the LATEST
+   verdict wins; a NULL `at` sorts last under DESC).
+2. `src/store.ts` - a `POST_REBUILD` step dedupes `gate_pass` to `MAX(rowid)` per
+   `(pr_node, gate)` and creates `UNIQUE INDEX gate_pass_pr_gate`.
+
+**THE SECOND DEFECT - CAUGHT BY THE FIX'S OWN TEST (the instrument-before-the-provider law).**
+The dedupe was FIRST placed in `MIGRATIONS`, where the `CREATE INDEX` ran BEFORE
+`rebuildIfNoFks` - and a table rebuild DROPS its indexes, so on any store whose `gate_pass`
+lacked FKs (a fresh or pre-FK store) the index was silently destroyed. It survived on the
+LIVE store only because that one had already been rebuilt. The fix: a `POST_REBUILD` phase
+that runs AFTER the rebuilds.
+
+**THE RETEST (H5 - the NEXT numbered op on the SAME battered instance).** After the restart:
+`dupes left: []` · `the unique index: {"name":"gate_pass_pr_gate"}` · `ci_green rows now:
+[{"rowid":5,"id":"[\"pr:jarvis-upper-4:2\",\"ci_green\"]","verdict":"fail"}]` ·
+`guardrail now: {"ok":false,"reasons":["NOT-READY:open","GATE-MISSING:ci_green"]}` - it reads
+the LATEST verdict (the stale pass no longer masks the fail).
+
+**THE PINS.** `tests/w9_runtime_seat.test.ts` 2 pass / 0 fail
+(`test_guardrail_reads_latest_verdict` + `test_gate_pass_dedupe_migration`); the revert-proof
+(unordered read) FAILS the first.
+
+**THE HONEST RESIDUALS (H7, NAMED).**
+- **`eligible` will read 0 in production until an operator runs `promote`** - the factory
+  never self-promotes by design, and the GitHub contexts need the daemon deployed at the PR's
+  head. This is the correct design, NOT a defect.
+- **The 3 AO sessions named `jarvis-upper-2`/`-4` are legacy fixtures** (one `worker_hint`
+  is `leviathan-devops/jarvis-upper`, a different repo) - they are inert rows.
+- The `kick` table is EMPTY (0 rows): no kick has ever run live. R9's wiring is proven by
+  tests, not by a live kick.
+
+**THE INDEPENDENT VERIFICATION.** A zero-context subagent re-ran every gate:
+**18 PASS / 1 FAIL** across 19 rows. The 1 FAIL was THIS DOC (it named no current head SHA) -
+the exact defect this entry's stamp line below fixes.
+
+**ANCHORS:** src/guardrail.ts:25, src/store.ts:64,123, .trident/runtime-ledger.md.

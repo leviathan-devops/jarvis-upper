@@ -23,7 +23,14 @@ export function guardrail(db: Database, prId: string): Eligibility {
   if (!pr) return { ok: false, reasons: ["PR-MISSING"] };
   if (pr.state !== "ready_to_merge") reasons.push(`NOT-READY:${pr.state}`);
   for (const g of REQUIRED_GATES) {
-    const row = db.query("SELECT verdict, head_sha FROM gate_pass WHERE pr_node = ? AND gate = ?")
+    // FIXED (the runtime seat, H2/H5 — MEASURED LIVE): this read had NO ORDER BY, so
+    // `.get()` returned whichever row SQLite yielded FIRST. The table's PK is a
+    // surrogate `id`, so (pr_node, gate) can hold MANY rows — and a STALE legacy row
+    // (id NULL, which never conflicts under a TEXT PK) masked a NEWER verdict.
+    // Measured on the live store: ci_green held pass(rowid 1, id NULL) + fail(rowid 5,
+    // the live mirror's row) and `.get()` returned the stale PASS. The LATEST verdict
+    // now wins deterministically (NULL `at` sorts last under DESC).
+    const row = db.query("SELECT verdict, head_sha FROM gate_pass WHERE pr_node = ? AND gate = ? ORDER BY at DESC, rowid DESC LIMIT 1")
       .get(prId, g) as { verdict: string; head_sha: string | null } | null;
     if (!row || row.verdict !== "pass") { reasons.push(`GATE-MISSING:${g}`); continue; }
     // FIXED 2026-09-23 (ocr round-4 CRITICAL): this compared gate_pass.sha16 (the
