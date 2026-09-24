@@ -94,7 +94,14 @@ export async function listPrsFromAo(opts: {
   // FIXED (ship-gate MEDIUM): an UNGUARDED onPartial let a throwing/rejecting caller
   // discard the rows that DID resolve. The callback is best-effort; its failure is named.
   if (allErrors.length > 0) {
-    try { opts.onPartial?.(allErrors); } catch (e) { console.error(`onPartial-threw:${String(e).slice(0, 80)}`); }
+    // FIXED (ship gate MEDIUM): a sync try/catch misses an ASYNC callback's rejection
+    // (an unhandled rejection). Handle both the throw and the returned thenable.
+    try {
+      const r = opts.onPartial?.(allErrors) as unknown;
+      if (r && typeof (r as { catch?: unknown }).catch === "function") {
+        (r as Promise<unknown>).catch((e) => console.error(`onPartial-rejected:${String(e).slice(0, 80)}`));
+      }
+    } catch (e) { console.error(`onPartial-threw:${String(e).slice(0, 80)}`); }
   }
   return out;
 }

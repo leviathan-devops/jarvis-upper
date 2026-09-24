@@ -169,7 +169,10 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // root). Refuse immediately instead of reading an unrelated file.
   // FIXED (ship-gate LOW): only a FALSY jobDir was rejected — "/" still built "/SPEC.md"
   // (the filesystem root) and a whitespace-only value passed then failed the read.
-  if (!opts.jobDir || opts.jobDir.trim() === "" || opts.jobDir.trim() === "/") {
+  // FIXED (ship gate LOW): "//" and "/./" are POSIX-equivalent to "/" and still built
+  // "/SPEC.md". Normalize (collapse duplicate slashes, drop a trailing slash) first.
+  const normJobDir = opts.jobDir ? opts.jobDir.replace(/\/+/g, "/").replace(/\/+$/, "") : "";
+  if (!opts.jobDir || opts.jobDir.trim() === "" || normJobDir === "") {
     return { verdict: "UNVERIFIED", sources: { fence: { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: "NO-JOB-DIR" }, review: { ran: false, verdict: null, targetSha: null, harness: null, reason: "NO-JOB-DIR" } }, reasons: ["NO-JOB-DIR"] };
   }
   const fenceBin = opts.fenceBin ?? FENCE_DEFAULT;

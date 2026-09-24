@@ -1354,3 +1354,38 @@ licenses NO battery claim (it did not run the full battery).
 
 **ANCHORS:** src/cli-verbs.ts:26, src/sync.ts:20, src/verdict.ts:188, src/kick.ts:52,
 src/kick-adapter.ts:46, src/status.ts:56, src/runtime.ts:330, src/merge-record.ts:120.
+
+## EN-197 - W12: THE FINAL SHIP GATE'S 3 HIGHs (TWO WERE IN MY OWN W9 FIX) + 10 medium + 8 low (2026-09-24T19:37:19Z)
+
+**The final ship gate returned GATE: FAIL (0 critical, 3 high).** The re-audit caught TWO real
+bugs IN MY OWN W9 fix — the red-team process working exactly as designed.
+
+### THE 3 HIGHs (blocking)
+| id | the defect | the fix |
+|---|---|---|
+| store.ts:71 | **MY W9 BUG:** the dedupe kept `MAX(rowid)` while the READ orders `at DESC, rowid DESC`. `recordGatePass` upserts ON CONFLICT(id) — PRESERVING rowid but BUMPING `at` — so the NEWEST verdict can live on the SMALLEST rowid, and the dedupe would DROP it. | the survivor is chosen by `ROW_NUMBER() OVER (PARTITION BY pr_node,gate ORDER BY at DESC, rowid DESC)` — the SAME order the read uses |
+| store.ts:72 | **MY W9 BUG:** the new `UNIQUE(pr_node,gate)` broke `desks.ts:87`, which INSERTs id=`w4b:${target}` (no ON CONFLICT) for the SAME pair `recordGatePass` upserts → SQLITE_CONSTRAINT_UNIQUE | both writers now use the SAME JSON-pair id + ON CONFLICT DO UPDATE |
+| target-guard.ts:74 | `defaultReadRemote` never set `error`, so a git FAILURE (permission, corrupt config) collapsed to "(no remote)" → ok:true, contradicting the FAIL-CLOSED header | `git remote get-url` exit 2 + "No such remote" = the ONLY legitimate no-origin; any other failure sets `error` |
+
+### THE MEDIUMS (all fixed)
+kick.ts:70 (a throwing sessionAlive escapes the fail-closed path → caught → `unknown`) ·
+adapter-verbs.ts:97 (the onPartial catch missed an async rejection → both handled) ·
+cli-verbs.ts:29 (a 3rd tick-parse copy → reuses the exported `parseTickMs`) ·
+cli-verbs.ts:158 (`??`→`||`) · merge-record.ts:131 (a named error re-wrapped → propagates
+unwrapped) · runtime.ts:173 (the return's bytes used UTF-16 units → `Buffer.byteLength`) ·
+kick-adapter.ts:65,66 (the spawn re-read via `Bun.file`, bypassing the hash-gated content →
+via `deps.readFile` + a string bound) · store.ts:143 (the POST_REBUILD DELETE ran on EVERY
+open + untransacted → gated on a duplicate count + one transaction).
+
+### THE LOWS (fixed)
+runtime.ts:24 (`||` missed a blank string → trim) · cli-verbs.ts:144 (an unbounded echoed
+mode → sliced) · verdict.ts:172 ("//" bypassed the root guard → normalized) ·
+rt-preflight.sh:65 (a non-listable worktree root fell through → fail closed) ·
+rt-preflight.sh:81 (a whitespace-only SPEC passed `-s` → require non-blank).
+
+**THE VERIFICATION:** tests/w12_final_gate_fixes.test.ts 3 pass / 0 fail (incl. the
+dedupe-keeps-latest-at proof); the FULL battery **171 pass / 0 fail**; tsc exit 0; the live
+store re-verified (4 rows, no dupes, ci_green=fail).
+
+**ANCHORS:** src/store.ts:63,143, src/desks.ts:87, src/target-guard.ts:66, src/kick.ts:66,
+src/verdict.ts:172, gates/rt-preflight.sh:65,81.

@@ -67,7 +67,13 @@ export async function kick(
   let mode: KickMode;
   if (input.mode) mode = input.mode;
   else {
-    const alive: Liveness = input.originSession ? await deps.sessionAlive(input.originSession) : "dead";
+    // FIXED (ship gate MEDIUM): the old `.catch(()=>false)` tolerated a THROWING
+    // KickDeps; the bare await let it escape as a raw error, bypassing the fail-closed
+    // refusal. A throw is now `unknown` -> the refusal.
+    let alive: Liveness = "dead";
+    if (input.originSession) {
+      try { alive = await deps.sessionAlive(input.originSession); } catch { alive = "unknown"; }
+    }
     if (alive === "unknown") throw new Error("KICK-LIVENESS-UNKNOWN");
     mode = alive === "alive" ? "live" : "spawn";
   }

@@ -20,7 +20,7 @@ const ATTACH_MAX = 262144;
 const clamp = (s: string, max: number): string =>
   s.length > max ? s.slice(0, max - 16) + "\n[truncated]" : s;
 
-export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call } = {}): KickDeps {
+export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readFile?: (p: string) => Promise<string> } = {}): KickDeps {
   const c = opts.callFn ?? call;   // injectable (the codebase's test seam, as listSessions does)
   return {
     // getSession 200 = { session: ControllersSessionView } (measured against openapi.yaml),
@@ -62,9 +62,13 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call } = {}
       const dropped: string[] = [];
       for (const p of input.attachments) {
         try {
-          const f = Bun.file(p);
-          if (f.size > ATTACH_MAX) { dropped.push(`${p} (>${ATTACH_MAX}B)`); continue; }
-          attachments.push({ data: await f.text(), mimeType: p.endsWith(".json") ? "application/json" : "text/markdown" });
+          // FIXED (ship gate MEDIUM): read via deps.readFile (the SAME hash-gated content
+          // kick() verified — not a second Bun.file read that could see a changed/deleted
+          // file), and bound the RESULTING STRING (the size check could race a growing file
+          // and byte-size != the JSON-encoded size).
+          const data = await (opts.readFile ?? (async (q: string) => await Bun.file(q).text()))(p);
+          if (data.length > ATTACH_MAX) { dropped.push(`${p} (>${ATTACH_MAX}c)`); continue; }
+          attachments.push({ data, mimeType: p.endsWith(".json") ? "application/json" : "text/markdown" });
         } catch { dropped.push(p); }
       }
       if (dropped.length > 0) console.error(`kick-spawn-attachments-dropped:${dropped.join(",")}`);

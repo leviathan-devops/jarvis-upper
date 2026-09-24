@@ -9,6 +9,7 @@ import { orderMerges } from "./plan";
 import { guardrail } from "./guardrail";
 import { renderGraph } from "./graph";
 import { attributeBug, CONFIDENCE_FLOOR } from "./attribute";
+import { parseTickMs } from "./runtime";
 import { executePlan, type MergeAdapter } from "./execute";
 import { waveA, waveB, waveC, waveD } from "./desks";
 import { readStatus } from "./status";
@@ -23,13 +24,9 @@ export async function verbStatus(root: string, _arg?: string): Promise<VerbResul
   const s = readStatus(root);
   if (!s) return emit(1, { ok: false, verdict: "NO-STATUS-FILE", hint: "start src/main.ts" });
   const ageMs = Date.now() - Date.parse(s.ts);
-  // FIXED (red-team slop audit SLOP-01): this recomputed the tick window with NO
-  // validation, while main.ts:21-22 and runtime.ts:42-45 both guard. A hostile
-  // UPPER_TICK_MS ("", "0", "abc") made it 0/NaN -> perpetual STALE. Same guard.
-  const tickMs = ((): number => {
-    const n = Number(process.env.UPPER_TICK_MS ?? 15000);
-    return Number.isFinite(n) && n > 0 ? n : 15000;
-  })();
+  // FIXED (SLOP-01) then (ship gate MEDIUM): the inline copy was a 3rd authority for
+  // one parse. It now REUSES the runtime's exported parseTickMs — one implementation.
+  const tickMs = parseTickMs(process.env.UPPER_TICK_MS);
   const fresh = ageMs < 2 * tickMs;
   // FIXED 2026-09-23 (ocr round-4 HIGH): a nested ternary — the review
   // checklist prohibits it. Sequential if/else, each condition independent.
@@ -141,7 +138,8 @@ export async function verbKick(root: string, arg?: string, mode?: string): Promi
   // FIXED (ship-gate MEDIUM x2): an unknown mode silently auto-selected, and the raw arg
   // flowed into `git checkout -b fix/${bugId}` (spaces/slashes/.. make an invalid ref).
   if (mode !== undefined && mode !== "" && mode !== "live" && mode !== "spawn" && mode !== "direct") {
-    return emit(2, { ok: false, refused: `KICK-BAD-MODE:${mode}`, hint: "live | spawn | direct" });
+    // FIXED (ship gate LOW): the mode is a CLI arg echoed into JSON/logs — bound it.
+    return emit(2, { ok: false, refused: `KICK-BAD-MODE:${String(mode).slice(0, 32)}`, hint: "live | spawn | direct" });
   }
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(arg)) {
     return emit(2, { ok: false, refused: "KICK-BAD-BUG-ID", bugId: arg, hint: "an id matching /^[A-Za-z0-9._-]{1,64}$/" });
@@ -155,7 +153,7 @@ export async function verbKick(root: string, arg?: string, mode?: string): Promi
     const m = (mode === "live" || mode === "spawn" || mode === "direct") ? mode : undefined;
     const res = await kick(db, daemonKickDeps({ cwd: root }), {
       bugId: arg,
-      projectId: process.env.UPPER_PROJECT_ID ?? "jarvis-upper",
+      projectId: process.env.UPPER_PROJECT_ID || "jarvis-upper",   // FIXED: || so "" falls back
       originSession: bug.origin_session,
       originCommit: bug.origin_commit ?? "unknown",
       dossierPath: bug.dossier_path,

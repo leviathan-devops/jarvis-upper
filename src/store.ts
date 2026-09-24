@@ -68,7 +68,15 @@ const MIGRATIONS: string[] = [
 // destroyed. It survived on the live store only because that one had already been rebuilt.
 // This runs AFTER the rebuilds, so it always lands last. Idempotent.
 const POST_REBUILD: string[] = [
-  `DELETE FROM gate_pass WHERE rowid NOT IN (SELECT MAX(rowid) FROM gate_pass GROUP BY pr_node, gate);
+  // FIXED (the final ship gate HIGH, caught by re-auditing MY OWN W9 fix): the dedupe
+  // kept MAX(rowid), but the LIVE read (guardrail.ts:33) orders by `at DESC, rowid DESC`.
+  // `recordGatePass` upserts ON CONFLICT(id) — which PRESERVES rowid but BUMPS `at` — so
+  // the NEWEST verdict can live on the SMALLEST rowid, and MAX(rowid) would have DROPPED
+  // it. The survivor is now chosen by the SAME ordering the read uses.
+  `DELETE FROM gate_pass WHERE rowid NOT IN (
+     SELECT rowid FROM (
+       SELECT rowid, ROW_NUMBER() OVER (PARTITION BY pr_node, gate ORDER BY at DESC, rowid DESC) rn
+       FROM gate_pass) WHERE rn = 1);
    CREATE UNIQUE INDEX IF NOT EXISTS gate_pass_pr_gate ON gate_pass(pr_node, gate);`,
 ];
 
@@ -140,7 +148,17 @@ export function openStore(path?: string): Database {
     for (const { table, sql } of FK_REBUILDS) rebuildIfNoFks(db, table, sql);
   } finally { db.exec("PRAGMA foreign_keys=ON;"); }
   // POST-REBUILD: must run AFTER the rebuilds (a rebuild drops a table's indexes).
-  for (const sql of POST_REBUILD) db.exec(sql);
+  // FIXED (ship gate MEDIUM): the DELETE ran unconditionally on EVERY open (a write lock
+  // + a data rewrite even with zero duplicates) and the DELETE+CREATE INDEX pair was not
+  // transactional (a crash between them left the table deduped but un-indexed). Gate it
+  // on an actual duplicate count and wrap the pair in one transaction.
+  const dup = db.query("SELECT COUNT(*) c FROM (SELECT 1 FROM gate_pass GROUP BY pr_node, gate HAVING COUNT(*) > 1)").get() as { c: number };
+  const needsIndex = !db.query("SELECT 1 x FROM sqlite_master WHERE type='index' AND name='gate_pass_pr_gate'").get();
+  if (dup.c > 0 || needsIndex) {
+    db.exec("BEGIN");
+    try { for (const sql of POST_REBUILD) db.exec(sql); db.exec("COMMIT"); }
+    catch (e) { db.exec("ROLLBACK"); throw e; }
+  }
   return db;
 }
 

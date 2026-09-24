@@ -21,7 +21,9 @@ import { verify, type VerifyOpts, type VerifyResult } from "./verdict";
 import { publishStatus, publishVerdict, type PublishResult } from "./publish";
 import { STATUS_CONTEXTS } from "./status-contract";
 
-export const DAEMON = process.env.AO_DAEMON || "http://localhost:3001";   // FIXED SLOP-11: || so "" falls to the default
+// FIXED (SLOP-11) then (ship gate LOW): `||` fixes "" but not a BLANK string ("   " is
+// truthy) — every rails fetch would build an invalid URL. Trim, then fall back.
+export const DAEMON = (process.env.AO_DAEMON ?? "").trim() || "http://localhost:3001";
 
 /** The SSE capture ceiling. A buffer that hits it is TRUNCATED — a named failure,
  *  never a clean read (red-team audit W-12). */
@@ -39,7 +41,7 @@ export const RAIL_MAX_BUF = ((): number => {
 
 // FIXED 2026-09-23 (ocr round-4 HIGH): Number("")===0 / Number("abc")===NaN —
 // a present-but-invalid env var produced a 0/NaN interval. Validate the parse.
-function parseTickMs(raw: string | undefined, fallback = 15000): number {
+export function parseTickMs(raw: string | undefined, fallback = 15000): number {
   const n = Number(raw ?? fallback);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
@@ -170,7 +172,9 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     }
     // FIXED (red-team audit W-12): a truncated capture is a NAMED failure — the
     // caller must not treat a partial read as a clean one.
-    return { frames: parsed.length, bytes: buf.length, lastSeq, ...(truncated ? { failed: `TRUNCATED-${RAIL_MAX_BUF}` } : {}) };
+    // FIXED (ship gate MEDIUM): the cap check + the artifact use Buffer.byteLength, but
+    // the RETURN used buf.length (UTF-16 units) — a non-ASCII stream mis-reported its size.
+    return { frames: parsed.length, bytes: Buffer.byteLength(buf, "utf8"), lastSeq, ...(truncated ? { failed: `TRUNCATED-${RAIL_MAX_BUF}` } : {}) };
   } catch (e) { return { frames: 0, bytes: 0, lastSeq: 0, failed: String(e).slice(0, 80) }; }
 }
 

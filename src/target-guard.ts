@@ -67,12 +67,18 @@ export function redactRemote(url: string): string {
 const defaultReadRemote = (root: string): RemoteRead => {
   const run = (argv: string[]) => {
     const p = Bun.spawnSync(argv, { stderr: "pipe", stdout: "pipe" });
-    return { code: p.exitCode ?? -1, out: (p.stdout?.toString() ?? "").trim() };
+    return { code: p.exitCode ?? -1, out: (p.stdout?.toString() ?? "").trim(), err: (p.stderr?.toString() ?? "").trim() };
   };
   const inside = run(["git", "-C", root, "rev-parse", "--is-inside-work-tree"]);
   if (inside.code !== 0 || inside.out !== "true") return { url: null, isRepo: false };
   const url = run(["git", "-C", root, "remote", "get-url", "origin"]);
-  return { url: url.code === 0 && url.out ? url.out : null, isRepo: true };
+  if (url.code === 0) return { url: url.out || null, isRepo: true };
+  // FIXED (the final ship gate HIGH): a git FAILURE inside a REAL worktree (a permission
+  // error, a corrupt config) collapsed to "(no remote)" -> ok:true, bypassing the guard
+  // and contradicting the FAIL-CLOSED header. `git remote get-url` exits 2 with
+  // "No such remote" when the remote is simply ABSENT — the ONLY legitimate no-origin.
+  if (url.code === 2 && /No such remote/i.test(url.err)) return { url: null, isRepo: true };
+  return { url: null, isRepo: true, error: `remote-read-failed:exit${url.code}:${url.err.slice(0, 80)}` };
 };
 
 /** Does this tree's `origin` remote name the configured owner/repo? */
