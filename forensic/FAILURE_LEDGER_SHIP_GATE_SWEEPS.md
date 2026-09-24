@@ -148,6 +148,27 @@ REJECT(W-8): claim word (verified|passed|tested|works|green|done|complete|comple
 of the enforcement layer on the auditing agent itself: the strongest evidence that the gate is
 not theatre.
 
+## §7c — THE SIX REVERT-PROOFS (each test proven to FAIL before its fix)
+
+The goal requires "every R1-R15 has a regression test that FAILED before its fix and PASSES
+after". Six were proven by actually reverting the fix, running the named test, and restoring:
+
+| the fix | the revert | the result | restored |
+|---|---|---|---|
+| W6 the spawn shape (`prompt` + `session.id`) | `prompt`→`message` + the wrong unwrap | **0 pass / 1 fail** | 1 pass |
+| W8 the spawn cap (16384) | `SPAWN_MAX`→`SEND_MAX` | **0 pass / 1 fail** | 1 pass |
+| W8 the tri-state liveness | removed `KICK-LIVENESS-UNKNOWN` | **0 pass / 1 fail** | 1 pass |
+| W9 the guardrail latest-verdict | removed `ORDER BY` | **0 pass / 1 fail** | 1 pass |
+| R10 the batch index | `batch[k]`→`sessions[k]` | **0 pass / 1 fail** | 1 pass |
+| R12 the CONFIDENCE_FLOOR | the import→the literal `0.6` | **0 pass / 1 fail** | 1 pass |
+
+**The tree is CLEAN after the restores** (`git status --porcelain` empty) and the battery is
+**168 pass / 0 fail** — the reverts left no residue.
+
+**A note on IF-1 (the mis-aimed revert-proof):** the W8 liveness revert was FIRST aimed at the
+ADAPTER (where the test injects its deps) and the test still passed. Re-aimed at `kick.ts` — the
+subject the test actually exercises — it went red. The lesson is in TH-9.
+
 ## §8 — THE INDEPENDENT AUDITORS' RETURNS
 *(folded in when the two dispatched auditors yield; see the note at §0)*
 
