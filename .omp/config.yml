@@ -10,16 +10,16 @@
 #   smol/scout/tiny = the free tiny model (a cost optimization for trivial work)
 #   LAW: muse-spark-1.3* -> ALWAYS :xhigh
 modelRoles:
-  default: opencode-go/muse-spark-1.3-contributor:xhigh
-  task: opencode-go/muse-spark-1.3-contributor:xhigh
-  plan: opencode-go/muse-spark-1.3-contributor:xhigh
-  slow: opencode-go/muse-spark-1.3-contributor:xhigh
-  sonic: opencode-go/muse-spark-1.3-contributor:xhigh
-  reviewer: opencode-go/muse-spark-1.3-contributor:xhigh
-  vision: opencode-go/muse-spark-1.3-contributor:xhigh
-  smol: opencode-go/muse-spark-1.3-contributor:xhigh
-  scout: opencode-go/muse-spark-1.3-contributor:xhigh
-  tiny: opencode-go/muse-spark-1.3-contributor:xhigh
+  default: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
+  task: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
+  plan: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
+  slow: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
+  sonic: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
+  reviewer: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
+  vision: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
+  smol: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
+  scout: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
+  tiny: opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
 retry:
   modelFallback: true
   fallbackChains:
@@ -27,13 +27,13 @@ retry:
       - opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
       - poolside/poolside/laguna-s-2.1:high
     "opencode-zen-free/*":
-      - opencode-go/muse-spark-1.3-contributor:xhigh
+      - opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
       - poolside/poolside/laguna-s-2.1:high
     "openrouter/*":
-      - opencode-go/muse-spark-1.3-contributor:xhigh
+      - opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
       - opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
     "poolside/*":
-      - opencode-go/muse-spark-1.3-contributor:xhigh
+      - opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
       - opencode-zen-free/muse-spark-1.3-contributor-free:xhigh
 # headless factory workers must never stall on an approval prompt
 tools:

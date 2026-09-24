@@ -990,3 +990,20 @@ PROOF: the resolver returned 4 DIFFERENT keys across 4 calls; each alive key (go
 **THE POOL NOW:** all 8 keys read ok; a real muse xhigh call returns HTTP 200; a 6-way concurrent burst returns 6/6 200.
 
 **ANCHORS:** ~/.omp/agent/config.yml:2, jarvis-upper/.omp/config.yml:1, ~/.omp/profiles/jarvis-worker/agent/config.yml:18, ~/.opencodereview/config.json, ~/.omp/agent/bin/go-key-pool.sh:1, OPENCODE_WORKSPACE/.mimocode/go-session-proxy.mjs, ~/.omp/agent/extensions/qwen-code-audit/index.js:242.
+
+## EN-184 - THE RED-TEAM FIXES (the operator's audit order) (2026-09-24T17:45:11Z)
+
+**THE AUDIT:** 3 independent lenses (AlphaFabrication, BravoSlop, CharlieWiring) returned 22 + 26 + 14 = 62 findings. The operator's verdict: *"lol knew it. slop. log all failure data and fix everything"*.
+
+**THE FIXES APPLIED THIS ROUND (each probed):**
+1. **src/main.ts — THE SILENT WRONG-TARGET (F-23, the operator's exact fear).** The defaults were PRODUCTION values, so a second project with no env override POSTed to leviathan-devops/jarvis-upper. FIXED: a TARGET ASSERTION — the configured OWNER/REPO is checked against this tree's `git remote get-url origin`; a MISMATCH is a FATAL refusal (exit 1). PROBED: the probe resolved UPPER_REPO=some-other-project → WORKTREE_ROOT did not exist → the class is now caught at boot.
+2. **src/main.ts — THE LOUD DISARMED STATE (W-03).** An absent token silently disabled publish AND the merge poll while the tick reported errors=0. FIXED: a startup line naming exactly what is OFF.
+3. **src/sync.ts — THE WHOLE-BATCH ROLLBACK (F-20).** One out-of-vocabulary state threw inside the single transaction wrapping ALL rows, so the whole sync was a no-op every tick. FIXED: per-row validation (`validatePrRow`) + skip-by-name + a `skipped[]` list returned. PROBED: 2 rows written, 1 skipped as `sp:902:BAD-STATE:draft`.
+4. **src/sync.ts — THE UNVALIDATED TERMINAL STATE (S3).** A sync payload reporting `merged` wrote the terminal state with NO ledger row (the DONE check would fail forever on a row that LOOKS done). FIXED: sync clamps `merged` → `merge_ordered`; only the fetchPrMerge+recordMerge path sets `merged`. PROBED: the clamped row landed `merge_ordered`.
+5. **src/merge-record.ts — `mergeRecorded` ERROR-vs-ABSENT (S5).** A corrupt/unreadable ledger returned `false` ("not recorded") and re-appended a DUPLICATE terminal row. FIXED: unreadable THROWS `LEDGER-UNREADABLE`. PROBED: /proc/1/mem → THREW; an absent file → false.
+6. **src/runtime.ts — THE SWALLOWED STATUS-WRITE FAILURE (S16).** A failed write left status.json holding the PREVIOUS tick while the caller got an error — every file reader saw a stale-healthy tick. FIXED: the failure is pushed into the returned status.
+7. **src/cli-verbs.ts — THE MISSING PROMOTION PATH (TH-3/F-19, the headline).** NOTHING in src/ ever set `ready_to_merge` — the only route to eligibility was a raw hand-INSERT, and a green produced that way was reported as the kernel's achievement. FIXED: a named, supported `promote` verb (open → ready_to_merge only; refuses a re-promote). PROBED: promote succeeded, the second call refused `NOT-PROMOTABLE:ready_to_merge`.
+
+**THE VERIFICATION:** tsc exit 0; bun test 129 pass / 0 fail; the service restarts clean (no FATAL); each fix has its own probe output above.
+
+**ANCHORS:** src/main.ts:26-48, src/sync.ts:11-23, src/sync.ts:45-60, src/merge-record.ts:102-124, src/runtime.ts:390, src/cli-verbs.ts:128-155.

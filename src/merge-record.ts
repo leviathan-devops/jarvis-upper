@@ -99,9 +99,16 @@ export function recordMerge(
 }
 
 /** Has this merge sha already been recorded? (idempotence for a re-polling tick.) */
+/**
+ * FIXED (red-team audit S5): the old shape returned `false` on EVERY failure —
+ * a missing file, an invalid sha, a per-line parse error, a whole-read throw — so
+ * a CORRUPT/unreadable ledger read as "not recorded" and re-appended a DUPLICATE
+ * terminal row. The outcomes are now distinct: true = recorded, false = genuinely
+ * absent, THROW = unreadable (the caller must NOT append).
+ */
 export function mergeRecorded(ledgerPath: string, mergeSha: string): boolean {
   try {
-    if (!existsSync(ledgerPath)) return false;
+    if (!existsSync(ledgerPath)) return false; // genuinely absent = not recorded
     // FIXED (ocr audit high): the inline `require("node:fs")` inside an ESM module
     // throws `ReferenceError: require is not defined` under Node/bundlers (Bun
     // tolerates it, which is why the tests passed) — readFileSync is now imported
@@ -109,6 +116,7 @@ export function mergeRecorded(ledgerPath: string, mergeSha: string): boolean {
     // TRUE for an empty mergeSha (every string contains ""), so a blank sha
     // deduped every merge. The match is now an EXACT field test on a validated sha.
     if (!/^[0-9a-f]{7,40}$/i.test(mergeSha)) return false;
+    // a malformed LINE is skipped, but the READ itself throwing is an ERROR (below)
     return readFileSync(ledgerPath, "utf8")
       .split("\n")
       .some((l) => {
@@ -118,7 +126,8 @@ export function mergeRecorded(ledgerPath: string, mergeSha: string): boolean {
           return (row.evidence ?? "").split("|")[0] === mergeSha;
         } catch { return false; }
       });
-  } catch {
-    return false;
+  } catch (e) {
+    // an unreadable ledger is an ERROR, never a false "absent"
+    throw new Error(`LEDGER-UNREADABLE:${String(e).slice(0, 80)}`);
   }
 }

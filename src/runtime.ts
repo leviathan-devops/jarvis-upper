@@ -387,7 +387,12 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
         ready: 0, eligible: 0, planHash: null, planKind: "none", kicks: 0,
         errors: [...(last?.errors ?? []), `tick-threw:${String(e).slice(0, 100)}`],
       };
-      try { writeStatus(root, s); appendTick(root, s); } catch { /* the write failed too; `last` still carries the throw */ }
+      // FIXED (red-team audit S16): the old catch was comment-only, so a failed write
+      // left status.json holding the PREVIOUS tick while the in-memory caller got an
+      // error status — every FILE reader (verbStatus, a watchdog) saw a healthy-
+      // looking stale tick during an outage. Surfaced IN the returned status now.
+      try { writeStatus(root, s); appendTick(root, s); }
+      catch (we) { s.errors.push(`status-write-failed:${String(we).slice(0, 60)}`); }
       last = s;
       return s;
     } finally { state.inFlight = false; }

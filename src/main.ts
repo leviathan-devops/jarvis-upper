@@ -23,16 +23,47 @@ const tickMs = Number.isFinite(rawTickMs) && rawTickMs > 0 ? rawTickMs : 15000;
 //   GH_TOKEN | GITHUB_TOKEN    the credential (OUT-OF-BAND; absent -> NO publish)
 //   UPPER_WORKTREE_ROOT        where the per-session git worktrees live
 //   FENCE2_LEDGER              the fence adjudication ledger path
+// FIXED (red-team audit F-23, the operator's exact fear): the defaults were
+// PRODUCTION values, so a second project with no env override silently POSTed
+// statuses to leviathan-devops/jarvis-upper. The target is now verified against
+// the git remote of the tree this daemon runs in: a MISMATCH is a loud refusal
+// (a wrong-target POST is unrecoverable — it writes to someone else's repo).
 const OWNER = process.env.UPPER_OWNER || "leviathan-devops";
 const REPO = process.env.UPPER_REPO || "jarvis-upper";
 const TOKEN = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
 const WORKTREE_ROOT = process.env.UPPER_WORKTREE_ROOT
   || `${process.env.HOME ?? "/home/leviathan"}/.ao/data/worktrees/${REPO}`;
+
+// THE TARGET ASSERTION: if this tree's origin is a DIFFERENT repo than the
+// configured target, refuse to arm the publisher. Prevents the silent
+// wrong-target class entirely (fail-closed, named).
+function targetMatchesRemote(): { ok: boolean; remote: string } {
+  try {
+    const out = Bun.spawnSync(["git", "-C", root, "remote", "get-url", "origin"], { stderr: "pipe" });
+    const url = (out.stdout?.toString() ?? "").trim();
+    if (!url) return { ok: true, remote: "(no remote)" }; // a bare tree: nothing to contradict
+    return { ok: url.toLowerCase().includes(`/${OWNER.toLowerCase()}/${REPO.toLowerCase()}`), remote: url };
+  } catch (e) {
+    // FAIL-CLOSED: if we cannot read the remote we cannot verify the target, and an
+    // unverified target is exactly the wrong-target risk. Refuse, naming the cause.
+    return { ok: false, remote: `(git unavailable: ${String(e).slice(0, 60)})` };
+  }
+}
+const tgt = targetMatchesRemote();
+if (!tgt.ok) {
+  console.error(`FATAL: TARGET-MISMATCH — this tree's origin is ${tgt.remote} but UPPER_OWNER/UPPER_REPO name ${OWNER}/${REPO}. Refusing to arm the publisher (a wrong-target POST is unrecoverable). Set UPPER_OWNER + UPPER_REPO explicitly.`);
+  process.exit(1);
+}
 // the pr_node id is `pr:<session>:<num>` — the session names the worktree dir.
 const jobDirFor = (prId: string): string => {
   const session = prId.split(":")[1] ?? "";
   return session ? `${WORKTREE_ROOT}/${session}` : "";
 };
+if (!TOKEN) {
+  // FIXED (red-team audit W-03): an absent token silently disarmed publish AND
+  // the merge poll, while the tick kept reporting errors=0 — a silent no-work.
+  console.error("DISARMED:no-token — the publisher and the merge recorder are OFF (no GH_TOKEN/GITHUB_TOKEN). The daemon will read AO but NEVER POST a status.");
+}
 const publishOpts = TOKEN ? {
   owner: OWNER, repo: REPO, token: TOKEN, jobDir: "",
   jobDirFor,

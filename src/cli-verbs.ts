@@ -81,7 +81,7 @@ export async function verbSync(root: string, arg?: string): Promise<VerbResult> 
   // throw there skipped the db cleanup path (and the error was not shaped as a
   // VerbResult). It is inside the try now.
   const projects = await listProjects();
-  const { rows: n } = await syncPrs(db, () => listPrsFromAo({ project: arg }));
+  const { rows: n, skipped } = await syncPrs(db, () => listPrsFromAo({ project: arg }));
   const prs = db.query("SELECT COUNT(*) AS n FROM pr_node WHERE state != 'merged'").get() as { n: number };
   return emit(0, { ok: true, projects: projects.length, prNodes: n, openPrNodes: prs.n });
   } finally { db.close(); }
@@ -125,7 +125,32 @@ export async function verbKick(root: string, arg?: string): Promise<VerbResult> 
   return emit(2, { ok: false, refused: "KICK-ADAPTER-UNWIRED", bugId: arg, hint: "the kick rails need the daemon adapter wired (W2/W3 follow-up)" });
 }
 
+/**
+ * verbPromote — THE OPERATOR'S PROMOTION STEP, AS A SUPPORTED COMMAND.
+ * FIXED (red-team audit TH-3/F-19): nothing in src/ ever set state='ready_to_merge',
+ * so the ONLY way a PR became eligible was a raw hand-INSERT — and a green produced
+ * that way was reported as the kernel's own achievement. Promotion is a legitimate
+ * HUMAN step (the factory decides ORDER; a human decides readiness), so it now has a
+ * named, logged verb instead of an ad-hoc SQL statement.
+ */
+export async function verbPromote(root: string, arg?: string): Promise<VerbResult> {
+  if (!arg) return { code: 2, out: { ok: false, refused: "PROMOTE-NEEDS-ID", hint: "promote <pr_node id>" } };
+  const db = openStore();
+  try {
+    const row = db.query("SELECT id, state, head_sha FROM pr_node WHERE id = ?").get(arg) as
+      { id: string; state: string; head_sha: string | null } | null;
+    if (!row) return { code: 1, out: { ok: false, refused: "NO-SUCH-PR", id: arg } };
+    if (!row.head_sha) return { code: 1, out: { ok: false, refused: "NO-HEAD-SHA", id: arg } };
+    if (row.state !== "open") {
+      return { code: 1, out: { ok: false, refused: `NOT-PROMOTABLE:${row.state}`, id: arg, hint: "only an 'open' row promotes" } };
+    }
+    db.query("UPDATE pr_node SET state='ready_to_merge' WHERE id = ?").run(arg);
+    return { code: 0, out: { ok: true, promoted: arg, head_sha: row.head_sha, note: "eligibility only — the fence+review must still verify" } };
+  } finally { db.close(); }
+}
+
 export const VERBS: Record<string, (root: string, arg?: string) => Promise<VerbResult>> = {
   status: verbStatus, plan: verbPlan, order: verbOrder, graph: verbGraph,
   gates: verbGates, sync: verbSync, bug: verbBug, desks: verbDesks, kick: verbKick,
+  promote: verbPromote,
 };
