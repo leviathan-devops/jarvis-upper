@@ -51,6 +51,27 @@ else
   echo "G-RT: the fence fixture absent (not fatal — build it if the fence is needed)"
 fi
 
+# 5. the session worktrees carry a fence job (R7, red-team audit): the kernel
+# adjudicates every session worktree, and one with NO SPEC.md makes every PR post
+# factory/fence2=failure forever with nobody told why. A worktree that exists but
+# carries no fence job is a NAMED refusal. (No worktrees yet = nothing to fence.)
+WORKTREE_ROOT="${UPPER_WORKTREE_ROOT:-$HOME/.ao/data/worktrees/jarvis-upper}"
+if [ -d "$WORKTREE_ROOT" ]; then
+  WT_N=0; WT_NO_SPEC=0
+  for wt in "$WORKTREE_ROOT"/*/; do
+    [ -d "$wt" ] || continue
+    WT_N=$((WT_N + 1))
+    if [ ! -f "$wt/SPEC.md" ]; then
+      echo "REJECT(G-RT): the worktree $(basename "$wt") has NO SPEC.md — the fence would answer FENCE-NO-SPEC on every PR" >&2
+      echo "  fix: write a SPEC.md naming a COMMITTED artifact (see .trident/remediation-pkg/)" >&2
+      WT_NO_SPEC=$((WT_NO_SPEC + 1))
+    fi
+  done
+  if [ "$WT_NO_SPEC" -gt 0 ]; then FAIL=1; else echo "G-RT: $WT_N session worktree(s) carry a fence job"; fi
+else
+  echo "G-RT: no worktree root at $WORKTREE_ROOT (nothing to fence yet)"
+fi
+
 if [ "$FAIL" -eq 1 ]; then
   echo "G-RT: FAIL (a named check above failed — fix it before starting the session)" >&2
   exit 1

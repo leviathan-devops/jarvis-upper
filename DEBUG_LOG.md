@@ -1043,3 +1043,25 @@ across runs); the FULL battery **136 pass / 0 fail**; tsc exit 0.
 
 **ANCHORS:** src/target-guard.ts:1, src/sync.ts:34, src/sync.ts:11, src/merge-record.ts:102,
 src/runtime.ts:113, src/runtime.ts:390, ao-client/client.ts:22, src/main.ts:96.
+
+## EN-187 - W2 THE MISSING-PATH WAVE (R1, R7, R9) (2026-09-24T18:18:21Z)
+
+**R1 — the promote verb (TH-3/F-19):** `verbPromote` existed; ADDED the regression test
+(open→ready, + the 3 named refusals NO-SUCH-PR/NO-HEAD-SHA/NOT-PROMOTABLE) + `docs/OPERATOR_STEPS.md`
+naming it the operator's step. Before this, the ONLY way a PR became eligible was a raw
+hand-INSERT — a green produced that way was reported as the kernel's own achievement.
+
+**R7 — the fence-job preflight (the FENCE-NO-SPEC class):** `gates/rt-preflight.sh` had a
+fence-fixture check that was "not fatal". ADDED check #5: every session worktree MUST carry a
+`SPEC.md`, else a NAMED refusal (exit 1). Proof: exit 1 with a spec-less worktree, exit 0 with
+one, exit 0 with no worktrees.
+
+**R9 — kick() was DEAD IN PROD (TH-2):** `verbKick` always answered `KICK-ADAPTER-UNWIRED` — a
+stub wearing a feature's shape. WIRED: new `src/kick-adapter.ts` binds KickDeps to the AO
+daemon routes (`spawnSession`/`sendSessionMessage`/`getSession`) + local git for `direct`.
+The dossier-hash gate is unchanged and still refuses a tamper first.
+
+**THE VERIFICATION:** tests/w2_missing_path.test.ts **5 pass / 0 fail**; the FULL battery
+**141 pass / 0 fail**; tsc exit 0.
+
+**ANCHORS:** src/cli-verbs.ts:123, src/cli-verbs.ts:130, src/kick-adapter.ts:1, gates/rt-preflight.sh:54, docs/OPERATOR_STEPS.md:1.

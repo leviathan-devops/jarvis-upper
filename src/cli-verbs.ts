@@ -2,6 +2,8 @@
 // exit 0 (ok) / 1 (negative verdict) / 2 (refused or usage).
 // Each verb is a CALLER for a library module (graph, attribute, desks, ...).
 import { Database } from "bun:sqlite";
+import { kick } from "./kick";
+import { daemonKickDeps } from "./kick-adapter";
 import { openStore } from "./store";
 import { orderMerges } from "./plan";
 import { guardrail } from "./guardrail";
@@ -101,6 +103,8 @@ export async function verbBug(root: string, arg?: string): Promise<VerbResult> {
   const line = Number(lineStr ?? 1);
   if (!Number.isFinite(line) || line < 1) return emit(2, { ok: false, refused: "INVALID-LINE", hint: "upper bug <file>:<positive-integer>" });
   const a = await attributeBug( { repo: root, files: [file], lines: { [file]: [line] } }, async () => ({ session: null, worker: null }));
+  // FIXED (red-team audit R12): the 0.6 here was a SECOND authority duplicating
+  // attribute.ts's CONFIDENCE_FLOOR — two thresholds that could drift apart. One import.
   return emit(a.confidence >= 0.6 ? 0 : 1, { ok: a.confidence >= 0.6, commit: a.commit, confidence: a.confidence, method: a.method });
   } finally { db.close(); }
 }
@@ -120,9 +124,32 @@ export async function verbDesks(root: string, arg?: string): Promise<VerbResult>
   } finally { db.close(); }
 }
 
-export async function verbKick(root: string, arg?: string): Promise<VerbResult> {
+/**
+ * verbKick — dispatch a bug fix. WIRED (red-team audit R9): the daemon adapter
+ * (src/kick-adapter.ts) supplies the transport, so this is no longer a stub. The
+ * kick() dossier-hash gate still refuses a tampered dossier before any send.
+ */
+export async function verbKick(root: string, arg?: string, mode?: string): Promise<VerbResult> {
   if (!arg) return emit(2, { ok: false, refused: "KICK-NEEDS-BUG-ID", hint: "upper kick <bug-id> [--mode live|spawn|direct]" });
-  return emit(2, { ok: false, refused: "KICK-ADAPTER-UNWIRED", bugId: arg, hint: "the kick rails need the daemon adapter wired (W2/W3 follow-up)" });
+  const db = openStore();
+  try {
+    const bug = db.query("SELECT id, dossier_path, origin_commit, origin_session FROM bug_record WHERE id = ?").get(arg) as
+      { id: string; dossier_path: string | null; origin_commit: string | null; origin_session: string | null } | null;
+    if (!bug) return { code: 1, out: { ok: false, refused: "NO-SUCH-BUG", bugId: arg } };
+    if (!bug.dossier_path) return { code: 1, out: { ok: false, refused: "NO-DOSSIER-PATH", bugId: arg } };
+    const m = (mode === "live" || mode === "spawn" || mode === "direct") ? mode : undefined;
+    const res = await kick(db, daemonKickDeps({ cwd: root }), {
+      bugId: arg,
+      projectId: process.env.UPPER_PROJECT_ID ?? "jarvis-upper",
+      originSession: bug.origin_session,
+      originCommit: bug.origin_commit ?? "unknown",
+      dossierPath: bug.dossier_path,
+      mode: m,
+    });
+    return { code: 0, out: { ok: true, ...res } };
+  } catch (e) {
+    return { code: 1, out: { ok: false, refused: "KICK-FAILED", bugId: arg, error: String(e).slice(0, 140) } };
+  } finally { db.close(); }
 }
 
 /**
