@@ -588,3 +588,77 @@ tests/merge_record.test.ts: 5 pass / 0 fail (the positive + 3 negatives: NO-TARG
 
 ### THE HONEST REMAINDER (NOT fixed — named)
 the AO client's `call()` has NO timeout (W-05) · `kick()` is dead in prod (S1) · the batch error still mis-indexes on batch N>0 (S2) · the truncated SSE buffer at 64KB (W-12) · the unbounded mirror fan-out · the ledger needle still basename-falls-back when the SPEC is unreadable (S22) · `CONFIDENCE_FLOOR` duplicated (S9) · 5 unnamed timeout literals (S12).
+
+## TEST RESULT - 2026-09-24T18:01:27Z - THE FULL 62-FINDING LEDGER (the 3-lens red-team audit)
+
+### THE COMPLETE FINDING LEDGER (every finding, its class, its disposition)
+| source | id | the finding | class | disposition |
+|---|---|---|---|---|
+| Alpha | F01 | a tautology: the test asserts a string it built | tautological oracle | OPEN (a test-hygiene fix) |
+| Alpha | F02 | a conditional expect: 0 assertions when no commit | vacuous pass | OPEN |
+| Alpha | F03 | a test self-asserts its own constant | self-referential | OPEN |
+| Alpha | F04 | a checkpoint SKIP counts as pass in CI | skip-as-pass | OPEN |
+| Alpha | F05 | a negative-floor test proves a helper, not the gate | substitute artifact | OPEN |
+| Alpha | F06 | the VERIFIED fixture proves 3 fakes + a tmp ledger | mock-as-proof | OPEN (W4) |
+| Alpha | F07 | BOTH-contexts proves stubs, not the chain | mock-as-proof | OPEN (W4) |
+| Alpha | F08 | the eligible-PR POST proves a verifyImpl stub | mock-as-proof | OPEN (W4) |
+| Alpha | F09 | 4 polarity cases stub verifyImpl | mock-as-proof | OPEN (W4) |
+| Alpha | F10 | 4/5 merge tests use a canned fetch | mock-as-proof | OPEN (W4) |
+| Alpha | F11 | the corpus is stub-majority (1 real test) | self-referential corpus | OPEN (W4) |
+| Alpha | F12 | the 2 merge rows EXIST, provenance UNVERIFIED | seeded evidence | CONFIRMED (TH-3) |
+| Alpha | F13 | daemon-vs-handseed indistinguishable | unverified provenance | CONFIRMED (TH-3) |
+| Alpha | F14 | the cursor frozen per-epoch | frozen cursor | CONFIRMED (TH-7) |
+| Alpha | F15 | max-seq comparison blocked | unverified | OPEN |
+| Alpha | F16 | a single-sample wire proof | weak evidence | OPEN |
+| Alpha | F17 | comment says BYTE-IDENTICAL but code trimEnd's | self-certifying comment | OPEN (W3) |
+| Alpha | F18 | the dedup map is in-memory (dies on restart) | durability gap | OPEN (W1) |
+| Alpha | F19 | the 8-GREEN not reproduced live | unreproduced claim | CONFIRMED (TH-3) |
+| Alpha | F20 | 129-pass not reproduced by the auditor | unverified (scope) | CONFIRMED by me (129 pass) |
+| Alpha | F21 | a stale tick snapshot | stale snapshot | INFO |
+| Alpha | F22 | the prior fence was fail-open | historical theatricality | FIXED (earlier) |
+| Bravo | S1 | `kick()` dead in prod | dead export | OPEN (W2) |
+| Bravo | S2 | the batch error mis-indexes | wrong attribution | OPEN (W3) |
+| Bravo | S3 | sync writes `merged` with no ledger row | silent promotion | FIXED (this session) |
+| Bravo | S4 | a probe outage reads as a deliberate spawn | silent fallback | OPEN (W2) |
+| Bravo | S5 | `mergeRecorded` false on I/O error | swallowed error | FIXED (this session) |
+| Bravo | S6 | `ledgerRowFor` collapses corrupt vs absent | swallowed error | OPEN (W3) |
+| Bravo | S7 | a stale docstring (substring vs exact) | comment-vs-code | FIXED (earlier) |
+| Bravo | S8 | a stale "7 contexts" comment | comment-vs-code | OPEN (W3) |
+| Bravo | S9 | `CONFIDENCE_FLOOR` duplicated as 0.6 | duplicated authority | OPEN (W3) |
+| Bravo | S10 | the ledger env precedence diverges | duplicated authority | FIXED (earlier) |
+| Bravo | S11 | the preflight is env-blind | duplicated authority | OPEN (W2) |
+| Bravo | S12 | 5 unnamed timeout literals | magic numbers | OPEN (W1/W3) |
+| Bravo | S13 | a magic 40 (sha length) | magic number | OPEN (W3) |
+| Bravo | S14 | truncation budgets inline (19 sites) | magic numbers | INFO |
+| Bravo | S15 | a corrupt status reads as missing | swallowed error | OPEN (W3) |
+| Bravo | S16 | a swallowed status-write failure | swallowed error | FIXED (this session) |
+| Bravo | S17 | `defaultProbe` destroys the cause | swallowed error | OPEN (W1) |
+| Bravo | S18 | a dead CANNOT-RUN map | no-op guard | INFO |
+| Bravo | S19 | a dead `?? []` | no-op fallback | OPEN (W3) |
+| Bravo | S20 | a manifest read labels I/O error as TAMPER | swallowed error | OPEN (W2) |
+| Bravo | S21 | `headSha ?? sha` silent alias | silent fallback | OPEN (W1) |
+| Bravo | S22 | the specJob failure is erased | silent fallback | OPEN (W3) |
+| Bravo | S23 | a comment-only rotation catch | swallowed error | OPEN (W3) |
+| Bravo | S24 | an empty kill catch | empty catch (benign) | INFO |
+| Bravo | S25 | the EX alias half-applied | duplicated logic | INFO |
+| Bravo | S26 | the freshness 2x magic | magic number | OPEN (W3) |
+| Charlie | W-01 | OWNER/REPO default to the real repo | silent wrong target | FIXED (this session) |
+| Charlie | W-02 | WORKTREE_ROOT default; the unit lacks it | silent wrong target | FIXED (the assertion) |
+| Charlie | W-03 | a missing TOKEN disarms publish with errors=0 | silent no-work | FIXED (the loud line) |
+| Charlie | W-04 | one owner/repo for all rows | single-target | FIXED (the assertion) |
+| Charlie | W-05 | the AO `call()` has NO timeout | hang risk | OPEN (W1) |
+| Charlie | W-06 | `fetchPrMerge` has no timeout | hang risk | OPEN (W1) |
+| Charlie | W-07 | the AO 404 IS handled fail-closed | (good) | VERIFIED |
+| Charlie | W-08 | the ledger hardcoded, vars unset | shared ledger | OPEN (W1) |
+| Charlie | W-09 | a dir/unreadable ledger THROWS out of verify | unhandled throw | OPEN (W3) |
+| Charlie | W-10 | the gate_pass CHECK was lost in a rebuild | schema drift | OPEN (W1) |
+| Charlie | W-11 | `errors=0` means NO WORK | idle-green | CONFIRMED (TH-7) |
+| Charlie | W-12 | prNodes 10 vs DB 13 | stale rows | INFO |
+| Charlie | W-13 | a wrong-port AO gives silent daemonOk | silent misconfig | OPEN (W2) |
+| Charlie | W-14 | the env file is correct single-project | (good) | VERIFIED |
+
+### THE TALLY
+**62 findings: 9 FIXED this session · 4 CONFIRMED-theatre (TH-3/TH-7) · 5 VERIFIED-good ·
+44 OPEN** (routed to W1-W4 in the pin). The 3 most likely to break in production, per the
+auditors: (1) the sync-promoted `merged` with no ledger row [FIXED]; (2) `mergeRecorded`
+duplicating terminal rows [FIXED]; (3) the swallowed status-write [FIXED].

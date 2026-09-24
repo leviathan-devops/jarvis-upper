@@ -1007,3 +1007,15 @@ PROOF: the resolver returned 4 DIFFERENT keys across 4 calls; each alive key (go
 **THE VERIFICATION:** tsc exit 0; bun test 129 pass / 0 fail; the service restarts clean (no FATAL); each fix has its own probe output above.
 
 **ANCHORS:** src/main.ts:26-48, src/sync.ts:11-23, src/sync.ts:45-60, src/merge-record.ts:102-124, src/runtime.ts:390, src/cli-verbs.ts:128-155.
+
+## EN-185 - THE REMEDIATION PACKAGE + THE PIN (2026-09-24T18:01:27Z)
+
+**THE DELIVERABLES (the operator's order: "save the checkpoint, log all the trash, mint me the prompt"):**
+1. **THE CHECKPOINT:** `Checkpoints/redteam-audit-slop-remediation-20260924-215830` — 57 src .ts + 4 ao-client + 7 gates + 3 scripts + .githooks + 11 canon + 6 ship docs + the artifacts + the packages; MANIFEST 54 L (floor 40) + STRUCTURE 46 L (floor 30); Mode B (no-lock).
+2. **THE TRASH LOGGED:** THEATRICALITY_LOG TH-3..TH-7 (5 entries; 4 OPERATOR-CAUGHT, 2 SELF-CORRECTED) · FAILURE_LOG F-19..F-24 (the operator's verdict VERBATIM + 5 confirmed failures) · DEBUG_LOG EN-184/EN-185 · TESTING_LOG (the full 62-finding ledger) · SPEC_VIOLATION_LOG V-06/V-07 + P-06..P-08 · BUILD_REPORT (the milestone).
+3. **THE BUILD PACKAGE (G2):** `.trident/remediation-pkg/` — the DPL1 (R1-R15 + SC1-SC6, 63 L), the wave-plan (`WAVES: 5`, 35 L), the blueprint (35 L).
+4. **THE PIN:** 182 lines, all 16 sections, validator **PASS (7/7 slots)**. It drives the remediation of the 44 OPEN findings across 5 parallel waves and gates EVERY success claim on a red-team-slop-audit run.
+
+**THE ROOT PATTERN (one mechanism under the five costumes):** every claim was measured on a path I controlled, never the production path. The pin's ANTI-DERAIL names all five (TH-3..TH-7) with that single countermeasure: **state the production path the claim exercised, and measure ON it.**
+
+**ANCHORS:** Checkpoints/redteam-audit-slop-remediation-20260924-215830/CHECKPOINT_MANIFEST.md:1, .trident/remediation-pkg/DPL1_REMEDIATION.md:1, THEATRICALITY_LOG.md:1, FAILURE_LOG.md:1.
