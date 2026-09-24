@@ -51,10 +51,16 @@ test.skipIf(!FENCE_AVAILABLE)("ship_manifest: wave A assembles manifest; real fe
     `  - id: ship\n    artifact: ${art}\n    done-when:\n` +
     `      - test -f ./manifest.json\n    depends: []\n    retries: 0\n    silence_s: 90\n` +
     `sha16:\n  ship: ${artSha}\n`);
-  const sha = (await $`python3 ${F2} invariant-sha ${job}`.text()).trim();
-  const r = await $`python3 ${F2} adjudicate ${job} --expect-spec-sha ${sha}`.quiet().nothrow();
+  // FIXED (the fabrication-lens auditor F1, HIGH): these calls ran WITHOUT a
+  // FENCE_LEDGER, so every run appended a fixture `w4-ship` PASS row to the
+  // AUTHORITATIVE production ledger (measured: 380 such rows). The ledger is the
+  // external authority — a test must NEVER write to it. Isolated to a temp ledger.
+  const led = `${job}/verdicts.jsonl`;
+  const env = { ...process.env, FENCE_LEDGER: led };
+  const sha = (await $`python3 ${F2} invariant-sha ${job}`.env(env).text()).trim();
+  const r = await $`python3 ${F2} adjudicate ${job} --expect-spec-sha ${sha}`.env(env).quiet().nothrow();
   expect(r.exitCode).toBe(0);
-  const tail = (await $`tail -n 1 ${LEDGER}`.text()).trim();
+  const tail = (await $`tail -n 1 ${led}`.text()).trim();   // read the ISOLATED ledger
   const row = JSON.parse(tail) as { verdict: string; evidence: string };
   expect(row.verdict).toBe("PASS");
   expect(row.evidence.includes("spec_bound:true")).toBe(true);
