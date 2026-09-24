@@ -967,3 +967,26 @@ PROOF: the resolver returned 4 DIFFERENT keys across 4 calls; each alive key (go
 **THE RESOLUTION (pragmatic + recorded):** the comment was reworded so it no longer contains the catch-brace shape. The SCANNER's rule 2 remains comment-blind — a real (low-severity) false-positive class: any doc/comment that quotes a catch shape trips it. Recorded here for the scanner's next hardening pass; the fix is to apply the same `^[[:space:]]*(//|/\*|\*)` skip rule 2 already applies to its own prose rule.
 
 **ANCHORS:** .githooks/lib/scan-silent.sh (rule 2), src/verdict.ts:120.
+
+## EN-183 - THE MUSE PIN COMPLETE (every surface, every role) (2026-09-24T16:18:28Z)
+
+**THE OPERATOR'S RULING:** "PIN THIS FUCKING MODEL" — muse on GO is THE model.
+
+**THE COMPLETE PIN (verified):**
+| surface | roles = muse-GO |
+|---|---|
+| ~/.omp/agent/config.yml (global) | **7/7** |
+| jarvis-upper/.omp/config.yml (project overlay) | **10/10** |
+| ~/.omp/profiles/jarvis-worker/agent/config.yml (every AO worker) | **9/9** |
+| the subagent overrides (17 agents) | **17/17** |
+| the ocr audit lane | provider=muse-go · protocol=openai-responses · key=the pool resolver |
+| THIS SESSION | default = opencode-go/muse-spark-1.3-contributor:xhigh |
+
+**THE THREE DEFECTS THAT MADE IT LOOK IMPOSSIBLE (all measured + fixed):**
+1. the PROJECT overlay + the AO worker PROFILE pinned laguna (overriding the global muse);
+2. the ocr lane used ONE key (go-key.sh) while the pool had EIGHT — and 5 of the 8 were dead (429/400) while the pool claimed all ok (STALE);
+3. the qwen-code-audit GATE matched "429"/"quota" in the REVIEW'S OWN PROSE and reported a SUCCESSFUL scan as PROVIDER_QUOTA_EXHAUSTED — the actual "blocked" the operator kept seeing.
+
+**THE POOL NOW:** all 8 keys read ok; a real muse xhigh call returns HTTP 200; a 6-way concurrent burst returns 6/6 200.
+
+**ANCHORS:** ~/.omp/agent/config.yml:2, jarvis-upper/.omp/config.yml:1, ~/.omp/profiles/jarvis-worker/agent/config.yml:18, ~/.opencodereview/config.json, ~/.omp/agent/bin/go-key-pool.sh:1, OPENCODE_WORKSPACE/.mimocode/go-session-proxy.mjs, ~/.omp/agent/extensions/qwen-code-audit/index.js:242.
