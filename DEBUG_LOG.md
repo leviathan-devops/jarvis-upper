@@ -662,3 +662,13 @@ Battery 107 pass / 0 fail at tests/publisher_wired.test.ts:1
 **THE VERIFICATION:** tsc exit 0; bun test 124 pass / 0 fail.
 
 **ANCHORS:** gates/fence-check.py:39, src/verdict.ts:224, scripts/spec-diff.ts:128, src/runtime.ts:292.
+
+## EN-161 - THE F1 ADJUDICATION (the CI has no ledger; the host does) (2026-09-24T10:55:38Z)
+
+**THE FINDING (round 2, F1):** the reviewer asked fence-check.py to exit 2 when the ledger is ABSENT (fail-closed: a spec-gate pass with zero fence evidence is a hole).
+
+**THE ADJUDICATION (two-sided):** APPLIED and MEASURED — exit 2 on an absent ledger REDDENS the CI's gates/spec-gate (run on 4fa682e: gates/spec-gate=completed/failure), because the ledger is a HOST artifact (gitignored) a CI checkout legitimately lacks. The fail-closed enforcement ALREADY lives where the ledger EXISTS: .githooks/pre-commit:211 (G-SEAL: `if ! grep -q '"verdict":"PASS"' "$GR_LEDGER"; then REJECT(G-SEAL)`) and the KERNEL's verify() (which requires a fence PASS row + a head binding). The CI's absent ledger is a named SKIP.
+
+**THE FIX:** reverted fence-check.py to exit 0 on an absent ledger, WITH the adjudication recorded in the file. The finding is a context-error (correct in principle, wrong locus) — the host gate already fails closed.
+
+**ANCHORS:** gates/fence-check.py:39, .githooks/pre-commit:211.
