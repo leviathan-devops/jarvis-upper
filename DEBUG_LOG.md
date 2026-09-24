@@ -804,3 +804,13 @@ THE FINDING (ocr audit, 5 high on .githooks/pre-commit): the gate could be BYPAS
 THE FIX: every path now fails CLOSED with a named REJECT(W-14) (or a bounded 200-row window for G-SEAL).
 THE VERIFICATION: bash -n clean; a real commit runs the hook; the W-9/G-RATIO/G-SEAL gates still fire.
 ANCHORS: .githooks/pre-commit:10, .githooks/pre-commit:47, .githooks/pre-commit:164, .githooks/pre-commit:143, .githooks/pre-commit:213.
+
+## EN-171 - THE TICK'S UNGUARDED BODY (a thrown tick left a stale status) (2026-09-24T13:21:51Z)
+
+**THE FINDING (ocr audit high, src/runtime.ts:276):** the cursor/ready/plan/status section ran OUTSIDE any try/catch while the sync/rail/mirror/publish sections pushed into errors[]. A throw from `db.query(last_seq)`, `orderMerges()`, `writeStatus()` or `appendTick()` bubbled out of tick() with `last` STALE and NO status written — a direct caller got a rejection and a reader saw a frozen status.
+
+**THE FIX:** tick() now has a `catch` that ALWAYS yields a well-formed status naming the throw (`tick-threw:<msg>`), writes it, and returns it. The daemon can no longer be left without a status.
+
+**THE VERIFICATION:** tsc exit 0; bun test 129 pass / 0 fail; the daemon advances after a restart (runtime/ticks.log).
+
+**ANCHORS:** src/runtime.ts:371 (the catch), src/status.ts:6 (the RuntimeStatus shape).

@@ -368,6 +368,20 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
     appendTick(root, s);
     last = s;
     return s;
+    } catch (e) {
+      // FIXED (ocr audit high): a THROWN tick (a db.query, orderMerges, writeStatus,
+      // or a publish throw) bubbled out with `last` STALE and NO status written — a
+      // direct caller got a rejection and a reader saw a frozen status. A tick now
+      // ALWAYS yields a well-formed status naming the throw, and always writes it.
+      const s: RuntimeStatus = {
+        ts: new Date().toISOString(), tick: state.tick, daemonOk: false,
+        cursor: last?.cursor ?? 0, prNodes: last?.prNodes ?? 0,
+        ready: 0, eligible: 0, planHash: null, planKind: "none", kicks: 0,
+        errors: [...(last?.errors ?? []), `tick-threw:${String(e).slice(0, 100)}`],
+      };
+      try { writeStatus(root, s); appendTick(root, s); } catch { /* the write failed too; `last` still carries the throw */ }
+      last = s;
+      return s;
     } finally { state.inFlight = false; }
   }
 
