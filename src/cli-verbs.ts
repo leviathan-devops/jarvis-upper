@@ -23,7 +23,14 @@ export async function verbStatus(root: string, _arg?: string): Promise<VerbResul
   const s = readStatus(root);
   if (!s) return emit(1, { ok: false, verdict: "NO-STATUS-FILE", hint: "start src/main.ts" });
   const ageMs = Date.now() - Date.parse(s.ts);
-  const fresh = ageMs < 2 * Number(process.env.UPPER_TICK_MS ?? 15000);
+  // FIXED (red-team slop audit SLOP-01): this recomputed the tick window with NO
+  // validation, while main.ts:21-22 and runtime.ts:42-45 both guard. A hostile
+  // UPPER_TICK_MS ("", "0", "abc") made it 0/NaN -> perpetual STALE. Same guard.
+  const tickMs = ((): number => {
+    const n = Number(process.env.UPPER_TICK_MS ?? 15000);
+    return Number.isFinite(n) && n > 0 ? n : 15000;
+  })();
+  const fresh = ageMs < 2 * tickMs;
   // FIXED 2026-09-23 (ocr round-4 HIGH): a nested ternary — the review
   // checklist prohibits it. Sequential if/else, each condition independent.
   let verdict: "DOWN" | "RUNNING" | "STALE";

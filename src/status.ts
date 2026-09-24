@@ -53,7 +53,12 @@ export function appendTick(root: string, s: RuntimeStatus): void {
       writeFileSync(tmp, lines.slice(-5000).join("\n") + "\n", "utf8");
       renameSync(tmp, tp);
     }
-  } catch { /* rotation is best-effort */ }
+  } catch (e) {
+    // FIXED (red-team slop audit SLOP-07): a persistently failing rotation (readonly
+    // dir, full disk) retried each tick and NEVER surfaced — the log grew unbounded
+    // past CAP_BYTES with no signal. Best-effort, but the failure is now NAMED.
+    console.error(`status-rotate-failed:${String(e).slice(0, 60)}`);
+  }
 }
 
 export function readStatus(root: string): RuntimeStatus | null {

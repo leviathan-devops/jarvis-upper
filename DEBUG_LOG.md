@@ -1326,3 +1326,31 @@ hook.
 
 **WHY THIS MATTERS:** a stale probe is as dangerous as a dead gate — a false RED trains the
 operator to ignore the corpus. This is the skill's §6 law: publish your own instrument failures.
+
+## EN-196 - W11: THE RED-TEAM SLOP AUDIT'S 9 CONFIRMED LOW FINDINGS, ALL FIXED (2026-09-24T19:27:53Z)
+
+**The slop-lens auditor (a zero-context subagent) returned: 0 confirmed critical/high, 12
+LOW/MEDIUM-LOW.** Nine were clear defects; all fixed with tests:
+
+| id | the defect | the fix | the pin |
+|---|---|---|---|
+| SLOP-01 | verbStatus recomputed the tick window with NO validation (a hostile UPPER_TICK_MS="" -> perpetual STALE) | the same validated parse main.ts + runtime.ts use | test_status_tick_parse_validated |
+| SLOP-02 | ALLOWED_STATES replayed PR_STATES verbatim (a 2nd authority for one vocabulary) | import PR_STATES from store.ts | test_allowed_states_single_authority |
+| SLOP-03 | a DEAD `invSha16` store + a duplicated parse in verdict.ts | both removed | (source) |
+| SLOP-04 | a "canonicalize" comment overclaiming (the body does an exact compare) | the comment now states what the code does | (source) |
+| SLOP-05 | the kick send catch swallowed the transport cause | the cause is NAMED (still fail-closed) | (source) |
+| SLOP-07 | a failing tick-log rotation was silent (the log grew unbounded) | the failure is NAMED | (source) |
+| SLOP-09 | a `void cap;` NO-OP branch in the tick path | the dead statement removed | (source) |
+| SLOP-10 | a CORRUPT merge line read as "not recorded" -> a DUPLICATE terminal row | it THROWS LEDGER-CORRUPT-LINE | test_merge_corrupt_line_throws |
+| SLOP-11 | `??` let "" through for AO_DAEMON/FENCE2_BIN/FENCE_LEDGER (inconsistent with `\|\|`) | `\|\|` so "" falls to the default | (source) |
+
+**The auditor's own instrument failures (published, per §6):** 8 recorded — including a
+catch-detector that matched only single-line empty catches, a comment-pattern that matched
+EVERY comment, and a seam-grep that both under- and over-counted. Its verdict explicitly
+licenses NO battery claim (it did not run the full battery).
+
+**THE VERIFICATION:** tests/w11_slop_fixes.test.ts 3 pass / 0 fail; the FULL battery
+**171 pass / 0 fail** (593 expect, 46 files); tsc exit 0; the daemon restarted + active.
+
+**ANCHORS:** src/cli-verbs.ts:26, src/sync.ts:20, src/verdict.ts:188, src/kick.ts:52,
+src/kick-adapter.ts:46, src/status.ts:56, src/runtime.ts:330, src/merge-record.ts:120.

@@ -1,6 +1,7 @@
 // syncProject: facts pull (API-shaped) into pr_node. Stub-injectable for
 // tests; production passes adapter list fns (never the daemon database direct).
 import { Database } from "bun:sqlite";
+import { PR_STATES } from "./store";
 
 export interface PrRow {
   project: string;
@@ -17,7 +18,10 @@ export interface PrRow {
 /** The states the store's CHECK admits (src/store.ts:16). A row outside this set
  *  would throw inside the transaction and roll back EVERY row — so it is refused
  *  per-row instead. */
-export const ALLOWED_STATES = ["open", "ready_to_merge", "merge_ordered", "merged", "rejected", "kicked"] as const;
+// FIXED (red-team slop audit SLOP-02): this replayed PR_STATES verbatim instead of
+// importing it — store.ts:14 is the single TS authority (its comment says so). Two
+// literals for one vocabulary is the drift class that re-opens the F-20 rollback.
+export const ALLOWED_STATES = PR_STATES;
 
 /** Validate one AO row BEFORE the insert. Returns a named reason or null. */
 export function validatePrRow(r: PrRow): string | null {

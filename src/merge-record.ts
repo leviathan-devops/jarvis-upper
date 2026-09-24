@@ -124,7 +124,12 @@ export function mergeRecorded(ledgerPath: string, mergeSha: string): boolean {
         try {
           const row = JSON.parse(l) as { evidence?: string };
           return (row.evidence ?? "").split("|")[0] === mergeSha;
-        } catch { return false; }
+        } catch (e) {
+          // FIXED (red-team slop audit SLOP-10): a CORRUPT merge line read as
+          // "not recorded" -> the tick appended a DUPLICATE terminal row. A line that
+          // claims job:"merge" but cannot be parsed is an ERROR, never an absence.
+          throw new Error(`LEDGER-CORRUPT-LINE:${String(e).slice(0, 60)}`);
+        }
       });
   } catch (e) {
     // an unreadable ledger is an ERROR, never a false "absent"

@@ -49,7 +49,11 @@ export async function kick(
   const sha = dossierSha16(md, oj);
   const dossierRow = db.query(
     "SELECT dossier_path AS p FROM bug_record WHERE id = ?").get(input.bugId) as { p: string } | null;
-  // F17: canonicalize — always use input.dossierPath (the caller-provided path)
+  // F17: the row's dossier_path must EQUAL the caller's path. This is an EXACT string
+  // comparison — NO normalization (FIXED slop audit SLOP-04: the old comment claimed
+  // "canonicalize"; a trailing-slash or `a/../b` variant would false-positive. The
+  // production path sources dossierPath from the DB, so exposure is low; the comment
+  // now states what the code does.)
   if (dossierRow && dossierRow.p !== input.dossierPath) throw new Error('DOSSIER-PATH-MISMATCH');
   const manifestPath = `${input.dossierPath}/manifest.sha16`;
   let recordedSha = "";

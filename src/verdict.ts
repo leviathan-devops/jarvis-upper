@@ -35,11 +35,11 @@ export const APPROVING_VERDICTS = ["approved", "approve", "lgtm", "pass", "passe
 // on the SAME sha.
 export const REJECTING_VERDICTS = ["changes_requested", "changes-requested", "requested_changes",
   "rejected", "reject", "changes_requested_by_reviewer", "blocked", "block", "fail", "failed", "denied"] as const;
-export const FENCE_DEFAULT = process.env.FENCE2_BIN ?? "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py";
+export const FENCE_DEFAULT = process.env.FENCE2_BIN || "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py";
 // FIXED (ao-review-4 finding): FENCE_LEDGER is now the ONE env var (FENCE2_LEDGER
 // kept as a back-compat alias) so fence-check.py, .githooks/pre-commit and this
 // module all resolve the SAME ledger.
-export const LEDGER_DEFAULT = process.env.FENCE_LEDGER ?? process.env.FENCE2_LEDGER ?? "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl";
+export const LEDGER_DEFAULT = process.env.FENCE_LEDGER || process.env.FENCE2_LEDGER || "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl";
 
 export interface VerifyOpts {
   jobDir: string;
@@ -185,7 +185,6 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
 
   // ---- SOURCE 1: the fence, bound to the head sha -------------------------
   const fence: FenceSource = { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: "" };
-  let invSha16: string | null = null;
   try {
     // fence2's --expect-spec-sha is the SPEC's INVARIANT sha16 (not a git sha):
     // the kernel-held value computed over the SPEC minus its sha-map. Compute it
@@ -195,7 +194,8 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     // was accepted, so a FAILED invariant-sha fed garbage into --expect-spec-sha.
     // The exit code + the 16-hex format are now both required.
     if (inv.code !== 0) throw new Error(`FENCE-INVARIANT-FAILED: exit ${inv.code}`);
-    invSha16 = inv.stdout.trim().split("\n").filter((l) => l.trim().length > 0).pop() ?? "";
+    // FIXED (red-team slop audit SLOP-03): this line was a DEAD duplicate parse
+    // (written to invSha16, never read) directly above the identical expression.
     const invariant = inv.stdout.trim().split("\n").filter((l) => l.trim().length > 0).pop() ?? "";
     if (!/^[0-9a-f]{16}$/.test(invariant)) throw new Error(`FENCE-NO-INVARIANT-SHA: ${invariant.slice(0, 40)}`);
     const argv = [fenceBin, "adjudicate", opts.jobDir, "--expect-spec-sha", invariant];

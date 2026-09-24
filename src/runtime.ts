@@ -21,7 +21,7 @@ import { verify, type VerifyOpts, type VerifyResult } from "./verdict";
 import { publishStatus, publishVerdict, type PublishResult } from "./publish";
 import { STATUS_CONTEXTS } from "./status-contract";
 
-export const DAEMON = process.env.AO_DAEMON ?? "http://localhost:3001";
+export const DAEMON = process.env.AO_DAEMON || "http://localhost:3001";   // FIXED SLOP-11: || so "" falls to the default
 
 /** The SSE capture ceiling. A buffer that hits it is TRUNCATED — a named failure,
  *  never a clean read (red-team audit W-12). */
@@ -324,11 +324,9 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
         // condition under which a REAL error hides). Only a cursor that is BEHIND a
         // non-empty stream is anomalous, and that is already covered by
         // `rail-failed` + the cursor-advance check.
-        else if (cap.frames === 0 && state.tick === 1 && cap.lastSeq > 0) {
-          // the stream HAS frames but we read none and this is our first pass:
-          // informational only, never an error
-          void cap;
-        }
+        // FIXED (red-team slop audit SLOP-09): a branch computed a condition and then
+        // did NOTHING (`void cap;`) — a real no-op in the tick path. The reasoning is
+        // kept as the comment it always was; the dead statement is gone.
       } catch (e) { errors.push(`rail:${String(e).slice(0, 60)}`); }
     } else {
       errors.push("ECONNREFUSED");

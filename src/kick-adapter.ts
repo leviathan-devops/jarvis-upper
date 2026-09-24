@@ -43,7 +43,10 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call } = {}
         const message = clamp(brief, SEND_MAX);
         await c("sendSessionMessage", { params: { sessionId }, body: { message } });
         return { ok: true };
-      } catch { return { ok: false }; }
+        // FIXED (red-team slop audit SLOP-05): the cause was swallowed at the adapter
+        // boundary. The caller still throws KICK-SEND-FAILED (fail-closed), but the
+        // transport cause is now NAMED for the post-mortem.
+      } catch (e) { console.error(`kick-send-failed:${String(e).slice(0, 80)}`); return { ok: false }; }
     },
     spawn: async (input: { projectId: string; brief: string; attachments: string[] }): Promise<{ sessionId: string }> => {
       // FIXED (ship-gate CRITICAL x2, measured against openapi.yaml): the request field is
