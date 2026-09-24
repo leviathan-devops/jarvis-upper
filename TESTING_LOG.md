@@ -507,3 +507,17 @@ its fix proven by behavior).**
 ### HOST - the AO re-review (triggered via the CLI)
 - `ao review trigger jarvis-upper-4` -> "started a new review for jarvis-upper-4" (exit 0).
 - the reviewer spawned (pid 797407, 50-114% CPU) reviewing 71fbe3d.
+
+## TEST RESULT - 2026-09-24T12:51:00Z - THE AUDIT GATE (the mandatory ocr scan)
+
+**AUDIT GATE: FAIL (0 critical, 16 high)** — session 21128e2c, provider muse-go, scope workspace, filesReviewed=6, findings 38 (critical=0 high=16 medium=19 low=3). Artifact: artifacts/sg-ocr-session-21128e2c.json.
+
+**THE ROUNDS:** round 1 (session 87fa8ecc) = FAIL (1 CRITICAL, 24 high). Round 2 (session 21128e2c) = FAIL (0 CRITICAL, 16 high). The CRITICAL (a tick-starvation regression introduced by my own round-1 fix) is FIXED + RUNTIME-VERIFIED (the daemon advances: runtime/ticks.log tick=1,2,3 daemonOk=true).
+
+**THE FIXED (13 findings):** the tick-starvation (CRITICAL), the case-folded tokenHit, the omitted empty Bearer, the invariant validation, the tick lock placement, the stop await, the G-SEAL line-wise match, the per-runtime dedup map, the response guard, the visible partial sync, plus the faithful test stub + the checkpoint floors.
+
+**THE ADJUDICATED (1 finding, REJECTED with evidence):** "the ledger invariant SHA is never bound" — the ledger's 16-hex evidence prefix is the ARTIFACT sha16, not the SPEC invariant (two different objects by design); the spec binding is enforced via --expect-spec-sha (a mismatch refuses SPEC_FORGED). Recorded in src/verdict.ts:186.
+
+**THE REMAINING (16 high, INFRASTRUCTURE-ADJACENT):** the .githooks fail-open paths (pre-commit:47/161/167 — a git show failure or a BSD mktemp exempts a file), the spec-diff parser (the column-0 anchor, the rename blind spot, the unbounded content read), the verdict needle matching, the runtime's un-try/catch'd cursor section. These are recorded as the open frontier.
+
+**A FAIL BLOCKS EVERY SHIP-READY / PRODUCTION-GRADE / MERGE CLAIM.** The 8/8 GREEN contexts are a RUNTIME FACT (independently verified 6/6) and stand; the code-quality gate is FAIL and the frontier is named.

@@ -1,0 +1,4 @@
+{"session":"21128e2c-a73e-40bc-b129-2669bd1cc423","provider":"muse-go","scope":"workspace",
+ "filesReviewed":6,"findings":{"critical":0,"high":16,"medium":19,"low":3},
+ "gate":"FAIL","priorRound":{"session":"87fa8ecc","critical":1,"high":24,"gate":"FAIL"},
+ "note":"the critical (tick-starvation) FIXED; 8 high findings fixed or adjudicated; the remainder are deeper (the hooks' fail-open paths, the spec-diff parser, the verdict needle matching)."}
