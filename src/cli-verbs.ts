@@ -142,7 +142,8 @@ export async function verbKick(root: string, arg?: string, mode?: string): Promi
     return emit(2, { ok: false, refused: `KICK-BAD-MODE:${String(mode).slice(0, 32)}`, hint: "live | spawn | direct" });
   }
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(arg)) {
-    return emit(2, { ok: false, refused: "KICK-BAD-BUG-ID", bugId: arg, hint: "an id matching /^[A-Za-z0-9._-]{1,64}$/" });
+    // FIXED (the W17 ship gate LOW): `arg` is arbitrary-length here — bound the echo.
+    return emit(2, { ok: false, refused: "KICK-BAD-BUG-ID", bugId: String(arg).slice(0, 64), hint: "an id matching /^[A-Za-z0-9._-]{1,64}$/" });
   }
   const db = openStore();
   try {

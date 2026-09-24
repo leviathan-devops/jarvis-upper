@@ -7,7 +7,7 @@
 // local git for the direct-branch mode. The dossier-hash gate inside kick() is
 // unchanged and still refuses a tampered dossier before any transport runs.
 import { call } from "../ao-client/client";
-import type { KickDeps } from "./kick";
+import type { KickDeps, Liveness } from "./kick";
 
 // FIXED (ship-gate MEDIUM): the spawn cap reused the SEND cap. The routes differ —
 // SendSessionMessageRequest.message is 4096 (openapi.yaml:11008), SpawnSessionRequest.prompt
@@ -35,7 +35,7 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
   return {
     // getSession 200 = { session: ControllersSessionView } (measured against openapi.yaml),
     // and a 404 THROWS. Check the field EXPLICITLY; a transport error is not "alive".
-    sessionAlive: async (sessionId: string): Promise<"alive" | "dead" | "unknown"> => {
+    sessionAlive: async (sessionId: string): Promise<Liveness> => {   // FIXED: one authority
       try {
         const r = await c<{ session?: unknown } | null>("getSession", { params: { sessionId } });
         // FIXED (the W15 ship gate MEDIUM): an empty body (null) is a TRANSPORT anomaly, not

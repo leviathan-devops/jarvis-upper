@@ -48,7 +48,8 @@ const jobDirFor = (prId: string): string => {
 
 export function main(): void {
   // THE TARGET ASSERTION (extracted to src/target-guard.ts so it is TESTABLE).
-  const tgt = targetMatchesRemote({ root, owner: OWNER, repo: REPO, host: process.env.UPPER_HOST || "github.com" });
+  // FIXED (the W17 ship gate LOW): a blank UPPER_HOST is truthy under `||`.
+  const tgt = targetMatchesRemote({ root, owner: OWNER, repo: REPO, host: (process.env.UPPER_HOST ?? "").trim() || "github.com" });
   if (!tgt.ok) {
     console.error(`FATAL: ${tgt.reason ?? "TARGET-MISMATCH"} — this tree's origin is ${tgt.remote || "(unreadable)"} but UPPER_OWNER/UPPER_REPO name ${OWNER}/${REPO}. Refusing to arm the publisher (a wrong-target POST is unrecoverable). Set UPPER_OWNER + UPPER_REPO explicitly.`);
     process.exit(1);

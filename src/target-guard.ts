@@ -57,9 +57,10 @@ export function redactRemote(url: string): string {
   try {
     const p = new URL(url);
     // build it by hand: URL.toString() percent-encodes "<redacted>" into %3C...%3E
-    // FIXED (the W16 ship gate MEDIUM): search+hash could carry ?token= — strip them too.
-    if (p.username || p.password) return `${p.protocol}//<redacted>@${p.host}${p.pathname}`;
-    return url;
+    // FIXED (the W16/W17 ship gate MEDIUM): search+hash could carry ?token= EVEN with no
+    // userinfo — the strip must run on BOTH paths, not only the redacted one.
+    const path = `${p.protocol}//${p.username || p.password ? "<redacted>@" : ""}${p.host}${p.pathname}`;
+    return path;
   } catch {
     // FIXED (ship gate LOW): the fallback required "//" and never matched an scp-like
     // `user:secret@host:o/r` (which has no scheme, so new URL threw). Redact the scp form too.
@@ -127,7 +128,11 @@ export function targetMatchesRemote(opts: {
   const safe = redactRemote(res.url);
   const parsed = parseRemote(res.url);
   if (!parsed) return { ok: false, remote: safe, reason: `TARGET-UNPARSEABLE:${safe}` };
-  const wantHost = (opts.host ?? "github.com").toLowerCase();
+  // FIXED (the W17 ship gate MEDIUM): a truthy non-string host threw at .toLowerCase().
+  if (opts.host !== undefined && typeof opts.host !== "string") {
+    return { ok: false, remote: safe, reason: "TARGET-UNSET:host-not-a-string" };
+  }
+  const wantHost = (opts.host || "github.com").toLowerCase();
   // FIXED (ship-gate MEDIUM): the host check was SKIPPED when `parsed.host` was null
   // (fail-OPEN past the lookalike-host guard). Require a host, compare unconditionally.
   if (!parsed.host) {

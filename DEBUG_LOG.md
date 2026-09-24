@@ -1448,3 +1448,25 @@ diagnostic; no HOME → exit 1, no crash).
 
 **ANCHORS:** src/runtime.ts:157,166, src/target-guard.ts:78, src/verdict.ts:174,
 src/guardrail.ts:139, src/desks.ts:87, gates/rt-preflight.sh:58,62,79.
+
+## EN-200 - W18: THE REMAINING MEDIUMS AFTER THE GATE PASS (2026-09-24T20:27:29Z)
+
+The ship gate PASSED (0 critical/high). The 11 cheap remaining mediums/lows fixed:
+- target-guard.ts:61 — the redact stripped search/hash ONLY inside the userinfo branch, so
+  `?token=` leaked when there was no userinfo → both paths now build a clean URL.
+- target-guard.ts:130 — `opts.host` was unvalidated (a non-string threw) → a typeof guard.
+- kick-adapter.ts:38 — the tri-state literal was duplicated → import `Liveness` (one authority).
+- kick.ts:82 — an explicit `live` with a garbage value threw `KICK-LIVENESS-<GARBAGE>` → a
+  stable `KICK-LIVENESS-INVALID`, matching the auto path.
+- kick.ts:52 — the dossier PATH-EQUALITY gate ran AFTER the filesystem reads (an arbitrary-read
+  probe) → the check now runs FIRST.
+- verdict.ts:186 — `normalize()` throws on an embedded NUL → wrapped.
+- main.ts:51 — a blank `UPPER_HOST` is truthy under `||` → trimmed.
+- cli-verbs.ts:145 — the rejected bugId was echoed unbounded → sliced.
+- ao-client/client.ts:25 — a fractional `AO_CALL_TIMEOUT_MS` truncated to 0 (an instant abort)
+  → `Math.floor`.
+- ao-client/client.ts:79 — the body-read retry slept on the FINAL attempt → guarded.
+
+**THE VERIFICATION:** 174 pass / 0 fail (599 expect, 47 files); tsc exit 0.
+**ANCHORS:** src/target-guard.ts:61,130, src/kick.ts:52,82, src/verdict.ts:186,
+ao-client/client.ts:25,79.

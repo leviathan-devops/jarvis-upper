@@ -23,7 +23,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // FIXED (ship-gate round MEDIUM): Number("")===0 / Number("abc")===NaN -> AbortSignal.timeout(0)
 // aborts every call instantly (a self-DoS via env). Validate and fall back to 8000.
 export const AO_CALL_TIMEOUT_MS = ((): number => {
-  const n = Number(process.env.AO_CALL_TIMEOUT_MS ?? 8000);
+  // FIXED (the W17 ship gate MEDIUM): a fractional value (<1ms) truncated to 0 in
+  // AbortSignal.timeout -> an instant abort. Require an integer >= 1.
+  const n = Math.floor(Number(process.env.AO_CALL_TIMEOUT_MS ?? 8000));
   return Number.isFinite(n) && n > 0 ? n : 8000;
 })();
 
@@ -63,7 +65,7 @@ export async function call<T = any>(operationId: string, opts: {
       });
     } catch (e) {
       lastErr = e;
-      await sleep(200 * (attempt + 1));
+      if (attempt < retries) await sleep(200 * (attempt + 1));   // FIXED: no final-attempt sleep
       continue;
     }
     if (res.status >= 500 && attempt < retries) {

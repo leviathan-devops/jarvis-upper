@@ -183,7 +183,12 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // jobDir slipped the guard. Trim first.
   // FIXED (the W16 ship gate MEDIUM): a truthy NON-string jobDir threw a TypeError out of
   // verify(), violating the never-reject contract.
-  const normJobDir = typeof opts.jobDir === "string" ? normalize(opts.jobDir.trim()) : "";
+  // FIXED (the W17 ship gate MEDIUM): normalize() throws on an embedded NUL — wrap it.
+  let normJobDir = "";
+  if (typeof opts.jobDir === "string") {
+    try { normJobDir = normalize(opts.jobDir.trim()); }
+    catch (e) { console.error(`jobdir-normalize-failed:${String(e).slice(0, 60)}`); normJobDir = ""; }
+  }
   if (typeof opts.jobDir !== "string" || normJobDir === "" || normJobDir === "." || normJobDir === "/") {
     return { verdict: "UNVERIFIED", sources: { fence: { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: "NO-JOB-DIR" }, review: { ran: false, verdict: null, targetSha: null, harness: null, reason: "NO-JOB-DIR" } }, reasons: ["NO-JOB-DIR"] };
   }

@@ -44,17 +44,15 @@ export async function kick(
   // before the db check could refuse it. Validation comes FIRST.
   const row = db.query("SELECT id FROM bug_record WHERE id = ?").get(input.bugId) as { id: string } | null;
   if (!row) throw new Error(`BUG-UNKNOWN:${input.bugId}`);
+  // FIXED (the W17 ship gate MEDIUM): the path-equality gate ran AFTER the filesystem reads,
+  // so a caller-supplied arbitrary path reached the FS (an existence/read probe) before any
+  // check. The row check now runs FIRST.
+  const dossierRow = db.query(
+    "SELECT dossier_path AS p FROM bug_record WHERE id = ?").get(input.bugId) as { p: string } | null;
+  if (dossierRow && dossierRow.p !== input.dossierPath) throw new Error('DOSSIER-PATH-MISMATCH');
   const md = await deps.readFile(`${input.dossierPath}/dossier.md`);
   const oj = await deps.readFile(`${input.dossierPath}/origin.json`);
   const sha = dossierSha16(md, oj);
-  const dossierRow = db.query(
-    "SELECT dossier_path AS p FROM bug_record WHERE id = ?").get(input.bugId) as { p: string } | null;
-  // F17: the row's dossier_path must EQUAL the caller's path. This is an EXACT string
-  // comparison — NO normalization (FIXED slop audit SLOP-04: the old comment claimed
-  // "canonicalize"; a trailing-slash or `a/../b` variant would false-positive. The
-  // production path sources dossierPath from the DB, so exposure is low; the comment
-  // now states what the code does.)
-  if (dossierRow && dossierRow.p !== input.dossierPath) throw new Error('DOSSIER-PATH-MISMATCH');
   const manifestPath = `${input.dossierPath}/manifest.sha16`;
   let recordedSha = "";
   try { recordedSha = (await deps.readFile(manifestPath)).trim(); } catch { /* missing = tamper */ }
@@ -79,7 +77,10 @@ export async function kick(
       let lv: Liveness = "unknown";
       try { lv = await deps.sessionAlive(input.originSession); } catch { lv = "unknown"; }
       if (typeof lv === "boolean") lv = lv ? "alive" : "dead";   // FIXED: the legacy boolean
-      if (lv !== "alive") throw new Error(`KICK-LIVENESS-${String(lv).toUpperCase()}`);
+      // FIXED (the W17 ship gate MEDIUM): a garbage value must be a STABLE refusal, matching
+      // the auto path — not KICK-LIVENESS-<GARBAGE>.
+      if (lv !== "alive" && lv !== "dead" && lv !== "unknown") throw new Error("KICK-LIVENESS-INVALID");
+      if (lv !== "alive") throw new Error(`KICK-LIVENESS-${lv.toUpperCase()}`);
     }
   }
   else {
