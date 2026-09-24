@@ -539,3 +539,11 @@ tests/merge_record.test.ts: 5 pass / 0 fail (the positive + 3 negatives: NO-TARG
 
 ### THE REMAINING BLOCK (PR #2 -> main)
 `PUT /pulls/2/merge` -> 405 "New changes require approval from someone other than the last pusher." The ruleset's `require_last_push_approval:true` + `required_approving_review_count:1` cannot be satisfied by a single-identity repo (GitHub refuses self-approval, HTTP 422; no App installed; no second account on the host).
+
+## TEST RESULT - 2026-09-24T13:33:33Z - THE VERDICT MERGE-PATH FIX (positive + negative)
+
+### SCRIPT - the relative-artifact drift check (a scratch git repo, /tmp/drift-probe)
+- PROBE 1 (positive): an UNDRIFTED relative artifact (`artifact: dist/out.js`) -> `{"ok":true,"reason":"FENCE-GREEN","actual":"50ace1656544f85e..."}`.
+- PROBE 2 (negative): the SAME job with the artifact DRIFTED after the commit -> `{"ok":false,"reason":"FENCE-ARTIFACT-DRIFT: the job artifact != the head's committed copy"}`.
+- BEFORE the fix, PROBE 2 returned GREEN: the check ran only for an ABSOLUTE path (`m[1].startsWith("/")`), so the normal relative SPEC form skipped it.
+- NO REGRESSION: the live verify() at c3c3ed0 still reads VERDICT: VERIFIED (FENCE-GREEN + REVIEW-GREEN).

@@ -836,3 +836,17 @@ ANCHORS: .githooks/pre-commit:10, .githooks/pre-commit:47, .githooks/pre-commit:
 **THE VERIFICATION:** tsc exit 0; bun test 129 pass / 0 fail; the live verify() still reads VERIFIED at c3c3ed0.
 
 **ANCHORS:** src/verdict.ts:79 (the exact job match), src/verdict.ts:136 (the resolved artifact path).
+
+## EN-174 - THE SPEC-DIFF FINDINGS (4 fixed, 1 high-priority parser defect) (2026-09-24T13:36:10Z)
+
+**THE FINDINGS (ocr audit: 3 high + 1 medium on scripts/spec-diff.ts — the CI's spec-gate):**
+1. **:60 (high)** — the item patterns were anchored at COLUMN 0, so an INDENTED list (common after a formatter) was MISSED — and worse, an indented bullet then matched the continuation rule and was APPENDED to the PREVIOUS item's text. Result: missing items (a false exit-2) or a merged item.
+2. **:77 (high)** — `git diff --name-only` includes DELETIONS, so deleting a file whose path contained a scope token reported MAPPED while the item was NOT delivered — a gate bypass in the unsafe direction.
+3. **:135 (high)** — the content fallback read up to 400 files FULLY with no size or binary guard; a large generated bundle could OOM or stall CI.
+4. **:131 (medium)** — tokenHit's boundary treated `_` as a WORD char while words() splits on it, so key `fix` never matched `fix_direct`.
+
+**THE FIXES:** leading whitespace allowed on both patterns; `--diff-filter=ACMR` (Deleted dropped, Added/Copied/Modified/Renamed kept); a 256KB size cap + a NUL-byte binary skip; `_` is now a word boundary.
+
+**THE VERIFICATION:** tsc exit 0; bun test 129 pass / 0 fail; `bun scripts/spec-diff.ts` exit 0 with 0 UNMAPPED; the indented-item probe now parses the bullet as its OWN item (it was appended to item 1 before).
+
+**ANCHORS:** scripts/spec-diff.ts:60, scripts/spec-diff.ts:85, scripts/spec-diff.ts:153, scripts/spec-diff.ts:131.

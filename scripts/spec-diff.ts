@@ -15,7 +15,7 @@
 // words, so e.g. "container test rig" no longer maps to any *.test.ts merely
 // for containing "test". Short tokens (cli/sse/wal/api) map on the same
 // equality — no asymmetric SHORT_OK allowlist.
-import { existsSync, readFileSync } from "node:fs";
+import { statSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // FIXED 2026-09-23 (ocr round-4 CRITICAL): the spec was resolved ONE LEVEL
@@ -58,10 +58,14 @@ if (end < 0) end = lines.length;
 interface ScopeItem { n: string; text: string; }
 const items: ScopeItem[] = [];
 for (const line of lines.slice(start + 1, end)) {
-  const nm = line.match(/^(\d+)\.\s+(.*)$/);
+  // FIXED (ocr audit high): the item patterns were anchored at COLUMN 0, so an
+  // INDENTED list (common after a formatter) was missed — and worse, an indented
+  // bullet then matched the continuation rule below and was appended to the
+  // PREVIOUS item's text. Leading whitespace is now allowed on both patterns.
+  const nm = line.match(/^\s*(\d+)\.\s+(.*)$/);
   if (nm) items.push({ n: nm[1], text: nm[2].trim() });
   else {
-    const bm = line.match(/^[-*•]\s+(.*)$/);
+    const bm = line.match(/^\s*[-*•]\s+(.*)$/);
     if (bm) items.push({ n: String(items.length + 1), text: bm[1].trim() });
     else if (items.length > 0 && /^\s+\S/.test(line)) items[items.length - 1].text += " " + line.trim();
   }
@@ -74,7 +78,11 @@ if (items.length === 0) {
 // The diff itself can fail (no origin/main, git missing) — UNMEASURED, exit 2.
 let diffFiles = "";
 try {
-  const diff = Bun.spawnSync(["git", "diff", "--name-only", "origin/main...HEAD"], { cwd: ROOT });
+  // FIXED (ocr audit high): --name-only included DELETIONS, so deleting a file
+  // whose path contained a scope token reported MAPPED while the item was NOT
+  // delivered — a gate bypass in the unsafe direction. --diff-filter=ACMR keeps
+  // Added/Copied/Modified/Renamed and drops Deleted.
+  const diff = Bun.spawnSync(["git", "diff", "--name-only", "--diff-filter=ACMR", "origin/main...HEAD"], { cwd: ROOT });
   if ((diff.exitCode ?? -1) !== 0) {
     const err = (diff.stderr?.toString() ?? "").trim().split("\n")[0];
     console.log(`SPEC-DIFF:no diff available (${err || "git diff failed"})`);
@@ -130,11 +138,24 @@ for (const item of items) {
     // The text is lowercased to match the keys (both sides case-folded).
     const tokenHit = (text: string, k: string): boolean => {
       const esc = k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      return new RegExp(`(^|[^a-z0-9_])${esc}([^a-z0-9_]|$)`).test(text.toLowerCase());
+      // FIXED (ocr audit medium): the boundary treated `_` as a WORD char while
+      // words() splits on it, so key `fix` never matched `fix_direct`. `_` is now
+      // a boundary, matching the tokenizer.
+      return new RegExp(`(^|[^a-z0-9])${esc}([^a-z0-9]|$)`).test(text.toLowerCase());
     };
+    // FIXED (ocr audit high): the content fallback read up to 400 files FULLY with
+    // no size or binary guard — a large generated bundle could OOM or stall CI. A
+    // file over 256KB is SKIPPED (named), and a NUL byte marks it binary.
+    const MAX_BYTES = 256 * 1024;
     for (const f of candidates) {
+      const abs = join(ROOT, f);
+      try {
+        const st = statSync(abs);
+        if (!st.isFile() || st.size > MAX_BYTES) continue;
+      } catch { continue; }
       let text = "";
-      try { text = readFileSync(join(ROOT, f), "utf8"); } catch { continue; }
+      try { text = readFileSync(abs, "utf8"); } catch { continue; }
+      if (text.includes("\u0000")) continue; // binary
       if (keys.some((k) => tokenHit(text, k))) { hit = f; break; }
     }
   }
