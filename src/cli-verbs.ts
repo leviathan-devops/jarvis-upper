@@ -8,7 +8,7 @@ import { openStore } from "./store";
 import { orderMerges } from "./plan";
 import { guardrail } from "./guardrail";
 import { renderGraph } from "./graph";
-import { attributeBug } from "./attribute";
+import { attributeBug, CONFIDENCE_FLOOR } from "./attribute";
 import { executePlan, type MergeAdapter } from "./execute";
 import { waveA, waveB, waveC, waveD } from "./desks";
 import { readStatus } from "./status";
@@ -105,7 +105,7 @@ export async function verbBug(root: string, arg?: string): Promise<VerbResult> {
   const a = await attributeBug( { repo: root, files: [file], lines: { [file]: [line] } }, async () => ({ session: null, worker: null }));
   // FIXED (red-team audit R12): the 0.6 here was a SECOND authority duplicating
   // attribute.ts's CONFIDENCE_FLOOR — two thresholds that could drift apart. One import.
-  return emit(a.confidence >= 0.6 ? 0 : 1, { ok: a.confidence >= 0.6, commit: a.commit, confidence: a.confidence, method: a.method });
+  return emit(a.confidence >= CONFIDENCE_FLOOR ? 0 : 1, { ok: a.confidence >= CONFIDENCE_FLOOR, commit: a.commit, confidence: a.confidence, method: a.method, floor: CONFIDENCE_FLOOR });
   } finally { db.close(); }
 }
 

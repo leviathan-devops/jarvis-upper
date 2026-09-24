@@ -75,12 +75,14 @@ export async function listPrsFromAo(opts: {
     // could not distinguish complete from partial) and lost its identity. The errors
     // are now COLLECTED with their session and RETURNED — the loud-fail law without
     // head-of-line blocking.
-    // FIXED (ocr audit high): the loop index SHADOWED the outer batch offset `i`,
-    // so on batch N>0 a failure reported a batch-0 session id. A distinct name.
+    // FIXED (red-team audit R10 — the previous fix was INCOMPLETE): renaming the
+    // loop var was not the bug. `results[k]` corresponds to `batch[k]` (== scoped[i+k]),
+    // but the error named `sessions[k]` — the FULL array — so on batch N>0 a failure
+    // still reported a batch-0 session id. Index the SAME array the results came from.
     for (let k = 0; k < results.length; k++) {
       const r = results[k];
       if (r.status === 'fulfilled') out.push(...r.value);
-      else errors.push({ session: sessions[k]?.id ?? `#${k}`, reason: String(r.reason).slice(0, 100) });
+      else errors.push({ session: batch[k]?.id ?? `#${i + k}`, reason: String(r.reason).slice(0, 100) });
     }
     if (errors.length > 0) console.error(JSON.stringify({ sync: "PARTIAL", errors }));
   }

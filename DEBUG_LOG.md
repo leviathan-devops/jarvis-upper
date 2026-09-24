@@ -1065,3 +1065,25 @@ The dossier-hash gate is unchanged and still refuses a tamper first.
 **141 pass / 0 fail**; tsc exit 0.
 
 **ANCHORS:** src/cli-verbs.ts:123, src/cli-verbs.ts:130, src/kick-adapter.ts:1, gates/rt-preflight.sh:54, docs/OPERATOR_STEPS.md:1.
+
+## EN-188 - W3 THE SLOP WAVE (R10, R12, R13) (2026-09-24T18:20:25Z)
+
+**R10 — the batch error mis-indexed on batch N>0:** the loop is over `batch` (== `scoped[i..i+8]`)
+but the error named `sessions[k]` — the FULL array — so a failure on batch 1 reported a batch-0
+session id. The PREVIOUS fix (renaming the loop var) was INCOMPLETE; the real fix indexes the
+array the results came from. **Revert-proof: 0 pass / 1 fail with `sessions[k]`; 1 pass / 0 fail
+with `batch[k]`.**
+
+**R12 — two authorities, one threshold:** `cli-verbs.ts` hardcoded `0.6` while `attribute.ts:20`
+exported `CONFIDENCE_FLOOR = 0.6`. The duplicate is deleted; the import is the single authority.
+
+**R13 — the SPEC-read failure was ERASED:** the ledger needle silently fell back to the jobDir
+basename (the SEAT name, not the SPEC's job name), so a missing/unreadable SPEC read NO-ROW with
+no root cause. The failure now travels NAMED (`LEDGER-NEEDLE:SPEC-UNREADABLE` /
+`LEDGER-NEEDLE:SPEC-NO-JOB`) — surfaced in the NO-ROW REFUSAL (a green case's reasons
+list stays clean; the first cut pushed it unconditionally and broke two_source_verdict's
+`reasons === []` assertion, which the full battery caught).
+
+**THE VERIFICATION:** tests/w3_slop.test.ts **3 pass / 0 fail**; the FULL battery green; tsc exit 0.
+
+**ANCHORS:** src/adapter-verbs.ts:80, src/cli-verbs.ts:11, src/cli-verbs.ts:106, src/verdict.ts:210.

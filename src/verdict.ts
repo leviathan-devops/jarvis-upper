@@ -207,14 +207,18 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // the row read null, and (before the null-refusal fix above) a missing row silently
   // read FENCE-GREEN. The needle is now the SPEC's `job:` value, falling back to the
   // basename when no SPEC is readable.
-  const specJob = ((): string | undefined => {
+  const specRead = ((): { job?: string; failure?: string } => {
     try {
       const sp = readFileSync(`${opts.jobDir}/SPEC.md`, "utf8");
       const m = sp.match(/^\s*job:\s*(\S+)\s*$/m);
-      return m ? m[1] : undefined;
-    } catch { return undefined; }
+      return m ? { job: m[1] } : { failure: "SPEC-NO-JOB" };
+    } catch (e) { return { failure: `SPEC-UNREADABLE:${String(e).slice(0, 60)}` }; }
   })();
-  const row = ledgerRowFor(ledgerPath, specJob ?? opts.jobDir.split("/").filter(Boolean).pop());
+  // FIXED (red-team audit R13): the SPEC-read failure was ERASED — the code fell
+  // silently back to the jobDir basename, which for a session worktree is the SEAT
+  // ("jarvis-upper-4"), not the SPEC's job name. The failure is surfaced in the
+  // REFUSAL below (when the needle yields no row), never in a green case.
+  const row = ledgerRowFor(ledgerPath, specRead.job ?? opts.jobDir.split("/").filter(Boolean).pop());
   fence.ledgerVerdict = row?.verdict ?? null;
   // ADJUDICATED (ocr audit high, two-sided — REJECTED): the finding claimed "the
   // ledger invariant SHA is never bound". MEASURED: the ledger row's 16-hex
@@ -231,7 +235,13 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     // so a MISSING ledger / no matching row / an undefined needle left ledgerVerdict
     // null and FELL THROUGH to bind() -> FENCE-GREEN. The two-source law requires a
     // PASS ROW: a null verdict is now a refusal, not a pass.
-    else if (fence.ledgerVerdict !== "PASS") fence.reason = `FENCE-LEDGER:${fence.ledgerVerdict ?? "NO-ROW"}`;
+    // FIXED (red-team audit R13): when the ledger needle could not be derived from
+    // a readable SPEC (missing file / no `job:` line), the refusal NAMES that root
+    // cause — the SPEC-read failure is no longer erased behind a bare NO-ROW. (When
+    // a row IS found the note is irrelevant and never pollutes the reasons list.)
+    else if (fence.ledgerVerdict !== "PASS") fence.reason = (!row && specRead.failure)
+      ? `FENCE-LEDGER:NO-ROW (LEDGER-NEEDLE:${specRead.failure})`
+      : `FENCE-LEDGER:${fence.ledgerVerdict ?? "NO-ROW"}`;
     // The ledger's sha16 is the SPEC's INVARIANT HASH, not a git sha — they are
     // different objects. The honest binding is: the adjudicated JOB DIR must be a
     // git worktree whose HEAD IS the claimed head, with the artifact committed clean.
