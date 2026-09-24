@@ -86,7 +86,7 @@ done <<< "$STAGED"
 while IFS= read -r f; do
   [ -z "$f" ] && continue
   case "$f" in
-    tests/*.ts)
+    tests/*.ts|tests/*/*.ts|tests/*/*/*.ts|tests/*/*/*/*.ts)
       # Read the staged blob, not the worktree file.
       # FIXED (ocr audit high): `|| continue` silently EXEMPTED a file the gate
       # could not read (a path with spaces/quotes, a rename, an index lock) — the
@@ -210,7 +210,17 @@ while IFS= read -r f; do
     FAIL=1
     continue
   fi
-  SILENT_OUT="$(scan_silent "$TMPFILE" 2>/dev/null || true)"
+  # FIXED (ocr audit high): `|| true` + `2>/dev/null` converted a scanner CRASH
+  # into empty output, which the next test read as CLEAN — a fail-open. The exit
+  # code is captured and a nonzero one REJECTS.
+  SILENT_OUT="$(scan_silent "$TMPFILE" 2>/dev/null)"
+  SC_RC=$?
+  if [ "$SC_RC" -ne 0 ]; then
+    rm -f "$TMPFILE"
+    echo "REJECT(W-14): scan_silent failed on $f (exit $SC_RC) — a crashed scanner must not read as clean" >&2
+    FAIL=1
+    continue
+  fi
   if [ -n "$SILENT_OUT" ]; then
     n=$(printf '%s\n' "$SILENT_OUT" | grep -c . || true)
     if [ "$n" -gt 0 ]; then
@@ -220,7 +230,16 @@ while IFS= read -r f; do
       done <<< "$SILENT_OUT"
     fi
   fi
-  STUB_OUT="$(scan_stub "$TMPFILE" 2>/dev/null || true)"
+  # FIXED (ocr audit high): the same fail-open as scan_silent — a crashed
+  # scan_stub read as clean. The exit code is captured and REJECTS.
+  STUB_OUT="$(scan_stub "$TMPFILE" 2>/dev/null)"
+  ST_RC=$?
+  if [ "$ST_RC" -ne 0 ]; then
+    rm -f "$TMPFILE"
+    echo "REJECT(W-14): scan_stub failed on $f (exit $ST_RC)" >&2
+    FAIL=1
+    continue
+  fi
   if [ -n "$STUB_OUT" ]; then
     n=$(printf '%s\n' "$STUB_OUT" | grep -c . || true)
     if [ "$n" -gt 0 ]; then

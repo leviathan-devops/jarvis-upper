@@ -870,3 +870,15 @@ ANCHORS: .githooks/pre-commit:10, .githooks/pre-commit:47, .githooks/pre-commit:
 **THE VERIFICATION:** tsc exit 0; bun test 129 pass / 0 fail; the sync stickiness PROBED; the merge-record validation PROBED; the live verify reads VERIFIED with a genuinely matched ledger row; the missing-row probe now REFUSES.
 
 **ANCHORS:** src/verdict.ts:208, src/verdict.ts:195, src/verdict.ts:239, src/runtime.ts:332, src/runtime.ts:115, src/sync.ts:22, src/merge-record.ts:94, src/adapter-verbs.ts:78.
+
+## EN-176 - THE HOOK + SPEC-DIFF FINDINGS FROM THE muse-go AUDIT (2026-09-24T14:08:22Z)
+
+**THE FIXES:**
+1. **.githooks/pre-commit:213 + :223 (high x2)** — both scanner call sites (`scan_silent`, `scan_stub`) used `|| true` with stderr suppressed, so a scanner CRASH became empty output which the next test read as CLEAN (a fail-open). Both now capture the exit code and REJECT on a nonzero.
+2. **.githooks/pre-commit:89 (high)** — the W-6 case matched only `tests/*.ts` (ONE level), so `tests/unit/x.ts` bypassed the gate by moving into a subdirectory. The case now matches up to four levels.
+   PROBED: `tests/unit/w6probe.test.ts` (a nested file asserting a symbol against source text) is now REJECT(W-6).
+3. **scripts/spec-diff.ts:121/159 (high x2)** — PASS 1 and the content fallback marked MAPPED on ANY single whole-token hit, so a ubiquitous key (`fix`, `api`, `sync`) mapped an unrelated file. Fixed: a QUORUM (a single-key item still needs its key; a multi-key item requires the majority of its keys).
+
+**THE VERIFICATION:** bash -n clean; the nested-test probe bites; bun test 129 pass / 0 fail.
+
+**ANCHORS:** .githooks/pre-commit:213, .githooks/pre-commit:223, .githooks/pre-commit:89, scripts/spec-diff.ts:121.

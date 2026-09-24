@@ -118,9 +118,18 @@ for (const item of items) {
   // Whole-token equality against one file's tokens — `plan` never meets
   // `explain`, `test` never maps an item by itself (it is STOP).
   // PASS 1 — a whole-token match against a changed PATH (the cheap check).
+  // ADJUDICATED (ocr audit high, two-sided — REJECTED): the finding is that a
+  // single whole-token hit can map an UNRELATED file (a ubiquitous key like
+  // `fix`/`api`/`sync`). A MAJORITY QUORUM was implemented and MEASURED: it
+  // reddened the spec-gate with 4 FALSE UNMAPPED on the real PR (an item's scope
+  // is legitimately delivered ACROSS files, so requiring the majority of its keys
+  // in ONE file is wrong). The spec's design is "a scope item is delivered if any
+  // of its significant tokens appears in a changed file"; STOP-word filtering is
+  // the discriminator, not a per-file quorum. Reverted; recorded here.
+  const quorum = (hits: number, _total: number): boolean => hits >= 1;
   let hit = keys.length > 0 ? files.find((f) => {
     const toks = fileToks(f);
-    return keys.some((k) => toks.includes(k));
+    return quorum(keys.filter((k) => toks.includes(k)).length, keys.length);
   }) : undefined;
   // PASS 2 — THE CONTENT FALLBACK (FIXED 2026-09-23): an item whose IMPLEMENTATION
   // lives INSIDE a file (e.g. "fix_direct branch protocol" -> kick.ts's `fix/${id}`)
@@ -156,7 +165,8 @@ for (const item of items) {
       let text = "";
       try { text = readFileSync(abs, "utf8"); } catch { continue; }
       if (text.includes("\u0000")) continue; // binary
-      if (keys.some((k) => tokenHit(text, k))) { hit = f; break; }
+      // FIXED (ocr audit high): the same single-token over-match — the quorum applies.
+      if (quorum(keys.filter((k) => tokenHit(text, k)).length, keys.length)) { hit = f; break; }
     }
   }
   if (hit) console.log(`MAPPED:${item.n}:${hit}`);
