@@ -242,7 +242,9 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
     // so a direct/concurrent tick() interleaved state.tick++, the sync writes and
     // the publish dedup. The guard is now INSIDE tick(): a concurrent call returns
     // the last settled status instead of racing.
-    if (state.inFlight) return last ?? ({} as RuntimeStatus);
+    // a concurrent caller gets the last SETTLED status; before the first tick
+    // settles it gets a well-formed (empty) status, never an untyped {}.
+    if (state.inFlight) return last ?? { ts: new Date(0).toISOString(), tick: state.tick, daemonOk: false, cursor: 0, prNodes: 0, ready: 0, eligible: 0, planHash: "", planKind: "none", kicks: 0, errors: ["TICK-IN-FLIGHT"] };
     state.inFlight = true;
     try {
     state.tick += 1;
@@ -353,7 +355,11 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
     start() {
       if (state.running) return;
       state.running = true;
-      const safeTick = () => { if (state.inFlight) return; state.inFlight = true; everTicked = true; inFlightPromise = tick().catch((e) => { console.error(`tick-error: ${String(e).slice(0,120)}`); }).finally(() => { state.inFlight = false; }); };
+      // FIXED (ocr audit CRITICAL): this set state.inFlight=true BEFORE calling
+      // tick(), and tick() early-returns when inFlight is true -> every scheduled
+      // tick (including the first) was a NO-OP and the daemon never advanced. The
+      // lock now lives ONLY inside tick(); safeTick skips when one is in flight.
+      const safeTick = () => { if (state.inFlight) return; everTicked = true; inFlightPromise = tick().catch((e) => { console.error(`tick-error: ${String(e).slice(0,120)}`); }).finally(() => { state.inFlight = false; }); };
       safeTick();
       timer = setInterval(safeTick, tickMs);
     },

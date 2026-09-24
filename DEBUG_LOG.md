@@ -722,3 +722,24 @@ Battery 107 pass / 0 fail at tests/publisher_wired.test.ts:1
 **THE VERIFICATION:** tsc exit 0; bun test 124 pass / 0 fail.
 
 **ANCHORS:** scripts/spec-diff.ts:127, src/publish.ts:38, src/publish.ts:71, src/verdict.ts:169, src/runtime.ts:240, src/runtime.ts:360, .githooks/pre-commit:207.
+
+## EN-166 - THE CRITICAL TICK-STARVATION (the audit caught my own regression) (2026-09-24T12:12:41Z)
+
+**THE FINDING (ocr audit CRITICAL, src/runtime.ts:356):** my A5 fix moved the tick overlap guard
+INTO tick() (an early-return when state.inFlight is true), but start()'s safeTick SET
+state.inFlight=true BEFORE calling tick(). Result: EVERY scheduled tick — including the first —
+early-returned without running probe/sync/rails/publish. The daemon would NEVER advance; stop()
+would return a stale status. A total daemon starvation, introduced by my own audit fix.
+
+**THE FIX:** the lock now lives ONLY inside tick(); safeTick merely SKIPS when a tick is in flight
+(it no longer sets the flag). A concurrent caller to tick() gets the last SETTLED status, and
+before the first tick settles it gets a well-formed status (never an untyped {} cast).
+
+**THE RUNTIME VERIFICATION (the pin's law: the runtime is the only evidence):** restarted the
+service; the daemon ADVANCES — tick=2,3,4 with daemonOk=true cursor=885 prNodes=10 errors=0.
+
+**THE LESSON:** an audit finding applied without a runtime re-verification is a NEW defect. The
+guard's LOCATION (wrapper vs callee) was the mechanism; the unit battery was green because no
+test drives safeTick+tick() together.
+
+**ANCHORS:** src/runtime.ts:356 (safeTick), src/runtime.ts:245 (the tick guard), runtime/ticks.log.
