@@ -185,3 +185,355 @@ pr_edge is empty. No container test has exercised the full chain.
 **The evidence:** tsc exit 0 · bun test **129 pass / 0 fail** · the sync probe (2 written, 1 skipped by name) · the ledger-unreadable probe THREW · the promote probe succeeded then refused · the service restarts clean · tick=1 errors=0.
 **The verification:** every fix carries its own probe output above; the 3 auditor returns are at `agent://AlphaFabrication-2`, `agent://BravoSlop-2`, `agent://CharlieWiring-2`.
 **The honest notes:** the audit gate reads FAIL (the frontier is named in TESTING_LOG) · the AO `call()` still has no timeout · `kick()` is dead in prod · PR #2 → main is still 405 (a non-pusher approval). **THE SESSION'S HEADLINE CLAIM WAS RE-GRADED: the 8/8 contexts are a REAL GitHub artifact produced from a HAND-SEEDED eligible row — the publish path works; the DISCOVERY/PROMOTION path did not exist and now has a supported verb.**
+
+
+---
+
+# PART II — THE SHIP-GATE SWEEPS + THE RUNTIME SEAT (W7-W10)
+
+**HEAD at this writing:** `d360605e8455c9d9ebf0a5ef64922e1df9aa1c3b` (`d360605`). **Battery:** 168 pass / 0 fail (587 expect,
+45 files). **tsc:** exit 0. **The live daemon:** `active`, tick advancing.
+
+## 1 · THE METHOD — WHY THERE WERE FOUR SWEEPS
+
+The build did not ship on the first green. Each fix wave was re-audited by the ship gate, and
+**each re-run found defects the previous wave had INTRODUCED**. That is the honest shape of the
+work: W6 fixed the gate's first FAIL (2 critical / 8 high), W7 fixed the PASS-with-residuals
+(3 medium / 7 low), and W8 fixed the 14 findings the W7 re-run surfaced — **four of which were
+NEW, created by W7's own fixes**. A single-pass "all green" would have shipped the W8 defects.
+
+| wave | the gate verdict | the count | what it fixed |
+|---|---|---|---|
+| W6 | FAIL | 2 critical, 8 high | the spawn OpenAPI shape (prompt + session.id), the fail-closed target guard, the validated env parses, the observable partial sync, the SPEC-needle refusal, the import guard |
+| W7 | PASS (0 crit/high) | 3 medium, 7 low | the target host+segment guard, the CRLF-aware truncation cut, the empty-jobDir refusal, the preflight `-f`/`basename --` |
+| W8 | PASS (0 crit/high) | 7 medium, 7 low (4 NEW from W7) | per-route caps, the tri-state liveness, real attachments, the guarded body read, the fail-closed host, the cap ceiling, the dead-code removal |
+| W9 | the runtime seat | 1 high + 1 medium | the stale-verdict defect (found by OPERATING the daemon) + the index-drop ordering |
+| W10 | my own pass | 1 low | the `PR_STATES` triplication |
+
+## 2 · W7 — THE MEDIUM/LOW SWEEP (src/target-guard.ts:42, src/runtime.ts:139, src/verdict.ts:212, gates/rt-preflight.sh:70)
+
+The W6 re-run returned **GATE: PASS (0 critical/high)**. The residual 3 medium + 7 low were
+real, so all 10 were fixed:
+
+| id | the defect | the fix |
+|---|---|---|
+| target-guard:42 | the hostname was ignored (`https://evil.com/o/r` passed) | parse + compare the host (default `github.com`, `UPPER_HOST` override) |
+| target-guard:45 | only the last 2 segments compared (`/extra/o/r` passed) | require EXACTLY two path segments |
+| target-guard:49 | the redact missed a password containing `@` | a URL-parse redact, hand-built (no percent-encoding) |
+| runtime:139 | the truncation cut assumed LF; a CRLF stream discarded ALL frames | cut at the later of `\n\n` / `\r\n\r\n` |
+| runtime:152 | a truncated-EMPTY capture wrote no artifact | write it whenever truncated |
+| runtime:32 | `RAIL_MAX_BUF` accepted floats | `Math.floor` |
+| verdict:221 | the guessed needle populated `ledgerVerdict` (misleading) | skip the lookup on a SPEC failure |
+| verdict:212 | an empty jobDir built `/SPEC.md` | refuse immediately (NO-JOB-DIR) |
+| rt-preflight:70 | `-r`/`-s` are true for a DIRECTORY | require `-f` too |
+| rt-preflight:71 | `basename` mis-parsed a dash-prefixed name | `basename --` |
+
+## 3 · W8 — THE SECOND SWEEP (src/kick-adapter.ts:20,39,40, src/kick.ts:14, src/runtime.ts:32,125,134, src/target-guard.ts:46,104, src/verdict.ts:170,228, gates/rt-preflight.sh:58,78)
+
+**FOUR of the 14 findings were NEW — introduced by W7.** The most dangerous:
+
+**The tri-state liveness (kick-adapter.ts:20 → kick.ts:14).** A transport failure (a timeout, a
+5xx) collapsed to `false`, so `kick()`'s auto-mode fell through to `spawn` — **creating a
+DUPLICATE session during a transient daemon outage**. Fixed with a tri-state: a 404 is
+`dead`, a timeout/5xx is `unknown`, and `unknown` REFUSES (`KICK-LIVENESS-UNKNOWN`) rather than
+manufacturing a second session.
+
+**The silent attachment drop (kick-adapter.ts:40).** `spawn` accepted an `attachments` array but
+the request body sent only `{projectId, prompt}` — the dossier bytes NEVER reached the daemon.
+Fixed by sending the REAL file bytes in the `AttachmentInput` shape (`{data, mimeType}`,
+openapi.yaml:7619), with a named drop for an oversized/unreadable file.
+
+**The per-route cap (kick-adapter.ts:39).** The spawn prompt reused the SEND cap (4096) where
+`SpawnSessionRequest.prompt` allows 16384 (openapi.yaml:11860), needlessly truncating the origin
+JSON. Fixed with `SEND_MAX`/`SPAWN_MAX`.
+
+**The cap ceiling (runtime.ts:32).** `RAIL_MAX_BUF=1000000000` passed validation and disabled
+the cap, letting the SSE buffer grow unbounded. Fixed with a 4 MiB ceiling.
+
+Plus: the guarded `onPartial` (a throwing caller no longer discards the resolved rows), the body
+read moved INSIDE the retry loop (a body-timeout no longer escapes the retry), the trailing-slash
+strip, the fail-closed host (a null host no longer fails OPEN past the lookalike guard), the
+`Buffer.byteLength` measure, the awaited `reader.cancel()`, the trim/validate, the discriminated
+`specRead` (the dead `??` removed), the fail-closed worktree override, the dotglob save/restore.
+
+## 4 · W9 — THE RUNTIME SEAT (src/guardrail.ts:25, src/store.ts:64,123)
+
+**The stance, declared before H1:** *I am the driver of `jarvis-upper.service`.* The author's
+seat is the default failure; the live daemon was operated FIRST PERSON, each op with a
+pre-registered expectation and an evidence channel. The ledger: `.trident/runtime-ledger.md`.
+
+**The first measurement was already a finding.** `runtime/status.json` read
+`planHash=e3b0c44298fc1c14` == `sha256("")` with `ready=0` — the goal's own **TH-7 IDLE-GREEN**
+("citing `errors=0` when ready=0 and the plan hash is sha256("")"). `errors=[]` meant NO WORK.
+Root cause: ZERO `pr_node` rows in `ready_to_merge` (11 `open`, 2 `merged`), and only
+`verbPromote` sets that state — a HUMAN step by design.
+
+**The real defect.** `gate_pass`'s PK is a surrogate `id`, so `(pr_node, gate)` can hold MANY
+rows. Measured live:
+
+```console
+$ bun -e 'SELECT pr_node,gate,GROUP_CONCAT(verdict) vs,COUNT(*) n FROM gate_pass GROUP BY pr_node,gate HAVING n>1'
+pr:jarvis-upper-4:2 ci_green pass,fail 2
+```
+
+`recordGatePass` upserts on `id = JSON.stringify([prId, g])`, but the LEGACY rows carry
+`id = NULL` — and NULLs are DISTINCT in a SQLite TEXT PK, so a legacy row NEVER conflicts and
+survives forever. The guardrail's read had **NO ORDER BY**, so `.get()` returned whichever row
+SQLite yielded first:
+
+```console
+$ the row .get() returns: {"id":null,"verdict":"pass"}
+$ all ci_green rows by rowid: [{"rowid":1,"id":null,"verdict":"pass"},
+                              {"rowid":5,"id":"[\"pr:jarvis-upper-4:2\",\"ci_green\"]","verdict":"fail"}]
+```
+
+**The STALE legacy `pass` (rowid 1) MASKED the NEWER `fail` (rowid 5).** The verdict depended on
+unspecified row order.
+
+**The blast radius (measured, not guessed).** `ripwire verb=callers target=guardrail` →
+`count="4"`: `verbGates` (cli-verbs.ts:70) · **`executePlan` (execute.ts:22)** · `tick`
+(runtime.ts:290) · `isEligible` (runtime.ts:386). **The stale pass reached the MERGE path.**
+
+**The fix.** `src/guardrail.ts` reads `ORDER BY at DESC, rowid DESC LIMIT 1` (the LATEST verdict
+wins; a NULL `at` sorts last under DESC). `src/store.ts` adds a `POST_REBUILD` step that dedupes
+`gate_pass` to `MAX(rowid)` per `(pr_node, gate)` and creates `UNIQUE INDEX gate_pass_pr_gate`.
+
+**The second defect — caught by the fix's own test.** The dedupe was FIRST placed in
+`MIGRATIONS`, where the `CREATE INDEX` ran BEFORE `rebuildIfNoFks` — and a table rebuild DROPS
+its indexes, so on any store whose `gate_pass` lacked FKs (a fresh or pre-FK store) the index was
+silently destroyed. It survived on the LIVE store only because that one had already been
+rebuilt. The fix: a `POST_REBUILD` phase that runs AFTER the rebuilds.
+
+**The retest (the NEXT numbered op on the SAME battered instance).** After the restart:
+
+```console
+$ dupes left: []
+$ the unique index: {"name":"gate_pass_pr_gate"}
+$ ci_green rows now: [{"rowid":5,"id":"[\"pr:jarvis-upper-4:2\",\"ci_green\"]","verdict":"fail"}]
+$ guardrail now: {"ok":false,"reasons":["NOT-READY:open","GATE-MISSING:ci_green"]}
+```
+
+## 5 · W10 — MY OWN PASS (the third lens)
+
+The skill's seven hunt lists, run as literal commands: the tautology hunt (clean), the
+pass-by-absence hunt (every `UNVERIFIED` is a REFUSAL — the safe polarity), the bug-asserting
+test hunt (clean), the wrong-tree hunt (clean), and the **duplicated-authority hunt**, which
+found `PR_STATES` in THREE places (two identical TS copies + the SQL CHECK). Consolidated to one
+export in `store.ts` (which owns the schema), imported by `adapter-verbs.ts` and `reducers.ts`.
+
+## 6 · THE INDEPENDENT VERIFICATION
+
+A zero-context subagent re-ran every gate against the tree and reported a claims table:
+**18 PASS / 1 FAIL** across 19 rows. The single FAIL was this document's own class — the docs
+named no current head SHA. Fixed with the head stamp.
+
+## 7 · THE PROOF TIERS (each with its artifact)
+
+| tier | what ran | the artifact |
+|---|---|---|
+| L0 | `bunx tsc --noEmit` | exit 0 |
+| L1 | `bun test` | 168 pass / 0 fail (587 expect, 45 files) |
+| L2 | the real-module tests (no injection) | tests/w4_real_machinery*.test.ts — the REAL fence2.py, git, and ledger |
+| L3 | the live host | the daemon operated first-person; `.trident/runtime-ledger.md` |
+| L4 | the ship gate | GATE: PASS (0 critical/high) ×2 |
+
+## 8 · THE HONEST RESIDUALS
+
+- **`eligible` reads 0 in production until an operator runs `promote`.** The factory never
+  self-promotes by design (the GitHub contexts need the daemon deployed at the PR's head), so
+  this is the correct behavior — NOT a defect. It does mean `planHash` stays `sha256("")` until
+  a human promotes, which is exactly the state the goal's TH-7 anti-derail names.
+- **The `kick` table is EMPTY (0 rows).** No kick has ever run live; R9's wiring is proven by
+  tests, not by a live kick.
+- **The 3 `jarvis-upper-2`/`-4` AO sessions are legacy fixtures** (one `worker_hint` is
+  `leviathan-devops/jarvis-upper`, a different repo) — inert rows.
+- **`git rev-parse --short HEAD` and the docs' stamp** are one commit apart by construction (the
+  stamp commit is the parent of the docs commit).
+
+**CROSS-CONSISTENCY ANCHOR** — this report is consistent with the canon set on the factory head
+`06333fa595b54cdaead2938b44aac70128f3c551`.
+
+
+---
+
+# PART III — THE R1-R15 DEFECT INVENTORY (each with its fix and its pin)
+
+The 3-lens red-team audit produced 62 findings; 15 were the OPEN load-bearing ones. The DPL1
+spec (`.trident/remediation-pkg/DPL1_REMEDIATION.md`) is the binding authority. Every R below
+carries: the defect, the anchor, the fix, and the test that pins it.
+
+## R1 — no promotion path (the green was HAND-SEEDED)
+- **The defect:** nothing in `src/` ever set `state='ready_to_merge'`, so the only way a PR
+  became eligible was a raw hand-INSERT — and a green produced that way was reported as the
+  kernel's own achievement. The goal's TH-3 (the hand-seeded green).
+- **The fix:** `verbPromote` (src/cli-verbs.ts:171) — promotion is a legitimate HUMAN step
+  (the factory decides ORDER; a human decides readiness), so it now has a named, logged verb.
+- **The pin:** `test_promote_open_row`, `test_promote_refuses_non_open` (tests/w2_missing_path.test.ts).
+
+## R2 — a 2nd project silently targets the WRONG repo
+- **The defect:** `src/main.ts:37-38` defaulted `UPPER_OWNER`/`UPPER_REPO` to
+  `leviathan-devops/jarvis-upper`, so a session in another project could drive this one's PRs.
+- **The fix:** `targetMatchesRemote` (src/target-guard.ts) — a REAL remote parse, FAIL-CLOSED
+  (an unreadable remote / a non-repo refuses), with the host compared and EXACTLY two path
+  segments required.
+- **The pin:** `test_target_refuses_mismatch`, `test_target_trailing_slash_ok`,
+  `test_target_no_host_refuses`.
+
+## R3 — one malformed AO row rolls back the ENTIRE sync
+- **The defect:** `src/sync.ts` wrapped the whole batch in one transaction, so a single
+  `state='draft'` row THREW and every valid row was lost.
+- **The fix:** per-row validation (`validatePrRow`) + the sticky-state CASE (an advanced state
+  is never clobbered back to `open` by a poll).
+- **The pin:** `test_sync_skips_bad_row`.
+
+## R4 — sync writes the terminal `merged` with NO ledger row
+- **The defect:** `src/sync.ts:26` wrote `merged` directly, so the DONE check died forever (the
+  terminal state's proof is a ledger row).
+- **The fix:** the `merged` clamp — sync NEVER writes the terminal state; the terminal event is
+  observed and recorded by the runtime.
+- **The pin:** `test_sync_never_writes_merged`.
+
+## R5 — an unreadable ledger read as "not recorded" → duplicate merges
+- **The defect:** `src/merge-record.ts:102` collapsed an UNREADABLE ledger (e.g. `/proc/1/mem`)
+  to "not recorded", so a duplicate merge row was written.
+- **The fix:** ERROR-vs-ABSENT — an unreadable ledger THROWS (a named error), never a silent
+  false.
+- **The pin:** `test_ledger_unreadable_throws`.
+
+## R6 — a failed status write left a stale-healthy status.json
+- **The defect:** `src/runtime.ts` caught the write failure with a comment only, so a dead
+  daemon's last-good status.json kept reading healthy.
+- **The fix:** the failure is SURFACED into `errors[]` + `daemonOk:false`.
+- **The pin:** `test_status_write_failure_surfaced`.
+
+## R7 — nothing creates the fence job a new project needs
+- **The defect:** `grep -rn SPEC.md src/` found READS only — a fresh tree got `FENCE-NO-SPEC`
+  on every PR with nobody told why.
+- **The fix:** the preflight REFUSES loudly (`gates/rt-preflight.sh`), naming the missing SPEC
+  and the fix.
+- **The pin:** `test_preflight_refuses_no_spec`.
+
+## R8 — the AO client's `call()` had NO timeout
+- **The defect:** `ao-client/client.ts` had no timeout on `call()` (only `health()` did), so a
+  hung AO daemon blocked the caller forever.
+- **The fix:** `AbortSignal.timeout(AO_CALL_TIMEOUT_MS)` per attempt (the retry budget stays
+  meaningful), and the body read moved INSIDE the guarded attempt (W8).
+- **The pin:** the AO-timeout tests.
+
+## R9 — `kick()` is dead in prod
+- **The defect:** `grep 'from "./kick"' src/` → 0 callers; `verbKick` always answered
+  `KICK-ADAPTER-UNWIRED` — a stub wearing a feature's shape.
+- **The fix:** `daemonKickDeps` (src/kick-adapter.ts) binds the deps to the AO routes; the
+  tri-state liveness + the per-route caps + the real attachments followed in W8.
+- **The pin:** `test_kick_liveness_unknown_refuses`, `test_spawn_prompt_cap_is_16384`,
+  `test_spawn_sends_attachments`.
+
+## R10 — the batch error mis-indexes on batch N>0
+- **The defect:** `src/adapter-verbs.ts:80` named `sessions[k]` (the FULL array) where the
+  results came from `batch[k]` — so on batch N>0 a failure reported a batch-0 session id.
+- **The fix:** index the SAME array the results came from.
+- **The pin:** `test_batch_error_correct_session`.
+
+## R11 — the 64KB SSE break truncates mid-event and reports CLEAN
+- **The defect:** `src/runtime.ts:112` broke the read at the cap and then parsed the TRUNCATED
+  buffer as if it were a clean capture — the cut frame was silently dropped.
+- **The fix:** the truncation is NAMED (`truncated:true`, `cap`), the buffer is cut back to the
+  last COMPLETE frame boundary (CRLF-aware, W7), and the artifact is written even when empty.
+- **The pin:** the TRUNCATED-capture tests.
+
+## R12 — `CONFIDENCE_FLOOR` duplicated as a hardcoded 0.6
+- **The defect:** `src/cli-verbs.ts:104` hardcoded 0.6 where a named constant existed — two
+  authorities for one threshold.
+- **The fix:** import `CONFIDENCE_FLOOR`; delete the literal.
+- **The pin:** `test_confidence_floor_single_authority`.
+
+## R13 — the ledger needle falls back to the jobDir basename
+- **The defect:** `src/verdict.ts:210` fell silently back to the jobDir basename (the SEAT name
+  for a session worktree), erasing the SPEC-read failure.
+- **The fix:** the SPEC failure is its own named reason (`FENCE-LEDGER-NEEDLE:SPEC-...`), and
+  the needle is the SPEC's `job:` value.
+- **The pin:** the verdict-refusal tests.
+
+## R14 — the audit gate matched the review's PROSE as "quota"
+- **The defect:** `qwen-code-audit/index.js:242` matched a prose-only `429`/`quota` in a
+  review's output as a real quota block — a false BLOCKED for ~2h.
+- **The fix:** the marker test — a prose mention does NOT block; a REAL provider 429 DOES.
+- **The pin:** `test_audit_gate_prose_429_not_blocked`.
+
+## R15 — the battery is MOCK-MAJORITY, cited as capability
+- **The defect:** `grep 'runFence:' tests/` → 4 stub files; only 1 test touched the REAL
+  machinery, yet "129 pass" was cited as capability.
+- **The fix:** ≥3 tests exercise the REAL fence2.py + reviews + ledger with NO injection.
+- **The pin:** `test_real_fence_verified`, `test_real_fence_refuses`, `test_real_ledger_binding`.
+
+## THE R-LABEL COVERAGE (my own pass, verified)
+
+Every R1-R15 has ≥1 test file naming it:
+
+```
+R1 : 2 · R2 : 2 · R3 : 3 · R4 : 2 · R5 : 2 · R6 : 1 · R7 : 1 · R8 : 1 · R9 : 1
+R10: 2 · R11: 1 · R12: 1 · R13: 1 · R14: 1 · R15: 1
+```
+
+
+---
+
+# PART IV — THE SHIP-GATE EVIDENCE (the verbatim verdicts)
+
+The gate is `qwen-code-audit` (Alibaba OpenCodeReview over the diff). Every verdict below is
+the tool's own output line, not a paraphrase.
+
+## The first run (the FAIL that started the sweeps)
+
+```
+GATE: FAIL (2 critical, 8 high)
+scope=range filesReviewed=10
+```
+
+## After W6
+
+```
+GATE: PASS (0 critical/high)
+scope=range filesReviewed=10 findings=10 (critical=0 high=0 medium=3 low=7)
+session=849f1b77-1c74-4f3a-95c0-4ea46ce26612
+```
+
+## After W7 (the 14 medium/low residuals)
+
+```
+GATE: PASS (0 critical/high)
+scope=range filesReviewed=10 findings=14 (critical=0 high=0 medium=7 low=7)
+session=a5c070e9-3573-4a7f-8b06-17c84a8bd8f4
+```
+
+## The independent verification (a zero-context subagent)
+
+```
+COUNT: 18 PASS / 1 FAIL across 19 verification rows
+```
+
+The one FAIL was this document's class: the docs named no current head SHA.
+
+## What the gate CANNOT see (the honest scope note)
+
+The gate reviews a DIFF. It cannot see:
+
+- the LIVE daemon's behavior (the W9 stale-verdict defect — found only by OPERATING it);
+- the store's row multiplicity (a SQL property, not a source property);
+- whether a test's green is REAL or injected (the R15 mock-majority class — found by reading
+  the assertions, not by the gate).
+
+That is why the four waves exist: the gate is one instrument, and it has a named blind spot.
+
+## THE PROOF CONTRACT (per tier)
+
+| tier | the artifact |
+|---|---|
+| L0 tsc | exit 0 |
+| L1 unit | 168 pass / 0 fail |
+| L2 script (real modules) | tests/w4_real_machinery*.test.ts against the REAL fence2.py + git + ledger |
+| L3 host-live | `.trident/runtime-ledger.md` (the daemon operated first-person) |
+| L4 audit | GATE: PASS ×2 + the independent 18/1 claims table |
+
+**EVERY success claim in this report carries its tier artifact above. A claim without one would
+be a hypothesis, not a finding.**
