@@ -616,3 +616,11 @@ Battery 107 pass / 0 fail at tests/publisher_wired.test.ts:1
 - **THE FIX (the factory contexts):** a real worktree at the PR head 4942188 + a fence job in its gitignored .trident/ + a seeded eligible pr_node. The live tick (tick 140) then POSTED factory/fence2=success to real GitHub.
 - **THE LESSON:** the label-based escape hatch is payload-bound; a re-run replays the OLD payload. The only way to pick up a label is a NEW event (a fresh commit or a close/reopen).
 - **ANCHORS:** .github/workflows/gates.yml:89 (the label read), .github/workflows/gates.yml:98 (the 10000 budget), src/main.ts:29 (WORKTREE_ROOT), src/main.ts:32 (jobDirFor), src/runtime.ts:302 (the publish call), src/verdict.ts:96 (artifactBoundToHead).
+
+## EN-157 - THE AO PROJECT PATH WAS STALE (the dead review rail's root cause) (2026-09-24T10:03:49Z)
+
+- **THE FINDING:** the AO review rail had produced no review for PR #2 and the session jarvis-upper-2 could not be revived (resume-agent -> 409).
+- **THE ROOT CAUSE (MEASURED):** AO's `projects` table held `jarvis-upper.path = /home/leviathan/JARVIS_WORKSPACE/jarvis-upper` — a path that NO LONGER EXISTS (the repo moved to /home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-FACTORY/jarvis-upper). Spawning a session failed with INVALID_BRANCH "... check-ref-format: fatal: cannot change to '/home/leviathan/JARVIS_WORKSPACE/jarvis-upper': No such file or directory". A project whose path is stale cannot spawn a session, so its rail can neither host nor review a PR.
+- **THE FIX:** UPDATE projects SET path='<the real path>' WHERE id='jarvis-upper'. MEASURED: a session then spawned successfully (jarvis-upper-4, branch ao/jarvis-upper-4/root, autoReviewEnabled=true).
+- **THE LESSON:** a moved repo silently kills every AO rail bound to it. The project path is a load-bearing config the move must update.
+- **ANCHORS:** ~/.ao/data/ao.db (projects.path), src/main.ts:29 (the kernel's own WORKTREE_ROOT default), /home/leviathan/.ao/data/worktrees/jarvis-upper/jarvis-upper-4 (the spawned worktree).
