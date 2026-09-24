@@ -187,4 +187,28 @@ while IFS= read -r f; do
   rm -f "$TMPFILE"
 done <<< "$STAGED"
 
+# ── THE COMMON-SENSE FIREWALL (G-RATIO + G-SEAL) ─────────────────────
+# G-RATIO doc-ratio: doc commits must not outpace code commits on the
+# branch. Measured cost of the violation: 35 doc commits vs 45 fix commits
+# across a session that never drove a green — the doc mass became the
+# measure of progress. It is not. The doc count is capped at the code count.
+GR_BASE=$(git merge-base origin/main HEAD 2>/dev/null || echo HEAD~50)
+GR_DOCS=$(git log --format=%s "$GR_BASE..HEAD" 2>/dev/null | grep -c '^docs' || true)
+GR_CODE=$(git log --format=%s "$GR_BASE..HEAD" 2>/dev/null \
+  | grep -cE '^(fix|feat|refactor|test)' || true)
+if [ "$GR_DOCS" -gt "$GR_CODE" ]; then
+  echo "REJECT(G-RATIO): doc commits ($GR_DOCS) outpace code ($GR_CODE) — the doc mass is not the work" >&2
+  FAIL=1
+fi
+
+# G-SEAL no-checkpoint-before-green: a snapshot of a dead system is slop.
+# Measured cost: 10 checkpoints sealed of a system that had never driven a
+# green path. A Checkpoints/ commit requires a fence PASS row in the ledger.
+case "$STAGED" in *Checkpoints/*)
+  GR_LEDGER="$HOME/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl"
+  if ! grep -q '"verdict":"PASS"' "$GR_LEDGER" 2>/dev/null; then
+    echo 'REJECT(G-SEAL): no fence PASS row — a checkpoint now is a snapshot of a dead system' >&2
+    FAIL=1
+  fi ;; esac
+
 [ "$FAIL" -eq 0 ] && echo 'PRE-COMMIT: PASS' || exit 1
