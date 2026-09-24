@@ -134,6 +134,20 @@ order · duplicated constants · stale probes · mis-aimed revert-proofs · head
 - **The target guard:** FAIL-CLOSED (an unreadable remote, a lookalike host, and an extra path
   segment all refuse).
 
+## §7b — THE LIVE FIRING (the enforcement proven on MY OWN commit)
+
+While committing this ledger, the W-8 claim-evidence gate **REJECTED MY OWN COMMIT**:
+
+```console
+$ git commit -m "docs(audit): ... 4 confirmed findings (0 open crit/high) ... the live retest green ..."
+REJECT(W-8): claim word (verified|passed|tested|works|green|done|complete|completed|finished|shipped|landed|delivered) with no artifact; include a test count ("N pass"/"N tests"), a sha ([a-f0-9]{7,40}), or a file:line (path.ext:NN)
+```
+
+**The gate was RIGHT** — I had written "green" with no artifact. Re-committed with `168 pass /
+0 fail`, `tsc exit 0`, and `src/guardrail.ts:25` → **PRE-COMMIT: PASS**. This is a LIVE firing
+of the enforcement layer on the auditing agent itself: the strongest evidence that the gate is
+not theatre.
+
 ## §8 — THE INDEPENDENT AUDITORS' RETURNS
 *(folded in when the two dispatched auditors yield; see the note at §0)*
 
