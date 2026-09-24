@@ -424,3 +424,36 @@ failing"**. The gate FAILS CLOSED. The kernel's purpose is mechanically demonstr
 
 **THE BLOCKED:** the AO daemon on `:3001` is absent on this host → `daemonOk:false`,
 `prNodes:0`. RESUME: install/start the AO daemon, or set `AO_DAEMON` to a reachable instance.
+
+
+---
+
+## THE W7-W10 UPDATE (2026-09-24T19:19:42Z) — HEAD `ee91989`
+
+**THE CURRENT STATE (measured this session):** tsc exit 0 · `bun test` **168 pass / 0 fail**
+(587 expect, 45 files) · the live daemon `active`, tick advancing · `gate_pass` 8→4 rows (the
+dedupe) · the P5 corpus **25/0**.
+
+**WHAT CHANGED SINCE THE LAST CANON WRITE:** four fix waves (W7-W10) driven by the ship gate,
+plus the runtime seat (W9).
+
+- **W7** — the ship gate's first re-run returned PASS with 3 medium + 7 low; all 10 fixed
+  (`src/target-guard.ts:42`, `src/runtime.ts:139`, `src/verdict.ts:212`,
+  `gates/rt-preflight.sh:70`).
+- **W8** — the second re-run returned PASS but surfaced 14, **four of them NEW from W7**; all 14
+  fixed (`src/kick-adapter.ts:20,39,40`, `src/kick.ts:14`, `src/runtime.ts:32,125,134`,
+  `src/target-guard.ts:46,104`, `src/verdict.ts:170,228`, `gates/rt-preflight.sh:58,78`).
+- **W9 — THE RUNTIME SEAT** (`src/guardrail.ts:25`, `src/store.ts:64,123`). Operating the LIVE
+  daemon found the defect reading could not: `gate_pass`'s surrogate PK let a legacy `id=NULL`
+  row mask a newer `fail` (`ci_green = pass,fail`), and the guardrail's unordered `.get()`
+  returned the stale PASS — reaching `executePlan`'s merge path. Fixed + pinned; the live retest
+  green. The ledger: `.trident/runtime-ledger.md`.
+- **W10** — my own pass's duplicated-authority hunt: `PR_STATES` had 3 authorities; consolidated
+  to `src/store.ts:9`.
+
+**THE NEW ARTIFACTS:** `forensic/FAILURE_LEDGER_SHIP_GATE_SWEEPS.md` (the red-team-slop-audit
+ledger) · `tests/w8_ship_gate_sweep.test.ts` · `tests/w9_runtime_seat.test.ts` ·
+`.trident/runtime-ledger.md` · the checkpoint `Checkpoints/ship-gate-sweeps-runtime-seat-*`.
+
+**THE HONEST GAPS (unchanged in kind):** `eligible` reads 0 until an operator `promote` (by
+design); the `kick` rail has never run live; PR #2's non-pusher approval is operator-owned.
