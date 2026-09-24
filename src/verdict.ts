@@ -219,15 +219,17 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
       const isApprove = (r: { verdict?: string | null }) => (APPROVING_VERDICTS as readonly string[]).includes(verdictOf(r));
       // FIXED 2026-09-23 (qwen-code-audit re-run REAL): the previous fix checked
       // EVERY run, so a rejection on a DIFFERENT sha blocked THIS head — over-
-      // blocking. The per-sha law: only a run BOUND to this head (its targetSha
-      // matches, or is unspecified = presume current) can decide it.
-      const binds = (r: { targetSha?: string | null }) => !r.targetSha || r.targetSha === opts.headSha;
+      // blocking. The per-sha law: only a run BOUND to this head can decide it.
+      // FIXED (ao-review-4 round 2 finding): the OLD binds() returned true when
+      // targetSha was MISSING ("presume current") — so an UNBOUND approval read
+      // GREEN on any head. The binding is now EXPLICIT: a run must NAME this head.
+      const binds = (r: { targetSha?: string | null }) => r.targetSha === opts.headSha;
       const rejecting = runs.find((r) => binds(r) && isReject(r));
       const approving = runs.find((r) => binds(r) && isApprove(r));
       // an approval on a DIFFERENT sha is STALE — named, never silently ignored
       const staleApproval = runs.find((r) => !binds(r) && isApprove(r));
       if (rejecting) review.reason = `REVIEW-REJECTED: ${verdictOf(rejecting)}`;
-      else if (approving) { review.verdict = String(approving.verdict); review.targetSha = approving.targetSha ?? opts.headSha; review.reason = "REVIEW-GREEN"; }
+      else if (approving) { review.verdict = String(approving.verdict); review.targetSha = approving.targetSha ?? null; review.reason = "REVIEW-GREEN"; }
       else if (staleApproval) review.reason = `REVIEW-STALE-SHA: ${String(staleApproval.targetSha).slice(0, 7)} != head ${opts.headSha.slice(0, 7)}`;
       else review.reason = `REVIEW-NOT-APPROVED: verdicts ${JSON.stringify(runs.map((r) => r.verdict ?? null))}`;
     }

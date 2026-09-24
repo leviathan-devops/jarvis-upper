@@ -648,3 +648,17 @@ Battery 107 pass / 0 fail at tests/publisher_wired.test.ts:1
 **THE VERIFICATION:** tsc exit 0; bun test 124 pass / 0 fail (the checkpoint floor fix included — CHECKPOINT_STRUCTURE.md added + the manifest's HONEST GAPS section); fix 4 probed positive+negative.
 
 **ANCHORS:** .github/workflows/gates.yml:165, .github/workflows/gates.yml:98, gates/fence-check.py:28, src/verdict.ts:39, .githooks/pre-commit:208, src/adapter-verbs.ts:71, src/publish.ts:44.
+
+## EN-160 - THE 4 ROUND-2 REVIEW FINDINGS (2026-09-24T10:53:58Z)
+
+**THE FINDING:** the AO re-review of 71fbe3d DELIVERED a second `changes_requested` with 4 NEW findings (the GitHub review body 10:50:13). The kernel again correctly refused to certify.
+
+**THE 4 FIXES:**
+1. **gates/fence-check.py:39** (an absent ledger returned 0 → the spec-gate passed with ZERO fence evidence) — now fails CLOSED (exit 2: no ledger = no evidence).
+2. **src/verdict.ts:224** (the review binding `!r.targetSha || ...` treated a MISSING targetSha as "presume current" → an UNBOUND approval read GREEN on any head) — the binding is now EXPLICIT (`r.targetSha === headSha`).
+3. **scripts/spec-diff.ts:128** (the content match used a bare `includes` substring while the header promised token equality — "tick" matched "sticky") — now a word-boundary token test.
+4. **src/runtime.ts:292** (the tick POSTed every eligible PR every tick — a 15s POST storm) — a `(pr, head)` dedup map; an unchanged head is skipped, a new head publishes.
+
+**THE VERIFICATION:** tsc exit 0; bun test 124 pass / 0 fail.
+
+**ANCHORS:** gates/fence-check.py:39, src/verdict.ts:224, scripts/spec-diff.ts:128, src/runtime.ts:292.

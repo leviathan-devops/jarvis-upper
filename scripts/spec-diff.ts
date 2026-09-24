@@ -121,10 +121,17 @@ for (const item of items) {
   if (!hit && keys.length > 0) {
     const srcExt = /\.(ts|sh|py|yml|yaml|json)$/;
     const candidates = files.filter((f) => srcExt.test(f)).slice(0, 400);
+    // FIXED (ao-review-4 round 2 finding): the content check used a bare
+    // substring `includes`, so a key like "tick" matched "sticky" — the header
+    // promised TOKEN equality. The match is now a WORD-BOUNDARY token test.
+    const tokenHit = (text: string, k: string): boolean => {
+      const esc = k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(^|[^A-Za-z0-9_])${esc}([^A-Za-z0-9_]|$)`).test(text);
+    };
     for (const f of candidates) {
       let text = "";
       try { text = readFileSync(join(ROOT, f), "utf8"); } catch { continue; }
-      if (keys.some((k) => text.includes(k))) { hit = f; break; }
+      if (keys.some((k) => tokenHit(text, k))) { hit = f; break; }
     }
   }
   if (hit) console.log(`MAPPED:${item.n}:${hit}`);

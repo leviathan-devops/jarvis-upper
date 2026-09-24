@@ -211,6 +211,11 @@ export async function publishVerdictForPr(opts: PublishVerdictForPrOpts): Promis
   });
 }
 
+// the publish dedup ledger: (prId -> the head sha already published). Bounded by
+// the number of live PRs; reset is never needed (a stale entry only re-publishes
+// if that exact head returns, which is harmless).
+const lastPublished = new Map<string, string>();
+
 export function createRuntime(opts: { root: string; db?: Database; deps?: RuntimeDeps }): Runtime {
   const root = opts.root;
   const db = opts.db ?? openStore();
@@ -289,7 +294,11 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
     if (publishOpts) {
       const guardrailCache = new Map<string, boolean>();
       const isEligible = (id: string) => { if (!guardrailCache.has(id)) guardrailCache.set(id, guardrail(db, id).ok); return guardrailCache.get(id)!; };
-      const publishable = readyRows.filter((r) => isEligible(r.id) && r.head_sha);
+      // FIXED (ao-review-4 round 2 finding): the tick posted EVERY eligible PR on
+      // EVERY tick (a 15s POST storm per PR). A (pr, head) is published ONCE: the
+      // dedup is keyed on the head sha, so a NEW head publishes again but an
+      // unchanged head is skipped.
+      const publishable = readyRows.filter((r) => isEligible(r.id) && r.head_sha && lastPublished.get(r.id) !== r.head_sha);
       // F23: bounded parallel publish (max 4 concurrent)
       const PUB_CONC = 4;
       for (let i = 0; i < publishable.length; i += PUB_CONC) {
@@ -301,6 +310,9 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
           try {
             const results = await publishVerdictForPr({ ...publishOpts, sha: headSha, headSha, sessionId: r.session_id ?? "", jobDir });
             const bad = results.filter((rr) => !rr.ok);
+            // record the published head ONLY when every context posted (a partial
+            // publish must retry on the next tick, never be marked done)
+            if (bad.length === 0) lastPublished.set(r.id, headSha);
             if (bad.length > 0) return `publish:${r.id}:${bad.map((b) => b.reason).join(";").slice(0, 60)}`;
           } catch (e) {
             return `publish:${r.id}:${String(e).slice(0, 60)}`;

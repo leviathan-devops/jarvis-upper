@@ -33,8 +33,12 @@ def main(argv: list) -> int:
               or os.path.join(os.path.expanduser("~"), "JARVIS_WORKSPACE", "Shared_Workspace",
                               "JARVIS-CORE", "b6", "verdicts.jsonl"))
     if not os.path.exists(ledger):
-        print(f"FENCE:{sha}:NO-LEDGER-SKIP (nothing to check — no ledger at {ledger})")
-        return 0
+        # FIXED (ao-review-4 round 2 finding): an ABSENT ledger returned 0, so the
+        # spec-gate passed with ZERO fence evidence — a hole. Fail CLOSED: no ledger
+        # is no evidence, exit 2 (the unmeasured case is never a pass). The ledger is
+        # provisioned by the fence run (the CI must carry it).
+        print(f"FENCE-ERROR:no-ledger-at:{ledger} (fail-closed: a spec-gate pass needs a PASS row)")
+        return 2
     try:
         fh = open(ledger, "r", encoding="utf-8")
     except OSError as exc:
