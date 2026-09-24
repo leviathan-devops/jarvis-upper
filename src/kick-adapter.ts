@@ -9,33 +9,51 @@
 import { call } from "../ao-client/client";
 import type { KickDeps } from "./kick";
 
-export function daemonKickDeps(opts: { cwd?: string } = {}): KickDeps {
+export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call } = {}): KickDeps {
+  const c = opts.callFn ?? call;   // injectable (the codebase's test seam, as listSessions does)
   return {
+    // getSession 200 = { session: ControllersSessionView } (measured against openapi.yaml),
+    // and a 404 THROWS. Check the field EXPLICITLY; a transport error is not "alive".
     sessionAlive: async (sessionId: string): Promise<boolean> => {
       try {
-        const r = await call<{ session?: unknown } | null>("getSession", { params: { sessionId } });
-        return r != null;
+        const r = await c<{ session?: unknown } | null>("getSession", { params: { sessionId } });
+        return r !== null && r !== undefined && r.session !== undefined && r.session !== null;
       } catch { return false; }
     },
     send: async (sessionId: string, brief: string): Promise<{ ok: boolean }> => {
       try {
-        await call("sendSessionMessage", { params: { sessionId }, body: { message: brief } });
+        // SendSessionMessageRequest.message is required with maxLength 4096; an oversized
+        // brief 400s and collapsed to a generic failure. Cap it explicitly.
+        const message = brief.length > 4096 ? brief.slice(0, 4080) + "\n[truncated]" : brief;
+        await c("sendSessionMessage", { params: { sessionId }, body: { message } });
         return { ok: true };
       } catch { return { ok: false }; }
     },
     spawn: async (input: { projectId: string; brief: string; attachments: string[] }): Promise<{ sessionId: string }> => {
-      const r = await call<{ sessionId?: string; id?: string } | null>("spawnSession", {
-        body: { projectId: input.projectId, message: input.brief, attachments: input.attachments },
+      // FIXED (ship-gate CRITICAL x2, measured against openapi.yaml): the request field is
+      // `prompt` (NOT `message`), and SpawnSessionResponse nests the id at `session.id`
+      // (NOT a top-level sessionId/id). The old shape sent an empty prompt and ALWAYS threw
+      // KICK-SPAWN-NO-SESSION. Attachments are OMITTED rather than sent in a wrong shape:
+      // AttachmentInput is {data,mimeType} with unspecified `data` semantics, and the brief
+      // (fixBrief) already embeds the origin JSON; the dossier path is recorded on the row.
+      const prompt = input.brief.length > 4096 ? input.brief.slice(0, 4080) + "\n[truncated]" : input.brief;
+      const r = await c<{ session?: { id?: string } } | null>("spawnSession", {
+        body: { projectId: input.projectId, prompt },
       });
-      const sessionId = r?.sessionId ?? r?.id;
+      const sessionId = r?.session?.id;
       if (!sessionId) throw new Error("KICK-SPAWN-NO-SESSION");
       return { sessionId };
     },
     openBranch: async (bugId: string): Promise<{ ok: boolean }> => {
-      try {
-        const out = Bun.spawnSync(["git", "-C", opts.cwd ?? process.cwd(), "checkout", "-b", `fix/${bugId}`], { stderr: "pipe" });
-        return { ok: out.exitCode === 0 };
-      } catch { return { ok: false }; }
+      // FIXED (ship-gate HIGH): `checkout -b` FAILS when the branch exists, so a second
+      // direct kick for the same bug always read KICK-BRANCH-FAILED. Idempotent: create if
+      // absent, else check out the existing branch.
+      const cwd = opts.cwd ?? process.cwd();
+      const git = (args: string[]): boolean => {
+        try { return Bun.spawnSync(["git", "-C", cwd, ...args], { stderr: "pipe" }).exitCode === 0; } catch { return false; }
+      };
+      if (git(["checkout", "-b", `fix/${bugId}`])) return { ok: true };
+      return { ok: git(["checkout", `fix/${bugId}`]) };
     },
     readFile: async (path: string): Promise<string> => await Bun.file(path).text(),
   };

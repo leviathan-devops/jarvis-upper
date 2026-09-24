@@ -133,11 +133,13 @@ test("RT-N4: a null sha returns ok:false, never a crash", async () => {
 // ---- POSITIVE: the wrong-target POST (W-01) ----
 test("RT-P7: a configured target != the tree's origin is REFUSED", () => {
   const e = targetMatchesRemote({ root: "/tmp", owner: "someone-else", repo: "other",
-    readRemote: () => "https://github.com/leviathan-devops/jarvis-upper.git" });
+    readRemote: () => ({ url: "https://github.com/leviathan-devops/jarvis-upper.git", isRepo: true }) });
   expect(e.ok).toBe(false);
   expect(e.reason).toContain("TARGET-MISMATCH");
   // and a FAIL-CLOSED blind read refuses (never a silent pass)
   expect(targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: () => { throw new Error("no git"); } }).ok).toBe(false);
+  // the evil-suffix fail-open is closed
+  expect(targetMatchesRemote({ root: "/tmp", owner: "leviathan-devops", repo: "jarvis-upper-evil", readRemote: () => ({ url: "https://github.com/leviathan-devops/jarvis-upper.git", isRepo: true }) }).ok).toBe(false);
 });
 
 // ---- POSITIVE: an AO payload claiming `merged` must NOT write the terminal state (R4) ----

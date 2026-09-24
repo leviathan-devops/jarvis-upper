@@ -58,16 +58,29 @@ fi
 WORKTREE_ROOT="${UPPER_WORKTREE_ROOT:-$HOME/.ao/data/worktrees/jarvis-upper}"
 if [ -d "$WORKTREE_ROOT" ]; then
   WT_N=0; WT_NO_SPEC=0
+  # FIXED (ship-gate LOW): the `*/` glob skips dot-directories, so a hidden worktree
+  # bypassed the gate while still being adjudicated. dotglob makes the glob complete.
+  shopt -s dotglob 2>/dev/null || true
   for wt in "$WORKTREE_ROOT"/*/; do
     [ -d "$wt" ] || continue
     WT_N=$((WT_N + 1))
-    if [ ! -f "$wt/SPEC.md" ]; then
-      echo "REJECT(G-RT): the worktree $(basename "$wt") has NO SPEC.md — the fence would answer FENCE-NO-SPEC on every PR" >&2
+    # FIXED (ship-gate MEDIUM): -f was weaker than the fence's own readability check, so an
+    # unreadable/empty SPEC.md passed here and still failed as FENCE-NO-SPEC. Require readable
+    # AND non-empty.
+    if [ ! -r "$wt/SPEC.md" ] || [ ! -s "$wt/SPEC.md" ]; then
+      echo "REJECT(G-RT): the worktree $(basename "$wt") has NO readable, non-empty SPEC.md — the fence would answer FENCE-NO-SPEC on every PR" >&2
       echo "  fix: write a SPEC.md naming a COMMITTED artifact (see .trident/remediation-pkg/)" >&2
       WT_NO_SPEC=$((WT_NO_SPEC + 1))
     fi
   done
-  if [ "$WT_NO_SPEC" -gt 0 ]; then FAIL=1; else echo "G-RT: $WT_N session worktree(s) carry a fence job"; fi
+  shopt -u dotglob 2>/dev/null || true
+  if [ "$WT_NO_SPEC" -gt 0 ]; then
+    FAIL=1
+  elif [ "$WT_N" -eq 0 ]; then
+    echo "G-RT: the worktree root exists but holds no session worktree (nothing to fence yet)"
+  else
+    echo "G-RT: $WT_N session worktree(s) carry a fence job"
+  fi
 else
   echo "G-RT: no worktree root at $WORKTREE_ROOT (nothing to fence yet)"
 fi

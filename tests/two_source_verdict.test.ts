@@ -15,6 +15,16 @@ const JOB = `${ROOT}/jobs/upper-tier-dt-shapes`;
 const SESSION = "jarvis-upper-2";
 const HEAD = "732083e1e7890000000000000000000000000000";
 
+/** A real job dir with a readable SPEC — the verdict REFUSES a guessed needle now, so a
+ *  synthetic jobDir name ("dt-shapes") is no longer enough. */
+function specDir(job: string): string {
+  const d = mkdtempSync(join(tmpdir(), "tsv-"));
+  writeFileSync(join(d, "SPEC.md"), `job: ${job}\nseat: t\nartifact: /tmp/x\nsha16: 0000000000000000\n\`\`\`done-when\ntrue\n\`\`\`\n`);
+  return d;
+}
+const SPEC_DT = specDir("dt-shapes");
+const SPEC_TMP = specDir("tmp");
+
 function tmpLedger(rows: object[]): string {
   const dir = mkdtempSync(join(tmpdir(), "ledger-"));
   const p = join(dir, "verdicts.jsonl");
@@ -50,7 +60,7 @@ test("two_source_verdict: the REAL PR #1 is UNVERIFIED with BOTH reasons named (
 
 test("two_source_verdict: BOTH green on the SAME sha → VERIFIED (fixture)", async () => {
   const ledger = tmpLedger([{ job: "dt-shapes", verdict: "PASS", evidence: `${HEAD.slice(0, 16)}|sandbox=bwrap|spec_bound:true` }]);
-  const r = await verify({ jobDir: "dt-shapes", headSha: HEAD, sessionId: SESSION, runFence: greenFence, fetchReviews: greenReview, ledgerPath: ledger, bind: greenBind });
+  const r = await verify({ jobDir: SPEC_DT, headSha: HEAD, sessionId: SESSION, runFence: greenFence, fetchReviews: greenReview, ledgerPath: ledger, bind: greenBind });
   expect(r.verdict).toBe("VERIFIED");
   expect(r.reasons).toEqual([]);
   expect(r.sources.fence.reason).toBe("FENCE-GREEN");
@@ -60,14 +70,14 @@ test("two_source_verdict: BOTH green on the SAME sha → VERIFIED (fixture)", as
 
 test("two_source_verdict: NEGATIVE — fence only is UNVERIFIED", async () => {
   const ledger = tmpLedger([{ job: "dt-shapes", verdict: "PASS", evidence: `${HEAD.slice(0, 16)}|sandbox=bwrap` }]);
-  const r = await verify({ jobDir: "dt-shapes", headSha: HEAD, sessionId: SESSION, runFence: greenFence, fetchReviews: emptyReviews, ledgerPath: ledger, bind: greenBind });
+  const r = await verify({ jobDir: SPEC_DT, headSha: HEAD, sessionId: SESSION, runFence: greenFence, fetchReviews: emptyReviews, ledgerPath: ledger, bind: greenBind });
   expect(r.verdict).toBe("UNVERIFIED");
   expect(r.reasons.some((x) => x.startsWith("REVIEW-"))).toBe(true);
   rmSync(ledger, { force: true });
 });
 
 test("two_source_verdict: NEGATIVE — review only is UNVERIFIED", async () => {
-  const r = await verify({ jobDir: "dt-shapes", headSha: HEAD, sessionId: SESSION, runFence: redFence, fetchReviews: greenReview, ledgerPath: "/nonexistent/ledger.jsonl", bind: greenBind });
+  const r = await verify({ jobDir: SPEC_DT, headSha: HEAD, sessionId: SESSION, runFence: redFence, fetchReviews: greenReview, ledgerPath: "/nonexistent/ledger.jsonl", bind: greenBind });
   expect(r.verdict).toBe("UNVERIFIED");
   expect(r.reasons.some((x) => x.startsWith("FENCE-"))).toBe(true);
 });
@@ -75,7 +85,7 @@ test("two_source_verdict: NEGATIVE — review only is UNVERIFIED", async () => {
 test("two_source_verdict: NEGATIVE — a review on a STALE sha does not count", async () => {
   const ledger = tmpLedger([{ job: "dt-shapes", verdict: "PASS", evidence: `${HEAD.slice(0, 16)}|sandbox=bwrap` }]);
   const staleReview = async () => ({ reviewerHarness: "muse", runs: [{ status: "completed", verdict: "approved", targetSha: "760ad1bb42431b992d7a2168ff182e9893be5f65" }] });
-  const r = await verify({ jobDir: "dt-shapes", headSha: HEAD, sessionId: SESSION, runFence: greenFence, fetchReviews: staleReview, ledgerPath: ledger, bind: greenBind });
+  const r = await verify({ jobDir: SPEC_DT, headSha: HEAD, sessionId: SESSION, runFence: greenFence, fetchReviews: staleReview, ledgerPath: ledger, bind: greenBind });
   expect(r.verdict).toBe("UNVERIFIED");
   expect(r.reasons.some((x) => x.startsWith("REVIEW-STALE-SHA"))).toBe(true);
   rmSync(ledger, { force: true });
@@ -83,7 +93,7 @@ test("two_source_verdict: NEGATIVE — a review on a STALE sha does not count", 
 
 test("two_source_verdict: NEGATIVE — a fence NOT bound to the head does not count", async () => {
   const ledger = tmpLedger([{ job: "dt-shapes", verdict: "PASS", evidence: "0000000000000000|sandbox=bwrap" }]);
-  const r = await verify({ jobDir: "dt-shapes", headSha: HEAD, sessionId: SESSION, runFence: greenFence, fetchReviews: greenReview, ledgerPath: ledger, bind: redBind });
+  const r = await verify({ jobDir: SPEC_DT, headSha: HEAD, sessionId: SESSION, runFence: greenFence, fetchReviews: greenReview, ledgerPath: ledger, bind: redBind });
   expect(r.verdict).toBe("UNVERIFIED");
   expect(r.reasons.some((x) => x.startsWith("FENCE-NOT-IN-A-WORKTREE"))).toBe(true);
   rmSync(ledger, { force: true });
@@ -104,7 +114,7 @@ test("two_source_verdict: NEGATIVE — a green fence that is NOT bound to the he
   // before the binding check this test targets. The row now names the JOB IT IS
   // ABOUT ("tmp"), so the binding check is the one that refuses.
   const ledger = tmpLedger([{ job: "tmp", verdict: "PASS", evidence: "abcdabcdabcdabcd|sandbox=bwrap" }]);
-  const r = await verify({ jobDir: "/tmp", headSha: HEAD, sessionId: SESSION, runFence: greenFence, fetchReviews: greenReview, ledgerPath: ledger });
+  const r = await verify({ jobDir: SPEC_TMP, headSha: HEAD, sessionId: SESSION, runFence: greenFence, fetchReviews: greenReview, ledgerPath: ledger });
   expect(r.verdict).toBe("UNVERIFIED");
   expect(r.reasons.some((x) => x.startsWith("FENCE-NOT-IN-A-WORKTREE") || x.startsWith("FENCE-HEAD-MISMATCH"))).toBe(true);
   rmSync(ledger, { force: true });
@@ -116,7 +126,7 @@ test("two_source_verdict: the fence source uses the SPEC INVARIANT sha, never th
   const calls: string[][] = [];
   const spyFence = async (argv: string[]) => { calls.push(argv); return { code: 0, stdout: argv.includes("invariant-sha") ? "deadbeefdeadbeef\n" : "PASS", stderr: "" }; };
   const ledger = tmpLedger([{ job: "dt-shapes", verdict: "PASS", evidence: "aaaa|sandbox=bwrap" }]);
-  const r = await verify({ jobDir: "dt-shapes", headSha: HEAD, sessionId: SESSION, runFence: spyFence, fetchReviews: greenReview, ledgerPath: ledger, bind: greenBind });
+  const r = await verify({ jobDir: SPEC_DT, headSha: HEAD, sessionId: SESSION, runFence: spyFence, fetchReviews: greenReview, ledgerPath: ledger, bind: greenBind });
   expect(calls[0]).toContain("invariant-sha");
   expect(calls[0]).not.toContain(HEAD);
   expect(calls[1]).toContain("--expect-spec-sha");

@@ -1,5 +1,10 @@
 // main.ts — THE ENTRY POINT: boot the runtime, tick on a clock, stop on signals.
 // Run:  UPPER_TICK_MS=2000 bun src/main.ts
+//
+// FIXED (ship-gate LOW): the module had IMPORT side effects — the target check's
+// process.exit(1), the DISARMED log, createRuntime(), the signal handlers, and the
+// started log all ran on import (only rt.start() was guarded). A module must be
+// side-effect-free on import, so EVERY side effect now lives in main().
 import { fileURLToPath } from "node:url";
 import { createRuntime } from "./runtime";
 import { targetMatchesRemote } from "./target-guard";
@@ -35,48 +40,52 @@ const TOKEN = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
 const WORKTREE_ROOT = process.env.UPPER_WORKTREE_ROOT
   || `${process.env.HOME ?? "/home/leviathan"}/.ao/data/worktrees/${REPO}`;
 
-// THE TARGET ASSERTION (extracted to src/target-guard.ts so it is TESTABLE).
-const tgt = targetMatchesRemote({ root, owner: OWNER, repo: REPO });
-if (!tgt.ok) {
-  console.error(`FATAL: TARGET-MISMATCH — this tree's origin is ${tgt.remote} but UPPER_OWNER/UPPER_REPO name ${OWNER}/${REPO}. Refusing to arm the publisher (a wrong-target POST is unrecoverable). Set UPPER_OWNER + UPPER_REPO explicitly.`);
-  process.exit(1);
-}
-// the pr_node id is `pr:<session>:<num>` — the session names the worktree dir.
+/** the pr_node id is `pr:<session>:<num>` — the session names the worktree dir. */
 const jobDirFor = (prId: string): string => {
   const session = prId.split(":")[1] ?? "";
   return session ? `${WORKTREE_ROOT}/${session}` : "";
 };
-if (!TOKEN) {
-  // FIXED (red-team audit W-03): an absent token silently disarmed publish AND
-  // the merge poll, while the tick kept reporting errors=0 — a silent no-work.
-  console.error("DISARMED:no-token — the publisher and the merge recorder are OFF (no GH_TOKEN/GITHUB_TOKEN). The daemon will read AO but NEVER POST a status.");
+
+export function main(): void {
+  // THE TARGET ASSERTION (extracted to src/target-guard.ts so it is TESTABLE).
+  const tgt = targetMatchesRemote({ root, owner: OWNER, repo: REPO });
+  if (!tgt.ok) {
+    console.error(`FATAL: ${tgt.reason ?? "TARGET-MISMATCH"} — this tree's origin is ${tgt.remote || "(unreadable)"} but UPPER_OWNER/UPPER_REPO name ${OWNER}/${REPO}. Refusing to arm the publisher (a wrong-target POST is unrecoverable). Set UPPER_OWNER + UPPER_REPO explicitly.`);
+    process.exit(1);
+  }
+  if (!TOKEN) {
+    // FIXED (red-team audit W-03): an absent token silently disarmed publish AND
+    // the merge poll, while the tick kept reporting errors=0 — a silent no-work.
+    console.error("DISARMED:no-token — the publisher and the merge recorder are OFF (no GH_TOKEN/GITHUB_TOKEN). The daemon will read AO but NEVER POST a status.");
+  }
+  const publishOpts = TOKEN ? {
+    owner: OWNER, repo: REPO, token: TOKEN, jobDir: "",
+    jobDirFor,
+    ledgerPath: process.env.FENCE2_LEDGER,
+  } : undefined;
+
+  const rt = createRuntime({ root, deps: { tickMs, publishOpts } });
+
+  // FIXED 2026-09-23 (ocr round-4 HIGH): SIGTERM and SIGINT can both arrive before
+  // stop() completes — a re-entrancy guard prevents two concurrent rt.stop() calls
+  // racing to process.exit().
+  let stopping = false;
+  async function stop(): Promise<void> {
+    // FIXED 2026-09-23 (ocr final HIGH): the guard made a SECOND signal a silent
+    // no-op — if the first stop() hung on a network call, the daemon was unkillable
+    // by signals. A second signal now ESCALATES to a forced exit.
+    if (stopping) { console.error(JSON.stringify({ forced: true, reason: "second-signal" })); process.exit(1); }
+    stopping = true;
+    const s = await rt.stop();
+    console.log(JSON.stringify({ stopped: true, ticks: s.tick, daemonOk: s.daemonOk, status: statusPath(root), log: ticksPath(root) }));
+    process.exit(0);
+  }
+  process.on("SIGTERM", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
+  process.on("SIGINT", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
+
+  rt.start();
+  console.log(JSON.stringify({ started: true, root, tickMs, publisher: TOKEN ? `ARMED:${OWNER}/${REPO}` : "DISARMED:no-token", status: statusPath(root), log: ticksPath(root) }));
 }
-const publishOpts = TOKEN ? {
-  owner: OWNER, repo: REPO, token: TOKEN, jobDir: "",
-  jobDirFor,
-  ledgerPath: process.env.FENCE2_LEDGER,
-} : undefined;
 
-const rt = createRuntime({ root, deps: { tickMs, publishOpts } });
-
-// FIXED 2026-09-23 (ocr round-4 HIGH): SIGTERM and SIGINT can both arrive before
-// stop() completes — a re-entrancy guard prevents two concurrent rt.stop() calls
-// racing to process.exit().
-let stopping = false;
-async function stop(): Promise<void> {
-  // FIXED 2026-09-23 (ocr final HIGH): the guard made a SECOND signal a silent
-  // no-op — if the first stop() hung on a network call, the daemon was unkillable
-  // by signals. A second signal now ESCALATES to a forced exit.
-  if (stopping) { console.error(JSON.stringify({ forced: true, reason: "second-signal" })); process.exit(1); }
-  stopping = true;
-  const s = await rt.stop();
-  console.log(JSON.stringify({ stopped: true, ticks: s.tick, daemonOk: s.daemonOk, status: statusPath(root), log: ticksPath(root) }));
-  process.exit(0);
-}
-process.on("SIGTERM", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
-process.on("SIGINT", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
-
-// FIXED (the test-hazard + a real robustness rule): a module must not start a
-// daemon on IMPORT. Guarded so tests can import this file without spawning one.
-if (import.meta.main) rt.start();
-console.log(JSON.stringify({ started: true, root, tickMs, publisher: TOKEN ? `ARMED:${OWNER}/${REPO}` : "DISARMED:no-token", status: statusPath(root), log: ticksPath(root) }));
+// a module must not boot a daemon on IMPORT (the test-hazard rule)
+if (import.meta.main) main();

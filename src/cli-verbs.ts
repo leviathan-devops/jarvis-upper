@@ -130,7 +130,15 @@ export async function verbDesks(root: string, arg?: string): Promise<VerbResult>
  * kick() dossier-hash gate still refuses a tampered dossier before any send.
  */
 export async function verbKick(root: string, arg?: string, mode?: string): Promise<VerbResult> {
-  if (!arg) return emit(2, { ok: false, refused: "KICK-NEEDS-BUG-ID", hint: "upper kick <bug-id> [--mode live|spawn|direct]" });
+  if (!arg) return emit(2, { ok: false, refused: "KICK-NEEDS-BUG-ID", hint: "upper kick <bug-id> [live|spawn|direct]" });
+  // FIXED (ship-gate MEDIUM x2): an unknown mode silently auto-selected, and the raw arg
+  // flowed into `git checkout -b fix/${bugId}` (spaces/slashes/.. make an invalid ref).
+  if (mode !== undefined && mode !== "" && mode !== "live" && mode !== "spawn" && mode !== "direct") {
+    return emit(2, { ok: false, refused: `KICK-BAD-MODE:${mode}`, hint: "live | spawn | direct" });
+  }
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(arg)) {
+    return emit(2, { ok: false, refused: "KICK-BAD-BUG-ID", bugId: arg, hint: "an id matching /^[A-Za-z0-9._-]{1,64}$/" });
+  }
   const db = openStore();
   try {
     const bug = db.query("SELECT id, dossier_path, origin_commit, origin_session FROM bug_record WHERE id = ?").get(arg) as
@@ -176,7 +184,7 @@ export async function verbPromote(root: string, arg?: string): Promise<VerbResul
   } finally { db.close(); }
 }
 
-export const VERBS: Record<string, (root: string, arg?: string) => Promise<VerbResult>> = {
+export const VERBS: Record<string, (root: string, arg?: string, mode?: string) => Promise<VerbResult>> = {
   status: verbStatus, plan: verbPlan, order: verbOrder, graph: verbGraph,
   gates: verbGates, sync: verbSync, bug: verbBug, desks: verbDesks, kick: verbKick,
   promote: verbPromote,

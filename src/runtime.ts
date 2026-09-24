@@ -25,7 +25,14 @@ export const DAEMON = process.env.AO_DAEMON ?? "http://localhost:3001";
 
 /** The SSE capture ceiling. A buffer that hits it is TRUNCATED — a named failure,
  *  never a clean read (red-team audit W-12). */
-export const RAIL_MAX_BUF = Number(process.env.RAIL_MAX_BUF ?? 65536);
+// FIXED (ship-gate round HIGH): this repeated the validated-parse bug fixed for tickMs
+// just below. Number("")===0 / Number("abc")===NaN — a present-but-invalid value made the
+// cap 0 (TRUNCATED on every read) or NaN (`buf.length > NaN` is ALWAYS false -> the cap
+// vanished and the buffer grew unbounded). Same guard as parseTickMs.
+export const RAIL_MAX_BUF = ((): number => {
+  const n = Number(process.env.RAIL_MAX_BUF ?? 65536);
+  return Number.isFinite(n) && n > 0 ? n : 65536;
+})();
 
 // FIXED 2026-09-23 (ocr round-4 HIGH): Number("")===0 / Number("abc")===NaN —
 // a present-but-invalid env var produced a 0/NaN interval. Validate the parse.
@@ -125,10 +132,18 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
       }
     }
     try { reader.cancel(); } catch { /* stream already closed */ }
-    const parsed = parseSse(buf);           // what the wire actually carried
+    // FIXED (ship-gate MEDIUM): parseSse's flush() emits the final PARTIAL frame, so a
+    // torn buffer ran reducers on half an event and advanced rail_seq past it. When the
+    // capture is truncated, cut back to the last COMPLETE frame boundary ("\n\n").
+    let parseBuf = buf;
+    if (truncated) {
+      const cut = buf.lastIndexOf("\n\n");
+      parseBuf = cut >= 0 ? buf.slice(0, cut + 2) : "";
+    }
+    const parsed = parseSse(parseBuf);      // what the wire actually carried
     const rail = new EventRail(db);
     const frames: number[] = [];
-    await rail.attach([buf], (ev) => { frames.push(ev.seq); reduceEvent(db, ev); });  // reducers' real caller
+    await rail.attach([parseBuf], (ev) => { frames.push(ev.seq); reduceEvent(db, ev); });  // reducers' real caller
     // FIXED (ocr audit high): `Math.max(...arr)` spreads the WHOLE array onto the
     // call stack — a large SSE backlog (tens of thousands of frames) throws
     // RangeError and turned a busy stream into a tick-threw. A bounded loop.
@@ -136,7 +151,9 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     for (const e of parsed) if (e.seq > lastSeq) lastSeq = e.seq;
     if (parsed.length > 0) {
       // the wire-capture artifact: proof the adapter carried REAL bytes
-      await Bun.write(wireCapturePath(root), JSON.stringify({ ts: new Date().toISOString(), parsedFrames: parsed.length, newlyProcessed: frames.length, bytes: buf.length, lastSeq }, null, 2) + "\n");
+      // FIXED (ship-gate LOW): the truncation flag is recorded IN the artifact, so a
+      // post-mortem reader can tell a partial window from a complete one.
+      await Bun.write(wireCapturePath(root), JSON.stringify({ ts: new Date().toISOString(), parsedFrames: parsed.length, newlyProcessed: frames.length, bytes: buf.length, lastSeq, ...(truncated ? { truncated: true, cap: RAIL_MAX_BUF } : {}) }, null, 2) + "\n");
     }
     // FIXED (red-team audit W-12): a truncated capture is a NAMED failure — the
     // caller must not treat a partial read as a clean one.

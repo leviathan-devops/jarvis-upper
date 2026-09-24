@@ -1141,3 +1141,33 @@ defect. **FULL PASS: 20 pass / 0 fail, ZERO confirmed defects.**
 
 **ANCHORS:** tests/w5_audit_gate.test.ts:1, tests/w5_daemon_restart.test.ts:1,
 tests/redteam_kernel.test.ts:120, .trident/RUNTIME_LEDGER.md:279.
+
+## EN-191 - W6 THE SHIP-GATE FIX WAVE (the qwen-code-audit GATE FAIL: 2 critical, 8 high) (2026-09-24T18:44:56Z)
+
+**The ship gate ran on fdbf445..HEAD and FAILED — 24 findings.** Every blocking finding was
+adjudicated against the AUTHORITY (openapi.yaml / the source) before the fix. All confirmed.
+
+| id | severity | the defect | the fix |
+|---|---|---|---|
+| kick-adapter.ts:27 | CRITICAL | `spawnSession` sent `message` (the field is `prompt`) + `attachments: string[]` (the type is `AttachmentInput[]`) | send `prompt`; OMIT attachments (wrong shape worse than none; the brief is self-contained) |
+| kick-adapter.ts:30 | CRITICAL | the response unwrap read a top-level `sessionId`/`id` — the id is at `session.id` — so spawn ALWAYS threw | `r?.session?.id` |
+| kick-adapter.ts:14 | HIGH | `sessionAlive` returned true for any non-null body + used `!=` | check `r.session` explicitly with `!==` |
+| kick-adapter.ts:34 | HIGH | `checkout -b` fails when the branch exists → a 2nd direct kick always failed | idempotent: create, else check out the existing branch |
+| runtime.ts:28 | HIGH | `RAIL_MAX_BUF` repeated the unvalidated-parse bug (`Number("abc")`→NaN disabled the cap) | the `parseTickMs` guard |
+| target-guard.ts:44 | HIGH | the substring match fail-opened on `/owner/repo-evil`, `?x=/owner/repo` | a real remote parse (https + scp-like) with exact owner/repo |
+| target-guard.ts:41 | HIGH | the FAIL-CLOSED header contradicted the code (every git failure → `ok:true "(no remote)"`) | `rev-parse --is-inside-work-tree` first; a NON-REPO refuses |
+| adapter-verbs.ts:85 | HIGH | partial-sync errors were console-only (the caller could not tell complete from partial) | an `onPartial` collector |
+| verdict.ts:221 | HIGH | an unreadable SPEC's GUESSED needle could match a wrong row → green | an unreadable SPEC is a REFUSAL |
+| client.ts:23 | MEDIUM | `AO_CALL_TIMEOUT_MS` unvalidated → `AbortSignal.timeout(0)` self-DoS | the validated guard |
+| cli-verbs.ts:132/140/141 | MEDIUM | the `mode` param was unreachable; an unknown mode auto-selected; the raw id flowed into a git ref | the mode flows through the CLI; the mode + the id are validated |
+| target-guard.ts:46 | MEDIUM | userinfo (a token) could be echoed into logs | `redactRemote` |
+| runtime.ts:118/139 | MED/LOW | a torn buffer was parsed (half an event reduced); the artifact hid the truncation | cut to the last `\n\n`; record the flag |
+| main.ts:39/81 | HIGH/LOW | the log printed an empty origin; only `rt.start()` was import-guarded | the reason is printed; EVERY side effect is behind `main()` |
+| gates/rt-preflight.sh:61/64/70 | LOW/MED | dot-dirs skipped; `-f` weaker than readability; a misleading empty-root message | dotglob; `-r`+`-s`; a distinct message |
+
+**THE VERIFICATION:** tests/w6_ship_gate_fixes.test.ts **6 pass / 0 fail** (incl. the CRITICAL
+revert-proof: 0 pass without, 1 pass with); the FULL battery **160 pass / 0 fail**; tsc exit 0;
+main.ts import proven side-effect-free.
+
+**ANCHORS:** src/kick-adapter.ts:14, src/target-guard.ts:44, src/verdict.ts:221,
+src/runtime.ts:28, src/main.ts:1, gates/rt-preflight.sh:54, tests/w6_ship_gate_fixes.test.ts:1.

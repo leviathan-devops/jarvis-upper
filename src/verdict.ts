@@ -235,13 +235,12 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     // so a MISSING ledger / no matching row / an undefined needle left ledgerVerdict
     // null and FELL THROUGH to bind() -> FENCE-GREEN. The two-source law requires a
     // PASS ROW: a null verdict is now a refusal, not a pass.
-    // FIXED (red-team audit R13): when the ledger needle could not be derived from
-    // a readable SPEC (missing file / no `job:` line), the refusal NAMES that root
-    // cause — the SPEC-read failure is no longer erased behind a bare NO-ROW. (When
-    // a row IS found the note is irrelevant and never pollutes the reasons list.)
-    else if (fence.ledgerVerdict !== "PASS") fence.reason = (!row && specRead.failure)
-      ? `FENCE-LEDGER:NO-ROW (LEDGER-NEEDLE:${specRead.failure})`
-      : `FENCE-LEDGER:${fence.ledgerVerdict ?? "NO-ROW"}`;
+    // FIXED (ship-gate HIGH): an UNREADABLE SPEC means the needle was a GUESS (the jobDir
+    // basename = the SEAT name). A guessed needle that happens to match SOME row would read
+    // green off the wrong job's row — so the failure is a REFUSAL, not a note. (In a real
+    // green run the fence READ the SPEC to adjudicate, so a failure here is a TOCTOU/stub.)
+    else if (specRead.failure) fence.reason = `FENCE-LEDGER-NEEDLE:${specRead.failure}`;
+    else if (fence.ledgerVerdict !== "PASS") fence.reason = `FENCE-LEDGER:${fence.ledgerVerdict ?? "NO-ROW"}`;
     // The ledger's sha16 is the SPEC's INVARIANT HASH, not a git sha — they are
     // different objects. The honest binding is: the adjudicated JOB DIR must be a
     // git worktree whose HEAD IS the claimed head, with the artifact committed clean.

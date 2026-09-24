@@ -8,7 +8,11 @@ const usage = `usage: upper <init|cursor|status|plan|order|graph|gates|sync|bug|
   cursor <source>  print last_seq for an event source (default ao-events)`;
 
 const [verb, arg, ...extras] = Bun.argv.slice(2);
-if (extras.length > 0 && verb !== "init" && verb !== "cursor") {
+// FIXED (ship-gate MEDIUM): `kick` accepts ONE extra (its mode). Without this the
+// documented `upper kick <id> live` was rejected by the dispatcher, so verbKick's
+// mode param was unreachable.
+const extraAllowance = verb === "kick" ? 1 : 0;
+if (extras.length > extraAllowance && verb !== "init" && verb !== "cursor") {
   console.error(usage);
   process.exit(2);
 }
@@ -38,7 +42,7 @@ if (verb === "init") {
   // as a VerbResult-shaped error on stderr with exit 1 (a NEGATIVE verdict), so
   // a caller always gets the documented shape, never a bare stack.
   Promise.resolve()
-    .then(() => VERBS[verb](root, arg))
+    .then(() => VERBS[verb](root, arg, extras[0]))
     .then((r) => { console.log(JSON.stringify(r.out)); process.exit(r.code); })
     .catch((e) => {
       console.error(JSON.stringify({ ok: false, verdict: "VERB-THREW", error: String(e).slice(0, 300) }));

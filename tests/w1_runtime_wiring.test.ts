@@ -14,28 +14,35 @@ const HEAD40 = "a".repeat(40);
 
 // ── R2 / W-01: the target assertion (a mismatch must REFUSE) ─────────────────
 test("test_target_refuses_mismatch", () => {
+  const URL = "https://github.com/leviathan-devops/jarvis-upper.git";
+  const repo = (url: string | null, isRepo = true) => () => ({ url, isRepo });
   // the attack: this tree's origin is repo A, the config names repo B
-  const bad = targetMatchesRemote({
-    root: "/tmp", owner: "someone-else", repo: "another-repo",
-    readRemote: () => "https://github.com/leviathan-devops/jarvis-upper.git",
-  });
+  const bad = targetMatchesRemote({ root: "/tmp", owner: "someone-else", repo: "another-repo", readRemote: repo(URL) });
   expect(bad.ok).toBe(false);
   expect(bad.reason).toContain("TARGET-MISMATCH");
-
   // the legit case: the origin names the configured target
-  const good = targetMatchesRemote({
-    root: "/tmp", owner: "leviathan-devops", repo: "jarvis-upper",
-    readRemote: () => "https://github.com/leviathan-devops/jarvis-upper.git",
-  });
-  expect(good.ok).toBe(true);
+  expect(targetMatchesRemote({ root: "/tmp", owner: "leviathan-devops", repo: "jarvis-upper", readRemote: repo(URL) }).ok).toBe(true);
 
-  // FAIL-CLOSED: an unreadable remote refuses (never a silent pass)
-  const blind = targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: () => { throw new Error("git gone"); } });
-  expect(blind.ok).toBe(false);
-  expect(blind.reason).toContain("GIT-UNAVAILABLE");
+  // ship-gate HIGH: the EVIL SUFFIX must not fail-open on a substring match
+  expect(targetMatchesRemote({ root: "/tmp", owner: "leviathan-devops", repo: "jarvis-upper-evil", readRemote: repo(URL) }).ok).toBe(false);
+  expect(targetMatchesRemote({ root: "/tmp", owner: "leviathan-devops", repo: "jarvis", readRemote: repo(URL) }).ok).toBe(false);
 
-  // a bare tree (no remote) has nothing to contradict
-  expect(targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: () => null }).ok).toBe(true);
+  // ship-gate HIGH: FAIL-CLOSED — a NON-REPO refuses (the header always said so)
+  expect(targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: () => ({ url: null, isRepo: false }) }).ok).toBe(false);
+  expect(targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: () => { throw new Error("git gone"); } }).ok).toBe(false);
+  // a real work tree with NO origin has nothing to contradict -> allowed
+  expect(targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: repo(null) }).ok).toBe(true);
+
+  // ship-gate MEDIUM: empty owner/repo must not make the needle "//" (every https URL matches)
+  expect(targetMatchesRemote({ root: "/tmp", owner: "", repo: "r", readRemote: repo(URL) }).ok).toBe(false);
+  expect(targetMatchesRemote({ root: "/tmp", owner: "o", repo: "", readRemote: repo(URL) }).ok).toBe(false);
+
+  // ship-gate MEDIUM: userinfo must be REDACTED out of the echoed remote
+  const leak = targetMatchesRemote({ root: "/tmp", owner: "x", repo: "y", readRemote: repo("https://user:TOKEN@github.com/o/r.git") });
+  expect(leak.remote).not.toContain("TOKEN");
+  expect(leak.remote).toContain("<redacted>");
+  // scp-like remotes parse too
+  expect(targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: repo("git@github.com:o/r.git") }).ok).toBe(true);
 });
 
 // ── R3 / F-20: one malformed row must NOT roll back the whole batch ──────────

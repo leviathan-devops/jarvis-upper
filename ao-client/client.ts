@@ -20,7 +20,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** The per-attempt ceiling for an AO HTTP call. A hung daemon must not block the
  *  tick forever (red-team audit W-05). */
-export const AO_CALL_TIMEOUT_MS = Number(process.env.AO_CALL_TIMEOUT_MS ?? 8000);
+// FIXED (ship-gate round MEDIUM): Number("")===0 / Number("abc")===NaN -> AbortSignal.timeout(0)
+// aborts every call instantly (a self-DoS via env). Validate and fall back to 8000.
+export const AO_CALL_TIMEOUT_MS = ((): number => {
+  const n = Number(process.env.AO_CALL_TIMEOUT_MS ?? 8000);
+  return Number.isFinite(n) && n > 0 ? n : 8000;
+})();
 
 export async function call<T = any>(operationId: string, opts: {
   params?: Record<string, string | number>;

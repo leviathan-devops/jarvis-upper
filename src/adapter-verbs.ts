@@ -30,6 +30,10 @@ export async function listSessions(opts: { callFn?: typeof call } = {}): Promise
 export async function listPrsFromAo(opts: {
   callFn?: typeof call;
   project?: string;
+  /** FIXED (ship-gate HIGH): partial-sync errors were console-only, so a caller could
+   *  not distinguish a complete sync from a truncated one. This receives every per-session
+   *  failure (the loud-fail law, now OBSERVABLE by the caller). */
+  onPartial?: (errors: { session: string; reason: string }[]) => void;
 } = {}): Promise<PrRow[]> {
   const c = opts.callFn ?? call;
   // FIXED 2026-09-23 (ocr round-4 HIGH): the inline `(await c(...)).sessions`
@@ -39,6 +43,7 @@ export async function listPrsFromAo(opts: {
   const sessions = await listSessions({ callFn: c });
   const scoped = opts.project ? sessions.filter((s) => s.projectId === opts.project) : sessions;
   const out: PrRow[] = [];
+  const allErrors: { session: string; reason: string }[] = [];
   const CONC = 8;
   for (let i = 0; i < scoped.length; i += CONC) {
     const batch = scoped.slice(i, i + CONC);
@@ -84,8 +89,9 @@ export async function listPrsFromAo(opts: {
       if (r.status === 'fulfilled') out.push(...r.value);
       else errors.push({ session: batch[k]?.id ?? `#${i + k}`, reason: String(r.reason).slice(0, 100) });
     }
-    if (errors.length > 0) console.error(JSON.stringify({ sync: "PARTIAL", errors }));
+    if (errors.length > 0) { allErrors.push(...errors); console.error(JSON.stringify({ sync: "PARTIAL", errors })); }
   }
+  if (allErrors.length > 0) opts.onPartial?.(allErrors);
   return out;
 }
 
