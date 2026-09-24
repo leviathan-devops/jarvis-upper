@@ -234,7 +234,7 @@ End of COMPACTION_SURVIVAL.
 
 ---
 <!-- CROSS-CONSISTENCY ANCHOR (all 11 canon docs carry this identical line) -->
-- **factory head:** `2ee3f38f468f53cd15e376e8cca96d75fdcdc636` (jarvis-upper main) · **job head (PR #1):** `74f1b45a97a600b330db520a6e1f044564de1fa5`
+- **factory head:** `06333fa595b54cdaead2938b44aac70128f3c551` (jarvis-upper main) · **job head (PR #1):** `74f1b45a97a600b330db520a6e1f044564de1fa5`
 - **VERDICT: VERIFIED** — fence PASS `spec_bound:true` + review `approved`, SAME sha
 - **battery:** 56 pass / 0 fail · tsc 0 · gates RUNS/SHAPES/ORPHANS=0 green · jfm 8/0
 - **jfm wave w0:** the desk `upper-tier-job` closed, `unverdicted: []`
