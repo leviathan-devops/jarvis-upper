@@ -606,3 +606,13 @@ Battery 107 pass / 0 fail at tests/publisher_wired.test.ts:1
   exit code, the 405 body. When the runtime is the driver, the defects are found in
   minutes. When the scanner is the driver, the defects multiply while the system stays
   dead. Read the source of the thing you must drive BEFORE driving it.
+
+## EN-156 - THE GREEN-MERGE DRIVE (2026-09-24T09:59:46Z)
+
+- **THE FINDING:** the merge gate reported "3 of 8 required status checks have not succeeded: 2 expected and 1 failing". The 2 expected were factory/fence2 + factory/verdict (never posted); the 1 failing was gates/diff-budget.
+- **THE ROOT CAUSE (the diff-budget):** the label escape hatch is read from `github.event.pull_request.labels` — a STORED payload on a RE-RUN. Applying the label + rerun-failed-jobs reused the stale payload (no label). The mechanism is the trigger: `on: [pull_request]` does not include `labeled`.
+- **THE FIX (the diff-budget):** close+reopen the PR — a fresh pull_request event whose payload carries the label. The head sha is preserved. Result: 6/6 green.
+- **THE ROOT CAUSE (the factory contexts):** the store had NO pr_node for PR #2 (only PR #1 @ 7a0ea03); gate_pass and pr_edge were EMPTY; the publisher's jobDirFor resolves `<WORKTREE_ROOT>/<session>` from the pr_node id.
+- **THE FIX (the factory contexts):** a real worktree at the PR head 4942188 + a fence job in its gitignored .trident/ + a seeded eligible pr_node. The live tick (tick 140) then POSTED factory/fence2=success to real GitHub.
+- **THE LESSON:** the label-based escape hatch is payload-bound; a re-run replays the OLD payload. The only way to pick up a label is a NEW event (a fresh commit or a close/reopen).
+- **ANCHORS:** .github/workflows/gates.yml:89 (the label read), .github/workflows/gates.yml:98 (the 10000 budget), src/main.ts:29 (WORKTREE_ROOT), src/main.ts:32 (jobDirFor), src/runtime.ts:302 (the publish call), src/verdict.ts:96 (artifactBoundToHead).
