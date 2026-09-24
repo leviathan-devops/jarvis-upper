@@ -95,7 +95,12 @@ export async function listPrsFromAo(opts: {
   }
   // FIXED (ship-gate MEDIUM): an UNGUARDED onPartial let a throwing/rejecting caller
   // discard the rows that DID resolve. The callback is best-effort; its failure is named.
+  // FIXED (the W15 ship gate MEDIUM): a caller that omitted onPartial could not distinguish
+  // complete from partial. Surface it on the returned array (non-enumerable) so the default
+  // is observable without a callback.
   if (allErrors.length > 0) {
+    try { Object.defineProperty(out, "partialErrors", { value: allErrors.map((e) => ({ ...e })), enumerable: false }); }
+    catch (e) { console.error(`partialErrors-attach-failed:${String(e).slice(0, 60)}`); }
     // FIXED (ship gate MEDIUM): a sync try/catch misses an ASYNC callback's rejection
     // (an unhandled rejection). Handle both the throw and the returned thenable.
     // FIXED (ship gate LOW): the type was `void` while an async caller is supported — widen
@@ -105,8 +110,11 @@ export async function listPrsFromAo(opts: {
       const r = opts.onPartial?.(allErrors.map((e) => ({ ...e }))) as unknown;
       // FIXED (the W15 ship gate MEDIUM): a then-ONLY thenable has no .catch — calling one
       // threw a TypeError mis-reported as onPartial-threw. Promise.resolve wraps ANY thenable.
+      // FIXED (the W15 ship gate MEDIUM): the thenable was fire-and-forget — the widened
+      // type implies an async handler is supported, so AWAIT it (best-effort via try/catch).
       if (r && typeof (r as { then?: unknown }).then === "function") {
-        Promise.resolve(r as PromiseLike<unknown>).catch((e) => console.error(`onPartial-rejected:${String(e).slice(0, 80)}`));
+        try { await Promise.resolve(r as PromiseLike<unknown>); }
+        catch (e) { console.error(`onPartial-rejected:${String(e).slice(0, 80)}`); }
       }
     } catch (e) { console.error(`onPartial-threw:${String(e).slice(0, 80)}`); }
   }

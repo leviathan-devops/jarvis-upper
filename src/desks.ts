@@ -91,7 +91,9 @@ export async function waveB(db: Database, fx: FixtureSet, target: string): Promi
   // FIXED (the ship gate HIGH, round 2): ON CONFLICT(id) did NOT cover UNIQUE(pr_node,gate).
   // FIXED (the W14 ship gate MEDIUM): a named target THROWS without the index. OR REPLACE
   // handles any uniqueness with no index dependency.
-  db.query("INSERT OR REPLACE INTO gate_pass(id, pr_node, gate, verdict, evidence, sha16, head_sha, at) VALUES (?,?,?,?,?,?,?,strftime('%s','now'))")
+  // FIXED (the W15 ship gate HIGH): OR REPLACE deletes+inserts, NULLing columns a sibling
+  // writer set. DO UPDATE with NO target preserves them + handles any uniqueness.
+  db.query("INSERT INTO gate_pass(id, pr_node, gate, verdict, evidence, sha16, head_sha, at) VALUES (?,?,?,?,?,?,?,strftime('%s','now')) ON CONFLICT DO UPDATE SET verdict=excluded.verdict, evidence=excluded.evidence, sha16=excluded.sha16, head_sha=excluded.head_sha, at=excluded.at")
     .run(JSON.stringify([target, "hardened"]), target, "hardened", "pass", testOut.slice(0, 200), rev, rev);
     db.exec("COMMIT");
   } catch (e) { db.exec("ROLLBACK"); throw e; }

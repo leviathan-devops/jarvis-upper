@@ -147,8 +147,12 @@ export function recordGatePass(db: Database, prId: string, headSha: string, stat
     // FIXED (the W14 ship gate MEDIUM): a named ON CONFLICT target THROWS when the index is
     // ABSENT (a raw test/ad-hoc db). `INSERT OR REPLACE` handles ANY uniqueness violation
     // (the PK or the pair index) with no index dependency.
-    db.query(`INSERT OR REPLACE INTO gate_pass(id, pr_node, gate, verdict, head_sha, at)
-              VALUES (?, ?, ?, ?, ?, strftime('%s','now'))`)
+    // FIXED (the W15 ship gate HIGH): OR REPLACE deletes+inserts, NULLing evidence/sha16
+    // that a sibling writer (desks.ts) set for the hardened gate. DO UPDATE with NO target
+    // preserves untouched columns + handles any uniqueness with no index-name dependency.
+    db.query(`INSERT INTO gate_pass(id, pr_node, gate, verdict, head_sha, at)
+              VALUES (?, ?, ?, ?, ?, strftime('%s','now'))
+              ON CONFLICT DO UPDATE SET verdict=excluded.verdict, head_sha=excluded.head_sha, at=excluded.at`)
       // FIXED (runs 3-6): a `:`-joined composite key is ambiguous if prId ever
       // contains one. JSON.stringify of the pair is injective.
       .run(JSON.stringify([prId, g]), prId, g, ok ? "pass" : "fail", headSha);

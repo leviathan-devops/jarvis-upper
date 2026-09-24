@@ -179,7 +179,9 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // ("/a/b/../c" -> "/a/b/c"). `path.normalize` does POSIX resolution correctly and
   // preserves relativity. The normalized value is used EVERYWHERE below (the fence calls,
   // the SPEC read, the bind) so no caller sees a different directory than the guard approved.
-  const normJobDir = opts.jobDir ? normalize(opts.jobDir) : "";
+  // FIXED (the W15 ship gate LOW): normalize('   ') === '   ' (not ''), so a whitespace-only
+  // jobDir slipped the guard. Trim first.
+  const normJobDir = opts.jobDir ? normalize(opts.jobDir.trim()) : "";
   if (!opts.jobDir || normJobDir === "" || normJobDir === "." || normJobDir === "/") {
     return { verdict: "UNVERIFIED", sources: { fence: { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: "NO-JOB-DIR" }, review: { ran: false, verdict: null, targetSha: null, harness: null, reason: "NO-JOB-DIR" } }, reasons: ["NO-JOB-DIR"] };
   }
@@ -242,7 +244,14 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // GUESSED needle (it is misleading for post-mortem) — the refusal below carries the cause.
   // FIXED (ship-gate LOW): the basename RHS was DEAD — `specRead` is `{job}` XOR `{failure}`,
   // so the `??` never evaluated. The discriminated union makes the needle unconditional.
-  const row = "failure" in specRead ? null : ledgerRowFor(ledgerPath, specRead.job);
+  // FIXED (the W15 ship gate MEDIUM): ledgerRowFor can THROW (a TOCTOU delete, EACCES,
+  // a corrupt file) outside any try/catch -> verify() rejected instead of returning
+  // UNVERIFIED. Map a throw to a fail-closed refusal.
+  let row: { verdict?: string } | null = null;
+  if (!("failure" in specRead)) {
+    try { row = ledgerRowFor(ledgerPath, specRead.job) as { verdict?: string } | null; }
+    catch (e) { reasons.push(`FENCE-LEDGER-READ:${String(e).slice(0, 80)}`); }
+  }
   fence.ledgerVerdict = row?.verdict ?? null;
   // ADJUDICATED (ocr audit high, two-sided — REJECTED): the finding claimed "the
   // ledger invariant SHA is never bound". MEASURED: the ledger row's 16-hex
@@ -269,7 +278,11 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     // different objects. The honest binding is: the adjudicated JOB DIR must be a
     // git worktree whose HEAD IS the claimed head, with the artifact committed clean.
     else {
-      const b = bind(normJobDir, opts.headSha);
+      // FIXED (the W15 ship gate MEDIUM): a THROWING bind (a missing git, a bad jobDir)
+      // escaped verify() as a rejection. Map it to a fail-closed refusal.
+      let b: { ok: boolean; reason: string };
+      try { b = bind(normJobDir, opts.headSha); }
+      catch (e) { b = { ok: false, reason: `FENCE-BIND-THREW:${String(e).slice(0, 80)}` }; }
       if (!b.ok) fence.reason = b.reason;
       else fence.reason = "FENCE-GREEN";
     }

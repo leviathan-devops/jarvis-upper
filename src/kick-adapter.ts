@@ -19,10 +19,15 @@ const SPAWN_MAX = 16384;
 const ATTACH_MAX = 262144;
 // FIXED (the W15 ship gate MEDIUM): a truncation was silent while an oversized attachment
 // THREW — inconsistent. It is now LOGGED loudly so a degraded spawn is observable.
+// FIXED (the W15 ship gate MEDIUM): the prompt cap used UTF-16 units while the attachment
+// cap used BYTES — one of them was wrong. Both measure bytes now (the daemon's limit).
 const clamp = (s: string, max: number): string => {
-  if (s.length <= max) return s;
-  console.error(`kick-prompt-truncated:${s.length}->${max}`);
-  return s.slice(0, max - 16) + "\n[truncated]";
+  if (Buffer.byteLength(s, "utf8") <= max) return s;
+  console.error(`kick-prompt-truncated:${Buffer.byteLength(s, "utf8")}->${max}`);
+  // slice by code units, then trim to the byte budget
+  let out = s.slice(0, max - 16);
+  while (Buffer.byteLength(out, "utf8") > max - 16) out = out.slice(0, -1);
+  return out + "\n[truncated]";
 };
 
 export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readFile?: (p: string) => Promise<string> } = {}): KickDeps {
@@ -33,7 +38,10 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
     sessionAlive: async (sessionId: string): Promise<"alive" | "dead" | "unknown"> => {
       try {
         const r = await c<{ session?: unknown } | null>("getSession", { params: { sessionId } });
-        return r !== null && r !== undefined && r.session !== undefined && r.session !== null ? "alive" : "dead";
+        // FIXED (the W15 ship gate MEDIUM): an empty body (null) is a TRANSPORT anomaly, not
+        // proof the session is gone. Only a PRESENT-but-empty session object is `dead`.
+        if (r === null || r === undefined) return "unknown";
+        return r.session !== undefined && r.session !== null ? "alive" : "dead";
       } catch (e) {
         // FIXED (ship-gate MEDIUM): a 404 is a DEFINITIVE dead; a timeout / 5xx / network
         // failure is UNKNOWN. Collapsing every throw to `false` made kick() spawn a
@@ -71,6 +79,10 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
           // kick() verified — not a second Bun.file read that could see a changed/deleted
           // file), and bound the RESULTING STRING (the size check could race a growing file
           // and byte-size != the JSON-encoded size).
+          // FIXED (the W15 ship gate MEDIUM): the whole file was loaded BEFORE the size gate
+          // — a huge dossier OOMs before it can be refused. Pre-check the size.
+          try { const sz = Bun.file(p).size; if (sz > ATTACH_MAX) { dropped.push(`${p} (>${ATTACH_MAX}B)`); continue; } }
+          catch (e) { console.error(`kick-attach-stat-failed:${p}:${String(e).slice(0, 60)}`); }
           const data = await (opts.readFile ?? (async (q: string) => await Bun.file(q).text()))(p);
           // FIXED (the W15 ship gate MEDIUM): String.length is UTF-16 units; the daemon's
           // limit is BYTES. Measure the wire size.
@@ -106,6 +118,10 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
         } catch (e) { console.error(`kick-git-threw:${String(e).slice(0, 80)}`); return false; }
       };
       if (git(["checkout", "-b", `fix/${bugId}`])) return { ok: true };
+      // FIXED (the W15 ship gate MEDIUM): the fallback ran for ANY `-b` failure, not just
+      // branch-exists — a dirty tree / missing repo still mutated the tree. Gate on exists.
+      const exists = (() => { try { return Bun.spawnSync(["git", "-C", cwd, "rev-parse", "--verify", `refs/heads/fix/${bugId}`], { stderr: "pipe", stdout: "pipe" }).exitCode === 0; } catch { return false; } })();
+      if (!exists) return { ok: false };
       return { ok: git(["checkout", `fix/${bugId}`]) };
     },
     // FIXED (ship gate MEDIUM): this ignored opts.readFile, so an injected seam

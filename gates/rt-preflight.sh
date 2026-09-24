@@ -27,7 +27,9 @@ else
 fi
 
 # 3. the publisher is ARMED (the token is present)
-if [ -f "$HOME/.config/jarvis-upper.env" ] && grep -q '^GH_TOKEN=' "$HOME/.config/jarvis-upper.env" 2>/dev/null; then
+# FIXED (the W15 ship gate MEDIUM): these two bare $HOME uses aborted under `set -u`
+# BEFORE the later ${HOME:-...} fallback could run.
+if [ -f "${HOME:-/home/leviathan}/.config/jarvis-upper.env" ] && grep -q '^GH_TOKEN=' "${HOME:-/home/leviathan}/.config/jarvis-upper.env" 2>/dev/null; then
   echo "G-RT: the publisher token is present (out-of-band)"
 else
   echo "REJECT(G-RT): the publisher token is ABSENT — the kernel cannot POST factory/*" >&2
@@ -36,7 +38,7 @@ else
 fi
 
 # 4. the fence can go green (the recipe works — the fixture proof)
-FENCE="$HOME/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py"
+FENCE="${HOME:-/home/leviathan}/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py"
 FIXTURE="/tmp/fence-green/job"
 if [ -f "$FENCE" ] && [ -d "$FIXTURE" ]; then
   if python3 "$FENCE" adjudicate "$FIXTURE" \
@@ -62,7 +64,13 @@ WORKTREE_ROOT="${UPPER_WORKTREE_ROOT:-${HOME:-/home/leviathan}/.ao/data/worktree
 # FIXED (ship-gate MEDIUM): an EXPLICIT-but-missing override silently disabled the gate —
 # `UPPER_WORKTREE_ROOT=/nonexistent` took the else branch and passed as "nothing to fence
 # yet" while real worktrees under the default root went unfenced. Fail closed.
-if [ -n "${UPPER_WORKTREE_ROOT:-}" ] && [ ! -d "$UPPER_WORKTREE_ROOT" ]; then
+# FIXED (the W15 ship gate MEDIUM): a RELATIVE override resolves against THIS gate's cwd
+# while the daemon resolves it against its own (systemd) cwd — the gate could scan a
+# different tree and PASS. Require an absolute override.
+if [ -n "${UPPER_WORKTREE_ROOT:-}" ] && [ "${UPPER_WORKTREE_ROOT#/}" = "$UPPER_WORKTREE_ROOT" ]; then
+  echo "REJECT(G-RT): UPPER_WORKTREE_ROOT=$UPPER_WORKTREE_ROOT is RELATIVE — the daemon resolves it against a different cwd; refusing to PASS unverified" >&2
+  FAIL=1
+elif [ -n "${UPPER_WORKTREE_ROOT:-}" ] && [ ! -d "$UPPER_WORKTREE_ROOT" ]; then
   # FIXED (the W14 ship gate LOW): `[ ! -d ]` is also true for a regular file / broken
   # symlink, so the message blamed a MISSING path for a WRONG-TYPE one.
   if [ -e "$UPPER_WORKTREE_ROOT" ] || [ -L "$UPPER_WORKTREE_ROOT" ]; then
@@ -91,15 +99,21 @@ elif [ -d "$WORKTREE_ROOT" ]; then
   DOTGLOB_WAS=$(shopt -p dotglob 2>/dev/null || true)
   FAILGLOB_WAS=$(shopt -p failglob 2>/dev/null || true)
   NULLGLOB_WAS=$(shopt -p nullglob 2>/dev/null || true)
+  # FIXED (the W15 ship gate HIGH): GLOBIGNORE (not a shopt) ALSO filters the glob — a
+  # caller-exported GLOBIGNORE='*' made the loop see zero entries -> a false PASS.
+  GLOBIGNORE_WAS="${GLOBIGNORE:-}"
+  unset GLOBIGNORE
   shopt -s dotglob 2>/dev/null || true
   shopt -u failglob 2>/dev/null || true
   shopt -u nullglob 2>/dev/null || true
-  for wt in "$WORKTREE_ROOT"/*/; do
-    # FIXED (the W15 ship gate MEDIUM): a NON-directory entry (a file, a broken symlink)
-    # was silently skipped — a session id matching that name still fails adjudication while
-    # this gate reported "nothing to fence yet". Fail closed.
+  # FIXED (the W15 ship gate HIGH x2): the OLD glob `"$ROOT"/*/` expands to DIRECTORIES ONLY
+  # (bash filters non-dirs), so a non-directory entry was invisible — and an EMPTY root left
+  # the pattern LITERAL, which then hit the non-dir check and became a permanent REJECT.
+  # A bare `/*` matches every entry; `[ -e ] || [ -L ]` skips the literal (empty root).
+  for wt in "$WORKTREE_ROOT"/*; do
+    { [ -e "$wt" ] || [ -L "$wt" ]; } || continue     # the unexpanded literal (an empty root)
     if [ ! -d "$wt" ]; then
-      echo "REJECT(G-RT): the worktree entry ${wt%/} is not a directory — refusing to PASS unverified" >&2
+      echo "REJECT(G-RT): the worktree entry $wt is not a directory — refusing to PASS unverified" >&2
       FAIL=1; WT_N=$((WT_N + 1)); continue
     fi
     WT_N=$((WT_N + 1))
@@ -123,6 +137,7 @@ elif [ -d "$WORKTREE_ROOT" ]; then
   # if the save was empty, so a SOURCED gate never leaks its option state).
   if [ -n "$FAILGLOB_WAS" ]; then eval "$FAILGLOB_WAS"; else shopt -u failglob 2>/dev/null || true; fi
   if [ -n "$NULLGLOB_WAS" ]; then eval "$NULLGLOB_WAS"; else shopt -u nullglob 2>/dev/null || true; fi
+  if [ -n "$GLOBIGNORE_WAS" ]; then export GLOBIGNORE="$GLOBIGNORE_WAS"; fi
   if [ "$WT_NO_SPEC" -gt 0 ]; then
     FAIL=1
   elif [ "$WT_N" -eq 0 ]; then

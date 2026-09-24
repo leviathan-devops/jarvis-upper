@@ -65,8 +65,17 @@ export async function kick(
   // FIXED (ship-gate MEDIUM): an UNKNOWN liveness REFUSES rather than falling through to
   // spawn — a transient daemon outage must not manufacture a second session for one bug.
   let mode: KickMode;
-  if (input.mode) mode = input.mode;
-  // FIXED (the W15 ship gate MEDIUM): an explicit `live` skipped the liveness check entirely.
+  if (input.mode) {
+    mode = input.mode;
+    // FIXED (the W15 ship gate HIGH): an explicit `live` SKIPPED the liveness check — the
+    // CLI's `upper kick <id> live` would send to a DEAD session. Validate it.
+    if (mode === "live") {
+      if (!input.originSession) throw new Error("KICK-NO-SESSION");
+      let lv: Liveness = "unknown";
+      try { lv = await deps.sessionAlive(input.originSession); } catch { lv = "unknown"; }
+      if (lv !== "alive") throw new Error(`KICK-LIVENESS-${lv.toUpperCase()}`);
+    }
+  }
   else {
     // FIXED (ship gate MEDIUM): the old `.catch(()=>false)` tolerated a THROWING
     // KickDeps; the bare await let it escape as a raw error, bypassing the fail-closed
@@ -77,6 +86,9 @@ export async function kick(
     }
     // FIXED (ship gate MEDIUM): an unrecognized Liveness (a legacy boolean `true`, a typo)
     // fell through to `spawn` — a duplicate session. Exhaustive.
+    // FIXED (the W15 ship gate MEDIUM): a legacy boolean dep (the pre-tri-state shape) threw
+    // KICK-LIVENESS-INVALID. Coerce it (true=alive, false=dead) for back-compat.
+    if (typeof alive === "boolean") alive = alive ? "alive" : "dead";
     if (alive !== "alive" && alive !== "dead" && alive !== "unknown") {
       throw new Error(`KICK-LIVENESS-INVALID:${String(alive).slice(0, 32)}`);
     }

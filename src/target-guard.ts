@@ -117,8 +117,10 @@ export function targetMatchesRemote(opts: {
   if (res.error) return { ok: false, remote: "", reason: `GIT-UNAVAILABLE:${res.error}` };
   // FAIL-CLOSED: a tree that is NOT a git work tree cannot be verified — refuse.
   if (!res.isRepo) return { ok: false, remote: "", reason: "GIT-UNAVAILABLE:not-a-repo" };
-  // a real work tree with no origin has nothing to contradict — allow it.
-  if (!res.url) return { ok: true, remote: "(no remote)" };
+  // FIXED (the W15 ship gate LOW): `!res.url` conflated null (no origin -> allow) with ""
+  // (a cleared origin -> must refuse). Check for null EXPLICITLY.
+  if (res.url === null) return { ok: true, remote: "(no remote)" };
+  if (res.url === "") return { ok: false, remote: "", reason: "TARGET-EMPTY-URL" };
   // FIXED (the W14 ship gate LOW): redactRemote ran twice per branch — hoist it.
   const safe = redactRemote(res.url);
   const parsed = parseRemote(res.url);
@@ -130,13 +132,13 @@ export function targetMatchesRemote(opts: {
     return { ok: false, remote: safe, reason: `TARGET-NO-HOST:${safe}` };
   }
   if (parsed.host.toLowerCase() !== wantHost) {
-    return { ok: false, remote: redactRemote(res.url), reason: `TARGET-HOST-MISMATCH:${parsed.host} != ${wantHost}` };
+    return { ok: false, remote: safe, reason: `TARGET-HOST-MISMATCH:${parsed.host} != ${wantHost}` };
   }
   const ok = parsed.owner.toLowerCase() === opts.owner.toLowerCase()
     && parsed.repo.toLowerCase() === opts.repo.toLowerCase();
   return {
     ok,
-    remote: redactRemote(res.url),
-    reason: ok ? undefined : `TARGET-MISMATCH:${redactRemote(res.url)} != ${opts.owner}/${opts.repo}`,
+    remote: safe,
+    reason: ok ? undefined : `TARGET-MISMATCH:${safe} != ${opts.owner}/${opts.repo}`,
   };
 }

@@ -55,11 +55,14 @@ export function appendTick(root: string, s: RuntimeStatus): void {
     }
   } catch (e) {
     // FIXED (red-team slop audit SLOP-07): a persistently failing rotation (readonly
-    // dir, full disk) retried each tick and NEVER surfaced — the log grew unbounded
-    // past CAP_BYTES with no signal. Best-effort, but the failure is now NAMED.
-    console.error(`status-rotate-failed:${String(e).slice(0, 60)}`);
+    // dir, full disk) retried each tick and NEVER surfaced. FIXED (the W15 ship gate LOW):
+    // it then logged EVERY tick — throttle to once a minute.
+    const now = Date.now();
+    if (now - lastRotateLogAt > 60_000) { lastRotateLogAt = now; console.error(`status-rotate-failed:${String(e).slice(0, 60)}`); }
   }
 }
+
+let lastRotateLogAt = 0;   // FIXED: throttle the rotation-failure log
 
 export function readStatus(root: string): RuntimeStatus | null {
   const p = statusPath(root);

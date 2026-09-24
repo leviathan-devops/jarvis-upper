@@ -149,6 +149,9 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
     // FIXED (ship-gate LOW): reader.cancel() returns a promise; a sync try/catch does not
     // catch an async rejection (an unhandled rejection). Await it, as the timeout branch does.
     if (!readerCancelled) { try { await reader.cancel(); } catch (e) { console.error(`rail-cancel:${String(e).slice(0, 60)}`); } }
+    // FIXED (the W15 ship gate MEDIUM): the decoder was never FLUSHED, so a split trailing
+    // multi-byte char stayed buffered and its last frame was cut short. Flush it.
+    buf += dec.decode();
     // FIXED (ship-gate MEDIUM): parseSse's flush() emits the final PARTIAL frame, so a
     // torn buffer ran reducers on half an event and advanced rail_seq past it. When the
     // capture is truncated, cut back to the last COMPLETE frame boundary ("\n\n").
@@ -168,7 +171,9 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
       // FIXED (the W14 ship gate MEDIUM): when a SINGLE frame exceeds the cap, cut is -1 and
       // the capture can never advance (the same `after` refetches forever). A DISTINCT
       // signal names the condition so a reader can tell it from an ordinary truncation.
-      if (cut <= 0) oversizedFrame = true;
+      // FIXED (the W15 ship gate LOW): gate the signal on `truncated` — a tiny timeout
+      // partial has cut<=0 but is NOT an oversize frame.
+      if (cut <= 0 && truncated) oversizedFrame = true;
     }
     // FIXED (ship gate MEDIUM): parseSse splits on "\n" and treats only an EMPTY line as a
     // boundary, so interior "\r" blank lines were skipped and CRLF-delimited frames MERGED.

@@ -73,11 +73,13 @@ const POST_REBUILD: string[] = [
   // `recordGatePass` upserts ON CONFLICT(id) — which PRESERVES rowid but BUMPS `at` — so
   // the NEWEST verdict can live on the SMALLEST rowid, and MAX(rowid) would have DROPPED
   // it. The survivor is now chosen by the SAME ordering the read uses.
+  // FIXED (the W15 ship gate MEDIUM): two statements in ONE exec string — a driver that
+  // runs only the first would leave the table deduped but un-indexed. One per entry.
   `DELETE FROM gate_pass WHERE rowid NOT IN (
      SELECT rowid FROM (
        SELECT rowid, ROW_NUMBER() OVER (PARTITION BY pr_node, gate ORDER BY at DESC, rowid DESC) rn
-       FROM gate_pass) WHERE rn = 1);
-   CREATE UNIQUE INDEX IF NOT EXISTS gate_pass_pr_gate ON gate_pass(pr_node, gate);`,
+       FROM gate_pass) WHERE rn = 1)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS gate_pass_pr_gate ON gate_pass(pr_node, gate)`,
 ];
 
 // FIXED 2026-09-23 (ocr round-4 HIGH): CREATE TABLE IF NOT EXISTS is a no-op on
@@ -156,7 +158,7 @@ export function openStore(path?: string): Database {
   // existence probe with LIMIT 1 short-circuits.
   const dup = db.query("SELECT 1 x FROM gate_pass GROUP BY pr_node, gate HAVING COUNT(*) > 1 LIMIT 1").get();
   const needsIndex = !db.query("SELECT 1 x FROM sqlite_master WHERE type='index' AND name='gate_pass_pr_gate'").get();
-  if (dup != null || needsIndex) {   // FIXED: .get() may return undefined, not null
+  if ((dup !== undefined && dup !== null) || needsIndex) {   // .get() may return undefined
     db.exec("BEGIN");
     try { for (const sql of POST_REBUILD) db.exec(sql); db.exec("COMMIT"); }
     catch (e) { db.exec("ROLLBACK"); throw e; }
