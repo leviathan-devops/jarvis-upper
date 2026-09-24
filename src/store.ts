@@ -7,6 +7,12 @@ import { fileURLToPath } from "node:url";
 // elsewhere). fileURLToPath is the correct, platform-specific conversion.
 export const STORE_PATH = process.env.UPPER_STORE ?? fileURLToPath(new URL("../store.sqlite", import.meta.url));
 
+// FIXED (red-team slop audit, the duplicated-authority hunt): this list lived in THREE
+// places — adapter-verbs.ts, reducers.ts, and the SQL CHECK below — identical today but
+// free to drift. store.ts owns the schema, so it is the single TS authority; the SQL
+// CHECK (which cannot import) stays adjacent so the two are read together.
+export const PR_STATES = ["open", "ready_to_merge", "merge_ordered", "merged", "rejected", "kicked"] as const;
+
 const MIGRATIONS: string[] = [
   `CREATE TABLE IF NOT EXISTS pr_node(
      id TEXT PRIMARY KEY, project TEXT NOT NULL, pr_number INTEGER,

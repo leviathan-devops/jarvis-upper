@@ -467,3 +467,55 @@ failing"**. The gate FAILS CLOSED. The kernel's purpose is mechanically demonstr
 
 **THE BLOCKED:** the AO daemon on `:3001` is absent on this host → `daemonOk:false`,
 `prNodes:0`. RESUME: install/start the AO daemon, or set `AO_DAEMON` to a reachable instance.
+.
+EOF
+)
+
+## [2026-09-24T19:10:31Z] — THE SHIP-GATE SWEEPS + THE RUNTIME SEAT (HEAD `bcf48d5`)
+
+**THE CURRENT HEAD:** `bcf48d50a4e751d69eca8634233055d5e6bd335c`. **THE STATE:** tsc exit 0 · `bun test` **168 pass / 0 fail**
+(587 expect, 45 files) · the live daemon `active`, tick advancing.
+
+**W7 (src/target-guard.ts:42, src/runtime.ts:139, src/verdict.ts:212, gates/rt-preflight.sh:70).**
+The first ship-gate re-run returned **GATE: PASS (0 critical/high)** with 3 medium + 7 low
+residuals. All 10 fixed: the host check, EXACTLY-two path segments, the URL-parse redact, the
+CRLF-aware truncation cut, the truncated-empty artifact, the integer cap, the skipped
+guessed-needle lookup, the empty-jobDir refusal, the preflight `-f` + `basename --`.
+
+**W8 (src/kick-adapter.ts:39, src/kick.ts:14, src/runtime.ts:32, src/target-guard.ts:104,
+src/verdict.ts:170).** The W7 re-run returned **GATE: PASS** again but surfaced 14 more — FOUR
+of them NEW, introduced by W7's own fixes. All 14 fixed: per-route caps (SEND 4096 / SPAWN
+16384, per openapi.yaml:11860), the tri-state `Liveness` (a 404 = dead, a timeout = UNKNOWN —
+the collapse spawned a DUPLICATE session during an outage), the REAL attachment bytes
+(AttachmentInput `{data,mimeType}`, previously SILENTLY DROPPED), the guarded `onPartial`, the
+body read moved inside the retry loop, the trailing-slash strip, the fail-closed host, the 4 MiB
+cap ceiling, the `Buffer.byteLength` measure, the awaited `reader.cancel()`, the trim/validate,
+the discriminated `specRead` (the dead `??` removed), the fail-closed worktree override, the
+dotglob save/restore.
+
+**W9 — THE RUNTIME SEAT (src/guardrail.ts:25, src/store.ts:64,123; the ledger
+`.trident/runtime-ledger.md`).** Operating the LIVE daemon found the defect READING could not:
+`runtime/status.json` read `planHash=e3b0c44298fc1c14` == `sha256("")` with `ready=0` — the
+**TH-7 IDLE-GREEN**. Root cause: ZERO `pr_node` rows in `ready_to_merge` (11 `open`, 2
+`merged`), and only `verbPromote` sets it — a HUMAN step by design. The REAL defect:
+`gate_pass`'s PK is a surrogate `id`, so `(pr_node, gate)` held MANY rows — measured
+`ci_green pass,fail` — because `recordGatePass` upserts on a JSON-pair id while LEGACY rows
+carry `id = NULL` (NULLs are distinct in a TEXT PK, so they never conflict and survive forever).
+The guardrail's read had **NO ORDER BY**, so `.get()` returned the **STALE legacy `pass`
+(rowid 1), MASKING the newer `fail` (rowid 5)**. Blast radius (ripwire `callers` count=4):
+`verbGates` · **`executePlan`** · `tick` · `isEligible` — the stale pass reached the MERGE path.
+FIX: `ORDER BY at DESC, rowid DESC LIMIT 1`; a `POST_REBUILD` dedupe + `UNIQUE INDEX
+gate_pass_pr_gate`. The SECOND defect, caught by the fix's own test: the dedupe placed in
+MIGRATIONS ran BEFORE `rebuildIfNoFks`, which DROPS a table's indexes — so on a fresh/pre-FK
+store the index was silently destroyed. Moved to `POST_REBUILD`.
+
+**W10 (src/store.ts, src/adapter-verbs.ts, src/reducers.ts).** My own pass's duplicated-authority
+hunt: `PR_STATES` lived in THREE places (two identical TS copies + the SQL CHECK). Consolidated
+to ONE export in store.ts, imported by both.
+
+**THE INDEPENDENT VERIFICATION.** A zero-context subagent re-ran every gate: **18 PASS / 1 FAIL**
+across 19 rows. The 1 FAIL was the doc (no current head SHA) — now stamped.
+
+**THE HONEST RESIDUALS.** `eligible` reads 0 in production until an operator runs `promote`
+(the factory never self-promotes by design); the 3 `jarvis-upper-2`/`-4` AO sessions are legacy
+fixtures; the `kick` table is EMPTY (no live kick has ever run — R9's wiring is test-proven only).

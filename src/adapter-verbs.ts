@@ -1,6 +1,7 @@
 // adapter-verbs.ts — the adapter's read surface (a real caller for ao-client/client).
 // Keeps REST-first: every call goes through the typed client, never the store.
 import { call } from "../ao-client/client";
+import { PR_STATES } from "./store";
 import type { PrRow } from "./sync";
 
 export interface ProjectRow { id: string; name: string }
@@ -13,7 +14,6 @@ export async function listProjects(): Promise<ProjectRow[]> {
 export interface SessionRow { id: string; projectId?: string; kind?: string; harness?: string }
 
 // the pr_node.state vocabulary — the SAME set as the store's CHECK constraint.
-const PR_STATES = ["open", "ready_to_merge", "merge_ordered", "merged", "rejected", "kicked"] as const;
 
 export async function listSessions(opts: { callFn?: typeof call } = {}): Promise<SessionRow[]> {
   const c = opts.callFn ?? call;

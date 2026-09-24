@@ -3,12 +3,12 @@
 // safe to run twice for the same event (upsert-only, no counters).
 import { Database } from "bun:sqlite";
 import type { RailEvent } from "../ao-client/rail";
+import { PR_STATES } from "./store";
 
 export type ReduceOutcome = "applied" | "cursor-only";
 
 // the pr_node.state vocabulary — the SAME set as the store's CHECK constraint
 // (src/store.ts:16). A state outside it would violate the CHECK and throw.
-const PR_STATES = ["open", "ready_to_merge", "merge_ordered", "merged", "rejected", "kicked"] as const;
 
 export function reduceEvent(db: Database, ev: RailEvent): ReduceOutcome {
   const d: unknown = ev.data;
