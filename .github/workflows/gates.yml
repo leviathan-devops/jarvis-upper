@@ -60,8 +60,12 @@ jobs:
       # never pass in a fresh checkout. The comment claimed the code "exits 2
       # ledger-missing" — the code exits 0. The step is deleted; the check runs
       # against whatever ledger exists (a real fence run's rows when present).
+      # FIXED (ao-review-4 round 3 finding): github.sha on pull_request is the
+      # EPHEMERAL MERGE COMMIT, not the PR head. The ledger holds HEAD prefixes,
+      # so a merge-commit lookup could never match and reported NO-PASS-ROW even
+      # when the head was green. The PR head sha is the correct subject.
       - name: the fence must hold a PASS row for this sha
-        run: python3 gates/fence-check.py "${{ github.sha }}" || exit 1
+        run: python3 gates/fence-check.py "${{ github.event.pull_request.head.sha || github.sha }}" || exit 1
 
   diff_budget:
     name: gates/diff-budget

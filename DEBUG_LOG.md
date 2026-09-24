@@ -672,3 +672,16 @@ Battery 107 pass / 0 fail at tests/publisher_wired.test.ts:1
 **THE FIX:** reverted fence-check.py to exit 0 on an absent ledger, WITH the adjudication recorded in the file. The finding is a context-error (correct in principle, wrong locus) — the host gate already fails closed.
 
 **ANCHORS:** gates/fence-check.py:39, .githooks/pre-commit:211.
+
+## EN-162 - THE 3 ROUND-3 REVIEW FINDINGS (2026-09-24T11:05:19Z)
+
+**THE FINDING:** the AO re-review of f815975 DELIVERED a third `changes_requested` with 3 findings (the GitHub review 11:02:26). The convergence: 5 → 4 → 3 findings.
+
+**THE 3 FIXES:**
+1. **.github/workflows/gates.yml:64** (the CI fence step used `github.sha` — on pull_request that is the EPHEMERAL MERGE COMMIT, not the PR head; the ledger holds HEAD prefixes, so the prefix check could never match and reported NO-PASS-ROW even when green) — now uses `github.event.pull_request.head.sha || github.sha`.
+2. **.github/workflows/drift.yml:79** (the doc-floor sweep's exemptions were NARROWER than the pre-commit W-9: it omitted the vendored package + the goal pin, so it would red on main after merge) — the exemptions now MATCH (`.github`, `packages/jarvis-upper-tier/*`, `packages/*/08-GOAL-PIN.txt`, `Checkpoints`, `.trident`).
+3. **gates/fence-check.py:63** (the prefix match had no minimum length or hex shape — a 1-char prefix matched 1 in 16 shas by chance; the docstring promised 16-hex but nothing enforced it) — now `re.fullmatch(r"[0-9a-f]{16}", first)`. PROBED: the 16-hex row -> PASS; the 1-char row -> NO-PASS-ROW.
+
+**THE VERIFICATION:** tsc exit 0; bun test 124 pass / 0 fail; the F3 negative probe bites.
+
+**ANCHORS:** .github/workflows/gates.yml:64, .github/workflows/drift.yml:79, gates/fence-check.py:63.

@@ -71,6 +71,12 @@ jobs:
           while IFS= read -r -d '' f; do
             case "$f" in
               .github/*)     continue ;;   # GitHub-format templates: exempt (own format law)
+              packages/jarvis-upper-tier/*) continue ;;   # FIXED (ao-review-4 round 3):
+                                 # the VENDORED mission package — byte-identical copies of
+                                 # an EXTERNAL build package, NOT authored docs. The pre-
+                                 # commit W-9 exempts it; drift.yml did not, so this sweep
+                                 # would red on main after merge. The exemptions now MATCH.
+              packages/*/08-GOAL-PIN.txt) continue ;;   # a PIN is capped at 200 lines by design
               Checkpoints/*) continue ;;   # a SEALED SNAPSHOT: its docs are byte-copies
               .trident/*)    continue ;;   # machine-generated working state
             esac

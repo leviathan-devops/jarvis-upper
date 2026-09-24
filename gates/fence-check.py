@@ -16,6 +16,7 @@ A ledger row counts for <sha> when its verdict is PASS and the first
 """
 import json
 import os
+import re
 import sys
 
 
@@ -60,7 +61,11 @@ def main(argv: list) -> int:
             if not isinstance(row, dict) or row.get("verdict") != "PASS":
                 continue
             first = str(row.get("evidence", "")).split("|")[0].strip().lower()
-            if not first or first == "unknown":
+            # FIXED (ao-review-4 round 3 finding): the prefix match had no minimum
+            # length or hex-shape check — a 1-char prefix matched 1 in 16 shas by
+            # chance, so a planted short row passed. The docstring promises 16-hex;
+            # that is now ENFORCED (a non-16-hex evidence prefix is not a fence row).
+            if not re.fullmatch(r"[0-9a-f]{16}", first):
                 continue
             if needle.startswith(first):
                 print(f"FENCE:{sha}:PASS")
