@@ -43,7 +43,9 @@ export function parseRemote(url: string): { host: string | null; owner: string; 
     try { const p = new URL(u); host = p.hostname; path = p.pathname; } catch { path = null; }
   }
   if (!path) return null;
-  const parts = path.replace(/\.git$/i, "").split("/").map((x) => x.trim()).filter(Boolean);
+  // FIXED (ship-gate LOW): a trailing slash left "r.git" as the repo (`.../r.git/`),
+  // reporting TARGET-MISMATCH for a VALID remote. Strip slashes before stripping `.git`.
+  const parts = path.replace(/\/+$/, "").replace(/\.git$/i, "").split("/").map((x) => x.trim()).filter(Boolean);
   if (parts.length !== 2) return null;      // exactly owner/repo
   return { host, owner: parts[0], repo: parts[1] };
 }
@@ -101,7 +103,12 @@ export function targetMatchesRemote(opts: {
   const parsed = parseRemote(res.url);
   if (!parsed) return { ok: false, remote: redactRemote(res.url), reason: `TARGET-UNPARSEABLE:${redactRemote(res.url)}` };
   const wantHost = (opts.host ?? "github.com").toLowerCase();
-  if (parsed.host && parsed.host.toLowerCase() !== wantHost) {
+  // FIXED (ship-gate MEDIUM): the host check was SKIPPED when `parsed.host` was null
+  // (fail-OPEN past the lookalike-host guard). Require a host, compare unconditionally.
+  if (!parsed.host) {
+    return { ok: false, remote: redactRemote(res.url), reason: `TARGET-NO-HOST:${redactRemote(res.url)}` };
+  }
+  if (parsed.host.toLowerCase() !== wantHost) {
     return { ok: false, remote: redactRemote(res.url), reason: `TARGET-HOST-MISMATCH:${parsed.host} != ${wantHost}` };
   }
   const ok = parsed.owner.toLowerCase() === opts.owner.toLowerCase()

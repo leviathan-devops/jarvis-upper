@@ -1196,3 +1196,37 @@ directory-named SPEC.md.
 
 **ANCHORS:** src/target-guard.ts:42, src/runtime.ts:139, src/verdict.ts:212,
 gates/rt-preflight.sh:70.
+
+## EN-193 - W8 THE SHIP-GATE MEDIUM/LOW SWEEP (GATE PASS; 7 medium + 7 low, 4 introduced by W7) (2026-09-24T19:03:41Z)
+
+**The W7 re-run returned GATE: PASS (0 critical/high)** but surfaced 14 medium/low findings —
+four of them NEW, introduced by W7's own fixes. The insanely-great bar: all 14 fixed.
+
+| id | the defect | the fix | the revert-proof |
+|---|---|---|---|
+| kick-adapter:39 | the spawn prompt reused the SEND 4096 cap (SpawnSessionRequest.prompt is 16384, openapi.yaml:11860) | per-route caps SEND_MAX/SPAWN_MAX + a clamp helper | test_spawn_prompt_cap_is_16384: 0 pass / 1 fail without, 1 pass with |
+| kick-adapter:20 | a transport failure collapsed to "not alive" → a DUPLICATE spawn during an outage | a tri-state Liveness; a 404 = dead, a timeout/5xx = unknown | test_kick_liveness_unknown_refuses: 0 pass / 1 fail without, 1 pass with |
+| kick-adapter:40 | attachments SILENTLY DROPPED (dossier bytes never reached the daemon) | send the REAL file bytes in the AttachmentInput shape ({data,mimeType}), a named drop | test_spawn_sends_attachments |
+| adapter-verbs:94 | an unguarded onPartial let a throwing caller discard the resolved rows | try/catch + a named log | (source) |
+| ao-client:62 | a body-read timeout escaped the retry loop (the abort hit the body stream) | read the body INSIDE the guarded attempt | (source) |
+| target-guard:46 | a trailing slash left "r.git" → a VALID remote reported TARGET-MISMATCH | strip trailing slashes before `.git` | test_target_trailing_slash_ok |
+| target-guard:104 | the host check was SKIPPED when host was null (fail-OPEN past the lookalike guard) | require a host, compare unconditionally | test_target_no_host_refuses |
+| runtime:32 | RAIL_MAX_BUF=1000000000 disabled the cap (unbounded buf) | clamp to a 4 MiB ceiling | test_rail_cap_ceiling_is_clamped (a fresh-module-load measurement: 4194304) |
+| runtime:125 | buf.length (UTF-16 units) used as a byte cap | Buffer.byteLength(buf,'utf8') in both the check and the artifact | (source) |
+| runtime:134 | reader.cancel() returns a promise; a sync catch missed the rejection | await it | (source) |
+| verdict:170 | only a falsy jobDir was rejected ("/" → /SPEC.md; whitespace passed) | trim + reject "" and "/" | (source) |
+| verdict:228 | the basename fallback was DEAD code (the union made it unreachable) | a discriminated union; the needle unconditional | (source) |
+| rt-preflight:58 | an EXPLICIT-but-missing UPPER_WORKTREE_ROOT silently disabled the gate | fail closed | measured: the refusal line prints, exit 1 |
+| rt-preflight:78 | an unconditional `shopt -u dotglob` clobbered the CALLER's option state; `basename --` is GNU-only | save/restore; in-shell strip | (source) |
+
+**THE VERIFICATION:** tests/w8_ship_gate_sweep.test.ts 6 pass / 0 fail; the FULL battery
+166 pass / 0 fail (583 expect, 44 files); tsc exit 0; the preflight measured three ways
+(a no-SPEC worktree → exit 1; a missing override → the refusal line).
+
+**THE HONEST NOTE:** revert-proof 1 (the adapter's tri-state collapse) was aimed at the WRONG
+SUBJECT — the test injects deps, so it pins kick.ts, not the adapter. Re-aimed at kick.ts:
+0 pass / 1 fail without the fix. The adapter's own collapse path is unpinned by that test.
+
+**ANCHORS:** src/kick-adapter.ts:20,39,40, src/kick.ts:14, src/adapter-verbs.ts:94,
+ao-client/client.ts:62, src/target-guard.ts:46,104, src/runtime.ts:32,125,134,
+src/verdict.ts:170,228, gates/rt-preflight.sh:58,78.

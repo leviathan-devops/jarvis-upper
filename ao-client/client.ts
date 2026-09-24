@@ -70,7 +70,17 @@ export async function call<T = any>(operationId: string, opts: {
       await sleep(300 * (attempt + 1));
       continue;
     }
-    const text = await res.text();
+    // FIXED (ship-gate MEDIUM): the body read sat OUTSIDE the try, so a timeout that
+    // aborted the BODY stream (not just the headers) rejected with AbortError and escaped
+    // the retry loop entirely. Read it inside the guarded attempt like the fetch.
+    let text: string;
+    try {
+      text = await res.text();
+    } catch (e) {
+      lastErr = e;
+      await sleep(200 * (attempt + 1));
+      continue;
+    }
     let body: any = text;
     try { body = text ? JSON.parse(text) : null; } catch { /* raw */ }
     if (!res.ok) throw new ApiError(res.status, body);

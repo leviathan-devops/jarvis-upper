@@ -8,8 +8,12 @@ import { dossierSha16 } from "./dossier";
 // id unique regardless of the clock.
 const kickSuffix = (): string => Math.random().toString(36).slice(2, 10);
 
+/** FIXED (ship-gate MEDIUM): liveness is TRI-STATE. `unknown` (a transport failure) is
+ *  NOT `dead` — collapsing them spawned a duplicate session during a daemon outage. */
+export type Liveness = "alive" | "dead" | "unknown";
+
 export interface KickDeps {
-  sessionAlive: (sessionId: string) => Promise<boolean>;
+  sessionAlive: (sessionId: string) => Promise<Liveness>;
   send: (sessionId: string, brief: string) => Promise<{ ok: boolean }>;
   spawn: (input: { projectId: string; brief: string; attachments: string[] }) => Promise<{ sessionId: string }>;
   openBranch: (bugId: string) => Promise<{ ok: boolean }>;
@@ -54,8 +58,15 @@ export async function kick(
   let origin: unknown;
   try { origin = JSON.parse(oj); } catch { throw new Error('DOSSIER-CORRUPT:origin.json'); }
   const brief = fixBrief(input.bugId, input.originCommit, origin);
-  const mode: KickMode = input.mode
-    ?? ((input.originSession && await deps.sessionAlive(input.originSession).catch(() => false)) ? "live" : "spawn");
+  // FIXED (ship-gate MEDIUM): an UNKNOWN liveness REFUSES rather than falling through to
+  // spawn — a transient daemon outage must not manufacture a second session for one bug.
+  let mode: KickMode;
+  if (input.mode) mode = input.mode;
+  else {
+    const alive: Liveness = input.originSession ? await deps.sessionAlive(input.originSession) : "dead";
+    if (alive === "unknown") throw new Error("KICK-LIVENESS-UNKNOWN");
+    mode = alive === "alive" ? "live" : "spawn";
+  }
   if (mode === "live") {
     const sessionId = input.originSession;
     if (!sessionId) throw new Error('KICK-NO-SESSION');

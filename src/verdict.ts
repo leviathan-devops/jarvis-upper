@@ -167,7 +167,9 @@ export function artifactBoundToHead(jobDir: string, headSha: string): { ok: bool
 export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // FIXED (ship-gate LOW): an EMPTY jobDir made the SPEC path "/SPEC.md" (the filesystem
   // root). Refuse immediately instead of reading an unrelated file.
-  if (!opts.jobDir) {
+  // FIXED (ship-gate LOW): only a FALSY jobDir was rejected — "/" still built "/SPEC.md"
+  // (the filesystem root) and a whitespace-only value passed then failed the read.
+  if (!opts.jobDir || opts.jobDir.trim() === "" || opts.jobDir.trim() === "/") {
     return { verdict: "UNVERIFIED", sources: { fence: { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: "NO-JOB-DIR" }, review: { ran: false, verdict: null, targetSha: null, harness: null, reason: "NO-JOB-DIR" } }, reasons: ["NO-JOB-DIR"] };
   }
   const fenceBin = opts.fenceBin ?? FENCE_DEFAULT;
@@ -212,7 +214,7 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // the row read null, and (before the null-refusal fix above) a missing row silently
   // read FENCE-GREEN. The needle is now the SPEC's `job:` value, falling back to the
   // basename when no SPEC is readable.
-  const specRead = ((): { job?: string; failure?: string } => {
+  const specRead = ((): { job: string } | { failure: string } => {
     try {
       const sp = readFileSync(`${opts.jobDir}/SPEC.md`, "utf8");
       const m = sp.match(/^\s*job:\s*(\S+)\s*$/m);
@@ -225,7 +227,9 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // REFUSAL below (when the needle yields no row), never in a green case.
   // FIXED (ship-gate LOW): when the SPEC is unreadable, do NOT populate ledgerVerdict from a
   // GUESSED needle (it is misleading for post-mortem) — the refusal below carries the cause.
-  const row = specRead.failure ? null : ledgerRowFor(ledgerPath, specRead.job ?? opts.jobDir.split("/").filter(Boolean).pop());
+  // FIXED (ship-gate LOW): the basename RHS was DEAD — `specRead` is `{job}` XOR `{failure}`,
+  // so the `??` never evaluated. The discriminated union makes the needle unconditional.
+  const row = "failure" in specRead ? null : ledgerRowFor(ledgerPath, specRead.job);
   fence.ledgerVerdict = row?.verdict ?? null;
   // ADJUDICATED (ocr audit high, two-sided — REJECTED): the finding claimed "the
   // ledger invariant SHA is never bound". MEASURED: the ledger row's 16-hex
@@ -246,7 +250,7 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     // basename = the SEAT name). A guessed needle that happens to match SOME row would read
     // green off the wrong job's row — so the failure is a REFUSAL, not a note. (In a real
     // green run the fence READ the SPEC to adjudicate, so a failure here is a TOCTOU/stub.)
-    else if (specRead.failure) fence.reason = `FENCE-LEDGER-NEEDLE:${specRead.failure}`;
+    else if ("failure" in specRead) fence.reason = `FENCE-LEDGER-NEEDLE:${specRead.failure}`;
     else if (fence.ledgerVerdict !== "PASS") fence.reason = `FENCE-LEDGER:${fence.ledgerVerdict ?? "NO-ROW"}`;
     // The ledger's sha16 is the SPEC's INVARIANT HASH, not a git sha — they are
     // different objects. The honest binding is: the adjudicated JOB DIR must be a

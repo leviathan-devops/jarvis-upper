@@ -24,7 +24,7 @@ function deps(over: Partial<Parameters<typeof kick>[1]> = {}) {
   return {
     sent, spawned,
     base: {
-      sessionAlive: async () => true,
+      sessionAlive: async () => "alive" as const,
       send: async (s: string) => { sent.push(s); return { ok: true }; },
       spawn: async (i: any) => { spawned.push(i); return { sessionId: "fix-1" }; },
       openBranch: async () => ({ ok: true }),
@@ -51,7 +51,7 @@ test("kick_fallback: live session delivers brief", async () => {
 test("kick_fallback: dead session spawns citing commit sha", async () => {
   const db = openStore(":memory:");
   await seeded(db, "k-dead");
-  const d = deps({ sessionAlive: async () => false });
+  const d = deps({ sessionAlive: async () => "dead" as const });
   const r = await kick(db, d.base, { bugId: "k-dead", projectId: "p", originSession: "s-9", originCommit: "deadbeef01", dossierPath: `${ROOT}/dossiers/k-dead` });
   expect(r.mode).toBe("spawn");
   expect(r.target).toBe("fix-1");

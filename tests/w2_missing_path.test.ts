@@ -122,7 +122,7 @@ test("test_kick_direct_records_the_kick", async () => {
 
   const db = openStore();
   const res = await kick(db, {
-    sessionAlive: async () => false,
+    sessionAlive: async () => "dead" as const,
     send: async () => ({ ok: false }),
     spawn: async () => ({ sessionId: "spawned-x" }),
     openBranch: async () => ({ ok: true }),

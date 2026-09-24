@@ -56,10 +56,19 @@ fi
 # factory/fence2=failure forever with nobody told why. A worktree that exists but
 # carries no fence job is a NAMED refusal. (No worktrees yet = nothing to fence.)
 WORKTREE_ROOT="${UPPER_WORKTREE_ROOT:-$HOME/.ao/data/worktrees/jarvis-upper}"
-if [ -d "$WORKTREE_ROOT" ]; then
+# FIXED (ship-gate MEDIUM): an EXPLICIT-but-missing override silently disabled the gate —
+# `UPPER_WORKTREE_ROOT=/nonexistent` took the else branch and passed as "nothing to fence
+# yet" while real worktrees under the default root went unfenced. Fail closed.
+if [ -n "${UPPER_WORKTREE_ROOT:-}" ] && [ ! -d "$UPPER_WORKTREE_ROOT" ]; then
+  echo "REJECT(G-RT): UPPER_WORKTREE_ROOT=$UPPER_WORKTREE_ROOT does not exist — refusing to PASS with an unverifiable worktree root" >&2
+  FAIL=1
+elif [ -d "$WORKTREE_ROOT" ]; then
   WT_N=0; WT_NO_SPEC=0
   # FIXED (ship-gate LOW): the `*/` glob skips dot-directories, so a hidden worktree
   # bypassed the gate while still being adjudicated. dotglob makes the glob complete.
+  # FIXED (ship-gate LOW): an unconditional `shopt -u` clobbered the CALLER's option state.
+  # Save + restore it.
+  DOTGLOB_WAS=$(shopt -p dotglob 2>/dev/null || true)
   shopt -s dotglob 2>/dev/null || true
   for wt in "$WORKTREE_ROOT"/*/; do
     [ -d "$wt" ] || continue
@@ -70,12 +79,14 @@ if [ -d "$WORKTREE_ROOT" ]; then
     # FIXED (ship-gate LOW): -r/-s are true for a DIRECTORY, so require -f too; and
     # `basename --` stops a dash-prefixed name being parsed as an option.
     if [ ! -f "$wt/SPEC.md" ] || [ ! -r "$wt/SPEC.md" ] || [ ! -s "$wt/SPEC.md" ]; then
-      echo "REJECT(G-RT): the worktree $(basename -- "$wt") has NO readable, non-empty SPEC.md — the fence would answer FENCE-NO-SPEC on every PR" >&2
+      # FIXED (ship-gate LOW): `basename --` is GNU-only (fails on BSD/macOS). Strip in-shell.
+      WT_NAME="${wt%/}"; WT_NAME="${WT_NAME##*/}"
+      echo "REJECT(G-RT): the worktree $WT_NAME has NO readable, non-empty SPEC.md — the fence would answer FENCE-NO-SPEC on every PR" >&2
       echo "  fix: write a SPEC.md naming a COMMITTED artifact (see .trident/remediation-pkg/)" >&2
       WT_NO_SPEC=$((WT_NO_SPEC + 1))
     fi
   done
-  shopt -u dotglob 2>/dev/null || true
+  if [ -n "$DOTGLOB_WAS" ]; then eval "$DOTGLOB_WAS"; else shopt -u dotglob 2>/dev/null || true; fi
   if [ "$WT_NO_SPEC" -gt 0 ]; then
     FAIL=1
   elif [ "$WT_N" -eq 0 ]; then

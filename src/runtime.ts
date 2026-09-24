@@ -31,7 +31,10 @@ export const DAEMON = process.env.AO_DAEMON ?? "http://localhost:3001";
 // vanished and the buffer grew unbounded). Same guard as parseTickMs.
 export const RAIL_MAX_BUF = ((): number => {
   const n = Math.floor(Number(process.env.RAIL_MAX_BUF ?? 65536));
-  return Number.isFinite(n) && n > 0 ? n : 65536;
+  if (!Number.isFinite(n) || n <= 0) return 65536;
+  // FIXED (ship-gate LOW): NO upper bound — RAIL_MAX_BUF=1000000000 disabled the cap and
+  // let `buf` grow unbounded before the check fired. Clamp to a sane ceiling.
+  return Math.min(n, 4 * 1024 * 1024);
 })();
 
 // FIXED 2026-09-23 (ocr round-4 HIGH): Number("")===0 / Number("abc")===NaN —
@@ -122,7 +125,9 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
       const { done, value } = result;
       if (done) break;
       buf += dec.decode(value, { stream: true });
-      if (buf.length > RAIL_MAX_BUF) {
+      // FIXED (ship-gate LOW): `buf.length` counts UTF-16 code units, not wire bytes, so a
+      // non-ASCII stream hit the "memory" limit at a different point than the cap implies.
+      if (Buffer.byteLength(buf, "utf8") > RAIL_MAX_BUF) {
         // FIXED (red-team audit W-12/R11): the old `break` abandoned the rest of
         // the stream and then parsed the TRUNCATED buffer as if it were a clean
         // capture — the cut frame was silently dropped and events past the window
@@ -131,7 +136,9 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
         break;
       }
     }
-    try { reader.cancel(); } catch { /* stream already closed */ }
+    // FIXED (ship-gate LOW): reader.cancel() returns a promise; a sync try/catch does not
+    // catch an async rejection (an unhandled rejection). Await it, as the timeout branch does.
+    try { await reader.cancel(); } catch (e) { console.error(`rail-cancel:${String(e).slice(0, 60)}`); }
     // FIXED (ship-gate MEDIUM): parseSse's flush() emits the final PARTIAL frame, so a
     // torn buffer ran reducers on half an event and advanced rail_seq past it. When the
     // capture is truncated, cut back to the last COMPLETE frame boundary ("\n\n").
@@ -159,7 +166,7 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
       // the wire-capture artifact: proof the adapter carried REAL bytes
       // FIXED (ship-gate LOW): the truncation flag is recorded IN the artifact, so a
       // post-mortem reader can tell a partial window from a complete one.
-      await Bun.write(wireCapturePath(root), JSON.stringify({ ts: new Date().toISOString(), parsedFrames: parsed.length, newlyProcessed: frames.length, bytes: buf.length, lastSeq, ...(truncated ? { truncated: true, cap: RAIL_MAX_BUF } : {}) }, null, 2) + "\n");
+      await Bun.write(wireCapturePath(root), JSON.stringify({ ts: new Date().toISOString(), parsedFrames: parsed.length, newlyProcessed: frames.length, bytes: Buffer.byteLength(buf, "utf8"), lastSeq, ...(truncated ? { truncated: true, cap: RAIL_MAX_BUF } : {}) }, null, 2) + "\n");
     }
     // FIXED (red-team audit W-12): a truncated capture is a NAMED failure — the
     // caller must not treat a partial read as a clean one.

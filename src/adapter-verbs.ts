@@ -91,7 +91,11 @@ export async function listPrsFromAo(opts: {
     }
     if (errors.length > 0) { allErrors.push(...errors); console.error(JSON.stringify({ sync: "PARTIAL", errors })); }
   }
-  if (allErrors.length > 0) opts.onPartial?.(allErrors);
+  // FIXED (ship-gate MEDIUM): an UNGUARDED onPartial let a throwing/rejecting caller
+  // discard the rows that DID resolve. The callback is best-effort; its failure is named.
+  if (allErrors.length > 0) {
+    try { opts.onPartial?.(allErrors); } catch (e) { console.error(`onPartial-threw:${String(e).slice(0, 80)}`); }
+  }
   return out;
 }
 

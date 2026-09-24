@@ -16,7 +16,7 @@ test("dossier_hash: edited dossier.md after manifest refuses", async () => {
   // tamper: rewrite dossier.md after manifest was stamped
   await Bun.write(`${root}/dossiers/k-t/dossier.md`, "# BUG\nTAMPERED\n");
   const deps = {
-    sessionAlive: async () => true,
+    sessionAlive: async () => "alive" as const,
     send: async () => ({ ok: true }),
     spawn: async () => ({ sessionId: "x" }),
     openBranch: async () => ({ ok: true }),

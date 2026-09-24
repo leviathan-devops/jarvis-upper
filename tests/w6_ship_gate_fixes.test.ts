@@ -28,7 +28,7 @@ test("test_kick_spawn_matches_the_openapi_shape", async () => {
   expect(body.attachments).toBeUndefined();                     // never a wrong-shaped string[]
 
   // sessionAlive checks the FIELD (getSession 200 = { session })
-  expect(await deps.sessionAlive("s")).toBe(true);
+  expect(await deps.sessionAlive("s")).toBe("alive");
   // send uses `message` (SendSessionMessageRequest.message)
   await deps.send("s", "hi");
   expect(calls.find((c) => c.op === "sendSessionMessage")!.opts.body!.message).toBe("hi");
@@ -63,7 +63,9 @@ test("test_partial_sync_is_observable", async () => {
 // ── HIGH: the env parses are validated (never 0/NaN) ──
 test("test_env_parses_are_validated", async () => {
   const runtimeSrc = await Bun.file(new URL("../src/runtime.ts", import.meta.url)).text();
-  expect(runtimeSrc).toContain("Number.isFinite(n) && n > 0 ? n : 65536");   // RAIL_MAX_BUF
+  // UPDATED (W8-9): the guard now ALSO clamps an absurd ceiling — assert the current text.
+  expect(runtimeSrc).toContain("if (!Number.isFinite(n) || n <= 0) return 65536;");   // RAIL_MAX_BUF
+  expect(runtimeSrc).toContain("Math.min(n, 4 * 1024 * 1024)");                      // the ceiling
   const clientSrc = await Bun.file(new URL("../ao-client/client.ts", import.meta.url)).text();
   expect(clientSrc).toContain("Number.isFinite(n) && n > 0 ? n : 8000");     // AO_CALL_TIMEOUT_MS
   // the modules export sane values under a garbage env
