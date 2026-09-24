@@ -824,3 +824,15 @@ ANCHORS: .githooks/pre-commit:10, .githooks/pre-commit:47, .githooks/pre-commit:
 **THE LAW:** a check run is keyed by COMMIT; a check SUITE is keyed by the EVENT. A re-run updates an EXISTING suite and therefore cannot supersede a newer suite's failure. Only a NEW EVENT (a push, or a close/reopen) creates a new suite and wins.
 
 **ANCHORS:** .github/workflows/gates.yml:1 (on: pull_request), the runs 36004298935 (PR#4 failure 13:14) / 35992297714 (PR#2 re-run, suite 11:18) / 36005532793 (PR#2 fresh, suite 13:25).
+
+## EN-173 - THE VERDICT MODULE'S MERGE-PATH FINDINGS (2 high) (2026-09-24T13:31:11Z)
+
+**THE FINDINGS (ocr audit high x2):**
+1. **verdict.ts:83** — the ledger row matched on `parsed.job === needle` FIRST but fell back to a raw SUBSTRING `lines[i].includes(needle)` when the row carried no string `job` — so a malformed row (or a generic needle) could match on its `evidence`/`seat` text and attribute ANOTHER job's PASS to this head.
+2. **verdict.ts:134** — the byte-identity drift check ran ONLY for an ABSOLUTE artifact path (`m[1].startsWith("/")`), so the normal RELATIVE SPEC form (`artifact: dist/out.js`) skipped it entirely and passed on HEAD+clean alone — a drifted/rewritten artifact read green.
+
+**THE FIXES:** the row match is now EXACT on the `job` field only (a row without a string `job` is not a row for this job); the artifact path is RESOLVED against the worktree root (absolute or relative) and the same containment + byte-identity check runs.
+
+**THE VERIFICATION:** tsc exit 0; bun test 129 pass / 0 fail; the live verify() still reads VERIFIED at c3c3ed0.
+
+**ANCHORS:** src/verdict.ts:79 (the exact job match), src/verdict.ts:136 (the resolved artifact path).

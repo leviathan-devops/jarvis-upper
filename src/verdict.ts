@@ -77,14 +77,15 @@ export function ledgerRowFor(ledgerPath: string, jobNeedle: string | undefined):
   if (jobNeedle === undefined) return null;
   const lines = readFileSync(ledgerPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
   for (let i = lines.length - 1; i >= 0; i--) {
-    // F28: try exact JSON job-id match first, fallback to substring
+    // FIXED (ocr audit high): the row was matched on `parsed.job === needle`
+    // FIRST but fell back to a raw SUBSTRING `lines[i].includes(needle)` when the
+    // row carried no string `job` — so a malformed row (or a needle like "fence")
+    // could match on its `evidence`/`seat` text and attribute ANOTHER job's PASS to
+    // this head. The match is now EXACT on the `job` field only; a row without a
+    // string `job` is not a row for this job.
     let parsed: { job?: string; verdict?: string; evidence?: string } | null = null;
     try { parsed = JSON.parse(lines[i]); } catch { continue; }
-    if (parsed && typeof parsed.job === 'string') {
-      if (parsed.job !== jobNeedle) continue;
-    } else if (!lines[i].includes(jobNeedle)) {
-      continue;
-    }
+    if (!parsed || typeof parsed.job !== 'string' || parsed.job !== jobNeedle) continue;
     try {
       const row = parsed as { verdict?: string; evidence?: string };
       const ev = row.evidence ?? "";
@@ -131,10 +132,16 @@ export function artifactBoundToHead(jobDir: string, headSha: string): { ok: bool
       const rel = relativePath(resolvePath(top.out), resolvePath(cand));
       return rel === "" || (rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel));
     };
-    if (m && m[1].startsWith("/") && insideWorktree(m[1])) {
-      const rel = m[1].slice(top.out.length + 1);
+    // FIXED (ocr audit high): the byte-identity check ran ONLY for an ABSOLUTE
+    // artifact path (`m[1].startsWith("/")`), so the normal relative SPEC form
+    // (`artifact: dist/out.js`) skipped it entirely and passed on HEAD+clean alone —
+    // a drifted/rewritten artifact read green. The path is now RESOLVED against the
+    // worktree root (absolute or relative) and the same containment + byte check runs.
+    const artifactAbs = m ? (m[1].startsWith("/") ? m[1] : resolvePath(top.out, m[1])) : null;
+    if (artifactAbs && insideWorktree(artifactAbs)) {
+      const rel = relativePath(top.out, artifactAbs);
       const committed = run(["git", "-C", top.out, "show", `HEAD:${rel}`]);
-      const onDisk = readFileSync(m[1], "utf8");
+      const onDisk = readFileSync(artifactAbs, "utf8");
       // FIXED 2026-09-23 (ocr round-4 HIGH): the comment promises a
       // BYTE-IDENTICAL check; a 64-char prefix passed a file that diverged after
       // the prefix. Compare the full content (trailing whitespace tolerated).
