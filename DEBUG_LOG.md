@@ -924,3 +924,20 @@ PROOF: the resolver returned 4 DIFFERENT keys across 4 calls; each alive key (go
 **THE VERIFICATION:** both config files re-read (`default = opencode-go/muse-spark-1.3-contributor:xhigh` in BOTH); the pool snapshot shows 3 ok / 5 dead; a real muse call returns HTTP 200.
 
 **ANCHORS:** jarvis-upper/.omp/config.yml:1, ~/.omp/profiles/jarvis-worker/agent/config.yml:18, ~/.omp/agent/bin/go-key-pool.sh:1, ~/.opencodereview/config.json (muse-go.api_key_cmd).
+
+## EN-180 - THE FALSE "QUOTA EXHAUSTED" GATE (the real reason every audit read BLOCKED) (2026-09-24T15:29:21Z)
+
+**THE OPERATOR'S DEMAND:** "PIN THE MUSE MODEL PERMANENTLY SO IT USES THIS BY DEFAULT" + "there is 0 usage issue with this."
+
+**THE MEASURED TRUTH (three separate defects, all fixed):**
+
+1. **THE MUSE PIN WAS SHADOWED BY THREE LAYERS.** The GLOBAL `~/.omp/agent/config.yml` said muse, but (a) the PROJECT overlay `jarvis-upper/.omp/config.yml` pinned `default/task: poolside/poolside/laguna-s-2.1:high` and routed the muse roles to the FREE zen lane; (b) `~/.omp/profiles/jarvis-worker/agent/config.yml` (every AO worker's profile) pinned the SAME laguna; (c) the ocr lane's `api_key_cmd` was `go-key.sh` = ONE key. FIXED: all three now resolve `opencode-go/muse-spark-1.3-contributor:xhigh` (re-read from BOTH config files; `omp config get modelRoles` in this project confirms it).
+
+2. **THE POOL HAD 8 KEYS AND THE LANE USED 1.** MEASURED: of the pool's 8 keys, only go-1/6/7 answered HTTP 200; go-2..5 = 429; go-8 = 400 — while the pool's own aliveness claimed ALL 8 ok (STALE). FIXED: (a) a NEW rotating resolver `~/.omp/agent/bin/go-key-pool.sh`; (b) the measured-dead keys marked DEAD; (c) the go-session-proxy PATCHED to pool-pick PER REQUEST on `/zen/go` and RETRY ONCE on the next alive key (it previously "kept the caller's key"). PROOF: 6/6 CONCURRENT muse calls -> HTTP 200 (was 429); a long xhigh call -> HTTP 200 in 7.5s.
+
+3. **THE GATE'S QUOTA DETECTOR WAS A FALSE POSITIVE — THE ACTUAL "BLOCKED".** `~/.omp/agent/extensions/qwen-code-audit/index.js:242` ran `/FreeUsageLimitError|Too Many Requests|429|PROVIDER_QUOTA_EXHAUSTED|quota/i` over the ENTIRE stdout+stderr blob. The REVIEW'S OWN PROSE contains "HTTP-401/403/**429**/5xx" and "**quota**", so a **SUCCESSFUL** scan (ocr's `session_end` read `llm_failures: 0`) was reported as `GATE: BLOCKED (PROVIDER_QUOTA_EXHAUSTED)`. FIXED: a COMPLETED scan (`"llm_failures": 0`) SHORT-CIRCUITS the check, and otherwise only the PROVIDER's own markers count (GoUsageLimitError, rate_limit_exceeded, `-> 429`, HTTP 429) after stripping the quoted content fields.
+**PROOF (both ways):** the real failing blob -> the OLD detector fires, the NEW one does NOT; a real provider 429 -> the NEW one FIRES. And the LIVE TOOL now returns a REAL verdict: `GATE: FAIL (0 critical, 1 high)` instead of the false BLOCKED.
+
+**THE OPERATOR WAS RIGHT:** there was no usage issue — the lane was healthy (0 proxy 429s in the window) and the gate was lying.
+
+**ANCHORS:** jarvis-upper/.omp/config.yml:1, ~/.omp/profiles/jarvis-worker/agent/config.yml:18, ~/.omp/agent/bin/go-key-pool.sh:1, ~/.opencodereview/config.json (muse-go.api_key_cmd), OPENCODE_WORKSPACE/.mimocode/go-session-proxy.mjs (the GO pool rotation), ~/.omp/agent/extensions/qwen-code-audit/index.js:242 (the detector).

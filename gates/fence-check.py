@@ -2,14 +2,22 @@
 """fence-check.py — Plan B spec-gate helper (CI step: `python3 gates/fence-check.py <sha>`).
 
 The fence must hold a PASS row for the PR head sha in the verdict ledger.
+
+THE EXIT CONTRACT (each code is DISTINCT — the CI switches on them explicitly):
   exit 0 = a PASS row exists for <sha>   -> FENCE:<sha>:PASS
-         = OR no ledger exists yet       -> FENCE:<sha>:NO-LEDGER-SKIP
-           (nothing to check — a fresh checkout with no verdicts is not a
-           refusal; the ledger is provisioned by fence runs, not by git)
   exit 1 = a ledger exists but holds no PASS row for <sha>
                                      -> FENCE:<sha>:NO-PASS-ROW
-  exit 2 = cannot measure (bad args, or the ledger file is unreadable) —
-           the unmeasured case is never a pass.
+  exit 2 = cannot measure (bad args, or the ledger file is unreadable/unparseable)
+           — the unmeasured case is never a pass.
+  exit 3 = NO LEDGER EXISTS (a fresh CI checkout carries no host ledger)
+                                     -> FENCE:<sha>:NO-LEDGER-SKIP
+           SKIP is a NAMED, ACKNOWLEDGED state, NEVER a silent pass: the CI
+           (.github/workflows/gates.yml) handles 3 explicitly and prints the
+           reason. It was exit 0 before 2026-09-24, which made a skip
+           indistinguishable from a real PASS row to an exit-code-only caller.
+           The fail-closed fence enforcement lives where the ledger EXISTS: the
+           kernel's verify() (a fence PASS row + a head binding) and
+           .githooks/pre-commit (G-SEAL).
 A ledger row counts for <sha> when its verdict is PASS and the first
 |-segment of its evidence field is a prefix of <sha> (the fence records
 16-hex evidence prefixes; CI passes the full 40-hex head sha).
