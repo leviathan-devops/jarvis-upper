@@ -154,13 +154,16 @@ export async function verbKick(root: string, arg?: string, mode?: string): Promi
     const m = (mode === "live" || mode === "spawn" || mode === "direct") ? mode : undefined;
     const res = await kick(db, daemonKickDeps({ cwd: root }), {
       bugId: arg,
-      projectId: process.env.UPPER_PROJECT_ID || "jarvis-upper",   // FIXED: || so "" falls back
+      // FIXED (ship gate LOW): `||` fixes "" but "   " is truthy — trim then fall back.
+      projectId: (process.env.UPPER_PROJECT_ID ?? "").trim() || "jarvis-upper",
       originSession: bug.origin_session,
       originCommit: bug.origin_commit ?? "unknown",
       dossierPath: bug.dossier_path,
       mode: m,
     });
-    return { code: 0, out: { ok: true, ...res } };
+    // FIXED (the W20 ship gate LOW): every FAILURE path names the bugId; the success path
+    // did not — a caller could not correlate the output without re-passing the input.
+    return { code: 0, out: { ok: true, bugId: arg, ...res } };
   } catch (e) {
     return { code: 1, out: { ok: false, refused: "KICK-FAILED", bugId: arg, error: String(e).slice(0, 140) } };
   } finally { db.close(); }

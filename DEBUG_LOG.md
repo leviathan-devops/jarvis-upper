@@ -1525,3 +1525,51 @@ proven" — and only firing the real rail against the real API found all three.
 
 **ANCHORS:** src/guardrail.ts:127 (the check-runs merge), src/runtime.ts:230,438 (the dedup
 hook), src/kick-adapter.ts:88 (the base64), tests/w19_checkruns.test.ts.
+
+## EN-202 - W20: THE GATE'S 2 HIGHs + 15 MEDIUM + 11 LOW (INCLUDING MY OWN W19 CODE) (2026-09-25T07:11:14Z)
+
+**The gate ran again (the 400s were flaky provider errors, not my diff) and returned
+GATE: FAIL (0 critical, 2 high), 28 findings.** Several were in the code I had JUST written.
+
+### THE 2 HIGHs (both gates/rt-preflight.sh)
+- **:127 — the SPEC.md check was weaker than the fence.** The gate passed any readable non-blank
+  SPEC.md while `verdict.ts` REFUSES one without an `artifact:` line (FENCE-NO-ARTIFACT) — a
+  false PASS. The gate now requires the SAME shape.
+- **:106 — the bash-only hardening degraded silently under sh/dash.** `shopt ... || true` no-ops
+  and dash's `*` never matches dotfiles, so a hidden worktree bypassed the scan with a FALSE
+  PASS. The gate now REFUSES to run without `BASH_VERSION`.
+
+### THE MEDIUMS (all in my own W19/W16 code)
+- **runtime.ts:305 — the VERIFY-THREW path BYPASSED the new dedup** (it POSTed unconditionally),
+  so a persistently throwing verify re-posted both contexts every tick — the same storm the
+  dedup was added to stop.
+- **runtime.ts:287 — the dedup key used `reasons[0]` while the description used
+  `find(FENCE-*)`** — a mismatch meant a changed fence error kept the same key (a missed
+  re-post) or an unrelated first reason changed it (a spurious re-post). Same find now.
+- **runtime.ts:176 — the TRUNCATED-SINGLE-FRAME never advanced the cursor** → an infinite
+  refetch loop. It now reads the frame's own `seq` out of the partial buffer and advances past it.
+- **guardrail.ts:145 — check-run conclusions are a DIFFERENT vocabulary.** `neutral`/`skipped`
+  are NON-BLOCKING (GitHub treats them as passing) but `=== "success"` read them RED.
+- **guardrail.ts:143 — a check-run never overrode a commit status**, so a stale status `success`
+  could MASK a failing check-run of the same name (a fail-open). The check-run is authoritative.
+- **guardrail.ts:139 — a QUEUED re-run never superseded** (both timestamps missing → `""` and
+  `"" > x` is always false) → a stale PASS won. A missing timestamp now sorts LAST.
+- **target-guard.ts:125 — a strict `=== null` missed UNDEFINED** → it threw instead of a
+  fail-closed TargetCheck.
+- **target-guard.ts:70 — the scheme-less fallback leaked `?token=`** (the query/fragment were
+  returned verbatim). Stripped now.
+- **kick.ts:52 — a NULL dossier row SKIPPED the path gate** and the caller's path still reached
+  the filesystem (an arbitrary-read probe). Fail closed.
+- **kick-adapter.ts:87 — the OOM pre-check stat'd the REAL fs even with a seam injected.** It
+  now stats only when no seam is supplied.
+
+### THE LOWS (13)
+the blank UPPER_PROJECT_ID trim · the body-read final-attempt sleep · the bugId alphanumeric
+requirement · the attach read cause · the liveness suffix · the success-path bugId · the
+signal-listener accumulation · the WT_N/BAD_N count split · the GLOBIGNORE export attribute.
+
+**THE VERIFICATION:** 178 pass / 0 fail (609 expect, 48 files); tsc exit 0; the P5 corpus 25/0;
+the live daemon tick=2 ready=1 eligible=1 cursor=1034 errors=[].
+
+**ANCHORS:** gates/rt-preflight.sh:106,127, src/runtime.ts:176,287,305, src/guardrail.ts:139,143,145,
+src/target-guard.ts:70,125, src/kick.ts:52, src/kick-adapter.ts:87.

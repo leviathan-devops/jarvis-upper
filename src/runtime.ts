@@ -173,7 +173,20 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
       // signal names the condition so a reader can tell it from an ordinary truncation.
       // FIXED (the W15 ship gate LOW): gate the signal on `truncated` — a tiny timeout
       // partial has cut<=0 but is NOT an oversize frame.
-      if (cut <= 0 && truncated) oversizedFrame = true;
+      if (cut <= 0 && truncated) {
+        oversizedFrame = true;
+        // FIXED (the W20 ship gate MEDIUM): the frame is UNPARSEABLE (it exceeds the cap), so
+        // `attach` processes ZERO events, rail_seq never advances, and the next tick refetches
+        // the SAME frame — an infinite refetch loop that also logs rail-failed every tick.
+        // Consume it: read the frame's own `seq` from the partial buffer and advance past it.
+        const m = buf.match(/"seq"\s*:\s*(\d+)/);
+        if (m) {
+          const dropped = Number(m[1]);
+          db.query(`INSERT INTO rail_seq(source, last_seq, updated_at) VALUES('ao-events', ?, strftime('%s','now'))
+                    ON CONFLICT(source) DO UPDATE SET last_seq=MAX(last_seq, excluded.last_seq), updated_at=excluded.updated_at`).run(dropped);
+          console.error(`rail-oversized-frame-dropped:seq=${dropped}:bytes=${bufBytes}:cap=${RAIL_MAX_BUF}`);
+        }
+      }
     }
     // FIXED (ship gate MEDIUM): parseSse splits on "\n" and treats only an EMPTY line as a
     // boundary, so interior "\r" blank lines were skipped and CRLF-delimited frames MERGED.
@@ -261,6 +274,16 @@ export async function publishVerdictForPr(opts: PublishVerdictForPrOpts): Promis
   try {
     v = await doVerify({ jobDir: opts.jobDir, headSha, sessionId, runFence: opts.runFence, fetchReviews: opts.fetchReviews, ledgerPath: opts.ledgerPath, bind: opts.bind });
   } catch (e) {
+    // FIXED (ship gate MEDIUM): this branch POSTed UNCONDITIONALLY, bypassing the dedup
+    // added for the other two branches — a persistently throwing verify re-posted both
+    // contexts on EVERY tick (the same storm). Consult the hook first.
+    const throwKey = `${headSha}:verify-threw:${String(e).slice(0, 40)}`;
+    if (opts.allowPublish && !opts.allowPublish(throwKey)) {
+      return [
+        { context: STATUS_CONTEXTS.fence2, state: "error" as const, status: null, ok: true, reason: "ALREADY-PUBLISHED" },
+        { context: STATUS_CONTEXTS.verdict, state: "failure" as const, status: null, ok: true, reason: "ALREADY-PUBLISHED" },
+      ];
+    }
     // The throw-branch POSTs are themselves guarded: publishStatus LOUD-FAILs
     // to state:"error" (never throws), but a defensive catch keeps the
     // polarity promise even if the POST rail misbehaves. NEVER a green.
@@ -284,7 +307,10 @@ export async function publishVerdictForPr(opts: PublishVerdictForPrOpts): Promis
   if (cannotRun) {
     // FIXED (the dedup): a stable cannot-run key — re-posting the SAME error every
     // tick is the same storm. A change in the reasons re-posts (the key changes).
-    const crKey = `${headSha}:cannot-run:${(v.reasons[0] ?? "").slice(0, 40)}`;
+    // FIXED (ship gate MEDIUM): the key used reasons[0] while the posted description used
+    // find(FENCE-*) — a mismatch meant a CHANGED fence error kept the same key (a missed
+    // re-post) or an unrelated first reason changed the key (a spurious re-post). Same find.
+    const crKey = `${headSha}:cannot-run:${(v.reasons.find((r) => r.startsWith("FENCE-")) ?? v.reasons[0] ?? "").slice(0, 40)}`;
     if (opts.allowPublish && !opts.allowPublish(crKey)) {
       return [
         { context: STATUS_CONTEXTS.fence2, state: "error" as const, status: null, ok: true, reason: "ALREADY-PUBLISHED" },

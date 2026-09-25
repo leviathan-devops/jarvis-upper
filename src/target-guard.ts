@@ -67,9 +67,12 @@ export function redactRemote(url: string): string {
     // FIXED (the W14 ship gate LOW): redacting ANY scp user mangled the conventional
     // `git@github.com:o/r` into `<redacted>@github.com:o/r`. Redact only a `user:PASS@`
     // (a colon = a secret); keep a bare `user@`.
+    // FIXED (ship gate MEDIUM): the fallback returned the query/fragment VERBATIM, so a
+    // scheme-less remote like `github.com/o/r?token=SECRET` leaked the token. Strip them.
     return url
-      .replace(/^([^@/\s:]+:[^\s]+)@/, "<redacted>@")     // scp: user:PASS@host: (greedy to the LAST @)
-      .replace(/\/\/[^/@\s:]*:[^/@\s]*@/g, "//<redacted>@"); // https: //user:PASS@host
+      .replace(/^([^@/\s:]+:[^\s]+)@/, "<redacted>@")     // scp: user:PASS@host:
+      .replace(/\/\/[^/@\s:]*:[^/@\s]*@/g, "//<redacted>@") // https: //user:PASS@host
+      .replace(/[?#].*$/, "");                              // the query + fragment (a token carrier)
   }
 }
 
@@ -123,6 +126,10 @@ export function targetMatchesRemote(opts: {
   // FIXED (the W15 ship gate LOW): `!res.url` conflated null (no origin -> allow) with ""
   // (a cleared origin -> must refuse). Check for null EXPLICITLY.
   if (res.url === null) return { ok: true, remote: "(no remote)" };
+  // FIXED (ship gate MEDIUM): a strict `=== null` missed UNDEFINED (a custom readRemote
+  // returning {isRepo:true} with no url) — it fell through to parseRemote(undefined) which
+  // THREW instead of returning a fail-closed TargetCheck.
+  if (typeof res.url !== "string") return { ok: false, remote: "", reason: "TARGET-EMPTY-URL" };
   if (res.url === "") return { ok: false, remote: "", reason: "TARGET-EMPTY-URL" };
   // FIXED (the W14 ship gate LOW): redactRemote ran twice per branch — hoist it.
   const safe = redactRemote(res.url);

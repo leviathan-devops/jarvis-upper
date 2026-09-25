@@ -136,13 +136,23 @@ export async function guardrailRemote(
       const byName = new Map<string, { conclusion: string | null; at: string }>();
       for (const r of runs) {
         if (typeof r.name !== "string" || r.name.length === 0) continue;
-        const at = r.completed_at ?? r.started_at ?? "";
+        // FIXED (ship gate MEDIUM): with BOTH timestamps missing `at` was "" and `"" > x`
+        // is always false, so a freshly QUEUED re-run never superseded a prior completed run
+        // (a stale PASS won). A missing timestamp sorts LAST (a just-queued run is newest).
+        const at = r.completed_at ?? r.started_at ?? "\uffff";
         const prev = byName.get(r.name);
-        if (!prev || at > prev.at) byName.set(r.name, { conclusion: r.conclusion ?? null, at });
+        if (!prev || at >= prev.at) byName.set(r.name, { conclusion: r.conclusion ?? null, at });
       }
       for (const [name, v] of byName) {
-        // a check run's NAME IS its context name; a null conclusion = still running
-        if (!(name in latest)) latest[name] = v.conclusion ?? "pending";
+        // a check run's NAME IS its context name; a null conclusion = still running.
+        // FIXED (ship gate MEDIUM): check-run conclusions use a DIFFERENT vocabulary than
+        // commit statuses — `neutral`/`skipped` are NON-BLOCKING (GitHub treats them as
+        // passing for required checks), but the later `=== "success"` read them as RED.
+        // FIXED (ship gate MEDIUM): the check-run is AUTHORITATIVE for a CI context — the
+        // old `!(name in latest)` let a stale commit-status `success` MASK a failing
+        // check-run of the same name (a fail-open). The check-run now OVERRIDES.
+        const c = v.conclusion ?? "pending";
+        latest[name] = c === "neutral" || c === "skipped" ? "success" : c;
       }
     }
   } catch { /* best-effort: a failed check-runs read leaves the statuses-only map (fail-closed) */ }

@@ -80,7 +80,7 @@ export async function call<T = any>(operationId: string, opts: {
       text = await res.text();
     } catch (e) {
       lastErr = e;
-      await sleep(200 * (attempt + 1));
+      if (attempt < retries) await sleep(200 * (attempt + 1));   // FIXED: no final-attempt sleep
       continue;
     }
     let body: any = text;

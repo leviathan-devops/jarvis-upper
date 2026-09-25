@@ -49,7 +49,10 @@ export async function kick(
   // check. The row check now runs FIRST.
   const dossierRow = db.query(
     "SELECT dossier_path AS p FROM bug_record WHERE id = ?").get(input.bugId) as { p: string } | null;
-  if (dossierRow && dossierRow.p !== input.dossierPath) throw new Error('DOSSIER-PATH-MISMATCH');
+  // FIXED (ship gate MEDIUM): a NULL row (a concurrent delete / a race) SKIPPED the gate and
+  // the caller-supplied path still reached the filesystem (an arbitrary-read probe). Fail closed.
+  if (!dossierRow) throw new Error(`DOSSIER-NO-ROW:${input.bugId}`);
+  if (dossierRow.p !== input.dossierPath) throw new Error('DOSSIER-PATH-MISMATCH');
   const md = await deps.readFile(`${input.dossierPath}/dossier.md`);
   const oj = await deps.readFile(`${input.dossierPath}/origin.json`);
   const sha = dossierSha16(md, oj);
@@ -79,7 +82,9 @@ export async function kick(
       if (typeof lv === "boolean") lv = lv ? "alive" : "dead";   // FIXED: the legacy boolean
       // FIXED (the W17 ship gate MEDIUM): a garbage value must be a STABLE refusal, matching
       // the auto path — not KICK-LIVENESS-<GARBAGE>.
-      if (lv !== "alive" && lv !== "dead" && lv !== "unknown") throw new Error("KICK-LIVENESS-INVALID");
+      // FIXED (the W20 ship gate LOW): the auto path kept the value in the error (the value
+      // IS the diagnosis for a legacy/typo dep); the explicit path dropped it. Both keep it.
+      if (lv !== "alive" && lv !== "dead" && lv !== "unknown") throw new Error(`KICK-LIVENESS-INVALID:${String(lv).slice(0, 32)}`);
       if (lv !== "alive") throw new Error(`KICK-LIVENESS-${lv.toUpperCase()}`);
     }
   }

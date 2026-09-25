@@ -84,8 +84,13 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
           // and byte-size != the JSON-encoded size).
           // FIXED (the W15 ship gate MEDIUM): the whole file was loaded BEFORE the size gate
           // — a huge dossier OOMs before it can be refused. Pre-check the size.
-          try { const sz = Bun.file(p).size; if (sz > ATTACH_MAX) { dropped.push(`${p} (>${ATTACH_MAX}B)`); continue; } }
-          catch (e) { console.error(`kick-attach-stat-failed:${p}:${String(e).slice(0, 60)}`); }
+          // FIXED (the W20 ship gate MEDIUM): the stat read the REAL filesystem even when
+          // opts.readFile supplies the bytes (tests/production could disagree). Only stat when
+          // NO seam is injected — the injected reader's output is bounded below anyway.
+          if (!opts.readFile) {
+            try { const sz = Bun.file(p).size; if (sz > ATTACH_MAX) { dropped.push(`${p} (>${ATTACH_MAX}B)`); continue; } }
+            catch (e) { console.error(`kick-attach-stat-failed:${p}:${String(e).slice(0, 60)}`); }
+          }
           const raw = await (opts.readFile ?? (async (q: string) => await Bun.file(q).text()))(p);
           if (Buffer.byteLength(raw, "utf8") > ATTACH_MAX) { dropped.push(`${p} (>${ATTACH_MAX}B)`); continue; }
           // FIXED (FOUND BY FIRING THE KICK LIVE — the exact gap "test-proven only" hides):
@@ -95,7 +100,7 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
           const data = Buffer.from(raw, "utf8").toString("base64");
           if (Buffer.byteLength(data, "utf8") > ATTACH_MAX) { dropped.push(`${p} (base64 >${ATTACH_MAX}B)`); continue; }
           attachments.push({ data, mimeType: p.endsWith(".json") ? "application/json" : "text/markdown" });
-        } catch { dropped.push(p); }
+        } catch (e) { console.error(`kick-attach-read-failed:${p}:${String(e).slice(0, 60)}`); dropped.push(p); }
       }
       // FIXED (ship gate MEDIUM): a dropped attachment silently degraded the spawn — the
       // session worked from an incomplete dossier with the caller unable to detect it.
@@ -121,7 +126,8 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
       // FIXED (the W15 ship gate MEDIUM): bugId flowed to `git checkout -b fix/<bugId>` with
       // NO validation inside the adapter (it relied solely on verbKick's regex) and the git
       // stderr was DISCARDED. Both fixed.
-      if (!/^[A-Za-z0-9._-]{1,64}$/.test(bugId)) throw new Error(`KICK-BAD-BUG-ID:${String(bugId).slice(0, 32)}`);
+      // FIXED (ship gate LOW): the regex allowed `.`/`..` (a branch `fix/..`). Require an alphanumeric.
+      if (!/^[A-Za-z0-9._-]{1,64}$/.test(bugId) || !/[A-Za-z0-9]/.test(bugId)) throw new Error(`KICK-BAD-BUG-ID:${String(bugId).slice(0, 32)}`);
       const git = (args: string[]): boolean => {
         try {
           const p = Bun.spawnSync(["git", "-C", cwd, ...args], { stderr: "pipe", stdout: "pipe" });

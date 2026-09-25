@@ -85,7 +85,9 @@ test("test_preflight_refuses_no_spec", async () => {
   expect(bad.exitCode).toBe(1);
   expect(bad.stderr.toString()).toContain("FENCE-NO-SPEC");
   // the same tree WITH a SPEC.md -> the fence check passes (exit 0)
-  writeFileSync(join(wt, "no-spec", "SPEC.md"), "# spec\nARTIFACT: src/x.ts\n");
+  // UPDATED (W20, ship gate HIGH): the gate now requires the SAME `artifact:` line the
+  // FENCE requires (verdict.ts) — a readable non-blank SPEC.md alone was a false PASS.
+  writeFileSync(join(wt, "no-spec", "SPEC.md"), "# spec\njob: w2\nartifact: src/x.ts\n");
   expect(run(wt).exitCode).toBe(0);
 });
 

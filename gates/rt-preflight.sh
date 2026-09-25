@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# FIXED (ship gate HIGH): the hardening below is BASH-only (shopt/unset). Under sh/dash
+# every `shopt ... || true` silently no-ops AND dash's `*` never matches dotfiles — so a
+# hidden worktree bypassed the scan with a FALSE PASS. Refuse to run under anything but bash.
+if [ -z "${BASH_VERSION:-}" ]; then
+  echo "REJECT(G-RT): this gate requires bash (BASH_VERSION unset) — refusing to PASS unverified" >&2
+  exit 1
+fi
 # G-RT — the runtime-artifact pre-flight (the common-sense firewall)
 # Prevents: a session proceeding with a dead runtime (3 sessions ran with
 # the AO daemon stopped and the publisher unwired, and nobody noticed).
@@ -88,7 +95,7 @@ elif { [ -e "$WORKTREE_ROOT" ] || [ -L "$WORKTREE_ROOT" ]; } && { [ ! -d "$WORKT
   echo "REJECT(G-RT): the worktree root $WORKTREE_ROOT is not a listable directory — refusing to PASS unverified" >&2
   FAIL=1
 elif [ -d "$WORKTREE_ROOT" ]; then
-  WT_N=0; WT_NO_SPEC=0
+  WT_N=0; WT_NO_SPEC=0; BAD_N=0   # FIXED: non-directories counted separately
   # FIXED (ship-gate LOW): the `*/` glob skips dot-directories, so a hidden worktree
   # bypassed the gate while still being adjudicated. dotglob makes the glob complete.
   # FIXED (ship-gate LOW): an unconditional `shopt -u` clobbered the CALLER's option state.
@@ -114,7 +121,7 @@ elif [ -d "$WORKTREE_ROOT" ]; then
     { [ -e "$wt" ] || [ -L "$wt" ]; } || continue     # the unexpanded literal (an empty root)
     if [ ! -d "$wt" ]; then
       echo "REJECT(G-RT): the worktree entry $wt is not a directory — refusing to PASS unverified" >&2
-      FAIL=1; WT_N=$((WT_N + 1)); continue
+      FAIL=1; BAD_N=$((BAD_N + 1)); continue   # FIXED: a bad entry is not a worktree
     fi
     WT_N=$((WT_N + 1))
     # FIXED (ship-gate MEDIUM): -f was weaker than the fence's own readability check, so an
@@ -124,7 +131,10 @@ elif [ -d "$WORKTREE_ROOT" ]; then
     # `basename --` stops a dash-prefixed name being parsed as an option.
     # FIXED (ship gate LOW): -s passes a whitespace-only file (a single newline). Require
     # non-BLANK content (grep -q for a non-space char), matching the fence's own refusal.
-    if [ ! -f "$wt/SPEC.md" ] || [ ! -r "$wt/SPEC.md" ] || [ ! -s "$wt/SPEC.md" ] || ! grep -q -e '[^[:space:]]' -- "$wt/SPEC.md" 2>/dev/null; then
+    # FIXED (ship gate HIGH): a readable non-blank SPEC.md still PASSed here while the
+    # fence REFUSED it (verdict.ts requires an `artifact:` line + a committed, byte-identical
+    # artifact -> FENCE-NO-ARTIFACT). Require the SAME shape the fence requires.
+    if [ ! -f "$wt/SPEC.md" ] || [ ! -r "$wt/SPEC.md" ] || [ ! -s "$wt/SPEC.md" ] || ! grep -q -e '[^[:space:]]' -- "$wt/SPEC.md" 2>/dev/null || ! grep -qE '^[[:space:]]*artifact:[[:space:]]*[^[:space:]]' -- "$wt/SPEC.md" 2>/dev/null; then
       # FIXED (ship-gate LOW): `basename --` is GNU-only (fails on BSD/macOS). Strip in-shell.
       WT_NAME="${wt%/}"; WT_NAME="${WT_NAME##*/}"
       echo "REJECT(G-RT): the worktree $WT_NAME has NO readable, non-empty SPEC.md — the fence would answer FENCE-NO-SPEC on every PR" >&2
@@ -137,8 +147,10 @@ elif [ -d "$WORKTREE_ROOT" ]; then
   # if the save was empty, so a SOURCED gate never leaks its option state).
   if [ -n "$FAILGLOB_WAS" ]; then eval "$FAILGLOB_WAS"; else shopt -u failglob 2>/dev/null || true; fi
   if [ -n "$NULLGLOB_WAS" ]; then eval "$NULLGLOB_WAS"; else shopt -u nullglob 2>/dev/null || true; fi
-  if [ -n "$GLOBIGNORE_WAS" ]; then export GLOBIGNORE="$GLOBIGNORE_WAS"; fi
-  if [ "$WT_NO_SPEC" -gt 0 ]; then
+  # FIXED (the W20 ship gate LOW): `export` ADDED an attribute the caller may not have had.
+  # A plain assignment (or an unset) restores the attribute too.
+  if [ -n "$GLOBIGNORE_WAS" ]; then GLOBIGNORE="$GLOBIGNORE_WAS"; else unset GLOBIGNORE; fi
+  if [ "$WT_NO_SPEC" -gt 0 ] || [ "$BAD_N" -gt 0 ]; then
     FAIL=1
   elif [ "$WT_N" -eq 0 ]; then
     echo "G-RT: the worktree root exists but holds no session worktree (nothing to fence yet)"

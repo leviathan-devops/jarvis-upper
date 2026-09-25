@@ -81,8 +81,14 @@ export function main(): void {
     console.log(JSON.stringify({ stopped: true, ticks: s.tick, daemonOk: s.daemonOk, status: statusPath(root), log: ticksPath(root) }));
     process.exit(0);
   }
-  process.on("SIGTERM", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
-  process.on("SIGINT", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
+  // FIXED (the W20 ship gate LOW): main() is exported + test-callable, so a second call
+  // ACCUMULATED listeners (a double stop()/exit + a MaxListeners warning). Register once.
+  if (!process.listenerCount("SIGTERM")) {
+    process.on("SIGTERM", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
+  }
+  if (!process.listenerCount("SIGINT")) {
+    process.on("SIGINT", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
+  }
 
   rt.start();
   console.log(JSON.stringify({ started: true, root, tickMs, publisher: TOKEN ? `ARMED:${OWNER}/${REPO}` : "DISARMED:no-token", status: statusPath(root), log: ticksPath(root) }));

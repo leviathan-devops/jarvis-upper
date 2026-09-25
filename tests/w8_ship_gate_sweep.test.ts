@@ -49,7 +49,8 @@ test("test_spawn_sends_attachments", async () => {
   await deps.spawn({ projectId: "p", brief: "b", attachments: [p] });
   const att = calls[0].opts.body?.attachments;
   expect(att?.length).toBe(1);
-  expect(att?.[0].data).toContain("# dossier");
+  // UPDATED (W19, found by firing the kick LIVE): the daemon requires BASE64.
+  expect(Buffer.from(att![0].data, "base64").toString("utf8")).toContain("# dossier");
   expect(att?.[0].mimeType).toBe("text/markdown");
   await Bun.file(p).delete?.();
 });
