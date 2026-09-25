@@ -119,6 +119,33 @@ export async function guardrailRemote(
     // FIRST-wins keeps the newest.
     if (!(r.context in latest)) latest[r.context] = r.state;
   }
+  // FIXED (THE OPERATIONAL GAP — found by driving the kernel end-to-end against the
+  // live daemon): the 6 `gates/*` REQUIRED_CONTEXTS are GitHub **CHECK RUNS** (posted
+  // by Actions), NOT commit statuses. The /statuses endpoint returns ONLY the 2
+  // `factory/*` statuses, so `latest` held 2 of the 8 contexts — every `gates/*` read
+  // REMOTE-GATE-MISSING, `ci_green` was ALWAYS `fail`, and **no PR could ever be
+  // eligible**. The factory could never do its job. Read the check-runs endpoint too.
+  try {
+    const crUrl = `${base}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/commits/${encodeURIComponent(opts.sha)}/check-runs?per_page=100`;
+    const cr = await fetchFn(crUrl, { headers, signal: AbortSignal.timeout(10000) });
+    if (cr.ok) {
+      const j = (await cr.json()) as { check_runs?: { name?: string; conclusion?: string | null; started_at?: string; completed_at?: string | null }[] };
+      const runs = Array.isArray(j.check_runs) ? j.check_runs : [];
+      // A re-run adds a NEW check run for the same name — the LATEST wins (the same
+      // supersession the statuses path handles with FIRST-wins on the newest-first list).
+      const byName = new Map<string, { conclusion: string | null; at: string }>();
+      for (const r of runs) {
+        if (typeof r.name !== "string" || r.name.length === 0) continue;
+        const at = r.completed_at ?? r.started_at ?? "";
+        const prev = byName.get(r.name);
+        if (!prev || at > prev.at) byName.set(r.name, { conclusion: r.conclusion ?? null, at });
+      }
+      for (const [name, v] of byName) {
+        // a check run's NAME IS its context name; a null conclusion = still running
+        if (!(name in latest)) latest[name] = v.conclusion ?? "pending";
+      }
+    }
+  } catch { /* best-effort: a failed check-runs read leaves the statuses-only map (fail-closed) */ }
   const reasons: string[] = [];
   const missing: string[] = [];
   for (const ctx of REQUIRED_CONTEXTS) {

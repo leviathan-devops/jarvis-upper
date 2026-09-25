@@ -1470,3 +1470,58 @@ The ship gate PASSED (0 critical/high). The 11 cheap remaining mediums/lows fixe
 **THE VERIFICATION:** 174 pass / 0 fail (599 expect, 47 files); tsc exit 0.
 **ANCHORS:** src/target-guard.ts:61,130, src/kick.ts:52,82, src/verdict.ts:186,
 ao-client/client.ts:25,79.
+
+## EN-201 - W19: THE OPERATIONAL GAP — FOUND BY DRIVING THE KERNEL END-TO-END LIVE (2026-09-25T06:39:16Z)
+
+**The operator's charge:** the run had NO legal stop until the factory is 100% operational —
+zero open findings, end-to-end demonstrated, the kick rail fired, a PR green->mergeable.
+Driving the kernel against the LIVE daemon + the LIVE GitHub API found THREE real defects that
+**no test could see** (all three were "test-proven only").
+
+### D-1 (CRITICAL, THE OPERATIONAL GAP) — the 6 gates/* contexts are CHECK RUNS, not statuses
+- **The defect:** `guardrailRemote` fetched `/commits/{sha}/statuses` — the COMMIT-STATUS API,
+  which returns only the 2 `factory/*` statuses. The 6 `gates/*` contexts are GitHub **CHECK
+  RUNS** (posted by Actions) at a DIFFERENT endpoint. So `latest` held 2 of 8 contexts, every
+  `gates/*` read REMOTE-GATE-MISSING, `ci_green` was **ALWAYS fail**, and **NO PR could EVER
+  be eligible**. The factory could never do its job — and every unit test passed, because the
+  tests INJECT the fetch and return whatever shape the test author imagined.
+- **Measured:** `eligible: 0` on every tick, forever; `GATE-MISSING:ci_green` on the live PR.
+- **The fix:** merge the `/check-runs` endpoint (the latest run per name wins, so a re-run
+  supersedes).
+- **PROVEN:** the live probe returns `ok: true`, 8/8 contexts, `missing: []`.
+
+### D-2 (HIGH) — the publish dedup was DEAD CODE
+- **The defect:** `lastPublished` was SET on a successful publish but **NEVER READ** — the
+  dedup map was write-only. So the daemon re-posted BOTH `factory/*` contexts on **EVERY 15s
+  tick** — a live POST storm hammering the GitHub API and spamming the PR's status timeline.
+- **Measured:** statuses every 15s (06:28:31, 06:28:46, 06:29:01, ...).
+- **The fix:** an `allowPublish(key)` hook; the tick consults `lastPublished` and records the
+  `<head>:<fence2Ok>:<verdictOk>` key only on a FULL success.
+- **PROVEN:** **GROWTH 0** over 4 ticks (30 -> 30 statuses).
+
+### D-3 (HIGH) — the attachments were not base64
+- **The defect:** the W8 fix sent the dossier bytes as RAW TEXT. `AttachmentInput.data` is
+  **BASE64** — undocumented in openapi.yaml, and the tests injected a fake `callFn` so the
+  real contract was never exercised. Firing the kick live returned:
+  `KICK-SPAWN-FAILED:Error: attachment data is not valid base64`.
+- **The fix:** `Buffer.from(raw, "utf8").toString("base64")`, bounding the ENCODED size.
+- **PROVEN:** the kick then returned `{"ok":true,"mode":"spawn","target":"jarvis-upper-5"}`.
+
+## THE LIVE PROOF (all three, measured this turn)
+```console
+$ cat runtime/status.json   # after the check-runs fix + a promote
+{"tick":14,"daemonOk":true,"prNodes":10,"ready":1,"eligible":1,"planHash":"5d57ef06cef90b7c","errors":[]}
+$ gh api .../commits/<head>/statuses   # FRESH posts from the daemon's own tick
+2026-09-25T06:28:31Z factory/fence2 success "verdict: approved"
+$ gh pr view 2 --json mergeable,reviewDecision
+{"mergeable":"MERGEABLE","reviewDecision":"REVIEW_REQUIRED"}   # the CHECKS ARE GREEN
+$ curl :3001/api/v1/sessions | grep jarvis-upper-5
+jarvis-upper-5 | working                                        # the kick spawned a LIVE worker
+```
+
+**THE LESSON (the exact class the goal's anti-derail names):** a battery that INJECTS its
+transport cannot see a transport contract mismatch. "Test-proven" is not "operationally
+proven" — and only firing the real rail against the real API found all three.
+
+**ANCHORS:** src/guardrail.ts:127 (the check-runs merge), src/runtime.ts:230,438 (the dedup
+hook), src/kick-adapter.ts:88 (the base64), tests/w19_checkruns.test.ts.

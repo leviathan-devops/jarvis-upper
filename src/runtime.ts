@@ -221,6 +221,11 @@ export interface PublishVerdictForPrOpts {
   fetchReviews?: VerifyOpts["fetchReviews"];
   ledgerPath?: string;
   bind?: VerifyOpts["bind"];
+  /** FIXED (THE OPERATIONAL GAP, measured live): the dedup hook. Called with the
+   *  verdict key `<head>:<fence2Ok>:<verdictOk>` AFTER verify, BEFORE any POST.
+   *  Return false to SKIP — the daemon was re-posting both contexts on EVERY tick
+   *  (a live 15s POST storm; `lastPublished` was written but never read). */
+  allowPublish?: (key: string) => boolean;
 }
 
 // W5 — publishVerdictForPr: the verdict -> publisher wire. A REAL verify()
@@ -277,6 +282,15 @@ export async function publishVerdictForPr(opts: PublishVerdictForPrOpts): Promis
   const verdictOk = v.verdict === "VERIFIED";
   const cannotRun = v.sources.fence.ran === false && v.reasons.some((r) => r.startsWith("FENCE-"));
   if (cannotRun) {
+    // FIXED (the dedup): a stable cannot-run key — re-posting the SAME error every
+    // tick is the same storm. A change in the reasons re-posts (the key changes).
+    const crKey = `${headSha}:cannot-run:${(v.reasons[0] ?? "").slice(0, 40)}`;
+    if (opts.allowPublish && !opts.allowPublish(crKey)) {
+      return [
+        { context: STATUS_CONTEXTS.fence2, state: "error" as const, status: null, ok: true, reason: "ALREADY-PUBLISHED" },
+        { context: STATUS_CONTEXTS.verdict, state: "failure" as const, status: null, ok: true, reason: "ALREADY-PUBLISHED" },
+      ];
+    }
     // THE POLARITY LAW, cannot-run branch: the fence never ran, so its state is
     // UNKNOWN — an honest error, never a green and never a mere failure. POST the
     // error context directly, then the red verdict context. Zero success by construction.
@@ -284,6 +298,16 @@ export async function publishVerdictForPr(opts: PublishVerdictForPrOpts): Promis
     const fenceErr = await publishStatus(pubOpts, { context: STATUS_CONTEXTS.fence2, state: "error", description: desc });
     const red = await publishStatus(pubOpts, { context: STATUS_CONTEXTS.verdict, state: "failure", description: "verdict: not approved" });
     return [fenceErr, red].map((r) => r.state === "success" ? { ...r, state: "failure" as const, ok: false, reason: "CANNOT-RUN-MUST-NOT-POST-SUCCESS" } : r);
+  }
+  // FIXED (THE OPERATIONAL GAP, measured live): the dedup — a (pr, head, verdict) is
+  // published ONCE. Posting an unchanged verdict every 15s hammered the GitHub API and
+  // spammed the PR's statuses.
+  const verdictKey = `${headSha}:${fence2Ok}:${verdictOk}`;
+  if (opts.allowPublish && !opts.allowPublish(verdictKey)) {
+    return [
+      { context: STATUS_CONTEXTS.fence2, state: fence2Ok ? "success" as const : "failure" as const, status: null, ok: true, reason: "ALREADY-PUBLISHED" },
+      { context: STATUS_CONTEXTS.verdict, state: verdictOk ? "success" as const : "failure" as const, status: null, ok: true, reason: "ALREADY-PUBLISHED" },
+    ];
   }
   return publishVerdict(pubOpts, {
     fence2Ok,
@@ -431,11 +455,17 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
           const jobDir = typeof publishOpts.jobDirFor === "function" ? publishOpts.jobDirFor(r.id) : publishOpts.jobDir;
           if (!jobDir) return `publish:${r.id}:NO-JOBDIR`;
           try {
-            const results = await publishVerdictForPr({ ...publishOpts, sha: headSha, headSha, sessionId: r.session_id ?? "", jobDir });
-            const bad = results.filter((rr) => !rr.ok);
-            // record the published head ONLY when every context posted (a partial
+            // FIXED (the dedup was DEAD: lastPublished was SET but never READ, so the
+            // daemon re-posted both contexts every tick). The hook now consults it, and
+            // the key (head:fence2Ok:verdictOk) is recorded only on a FULL success.
+            let seenKey: string | null = null;
+            const allowPublish = (key: string) => { seenKey = key; return lastPublished.get(r.id) !== key; };
+            const results = await publishVerdictForPr({ ...publishOpts, sha: headSha, headSha, sessionId: r.session_id ?? "", jobDir, allowPublish });
+            const skipped = results.every((rr) => rr.reason === "ALREADY-PUBLISHED");
+            const bad = results.filter((rr) => !rr.ok && rr.reason !== "ALREADY-PUBLISHED");
+            // record the published key ONLY when every context posted (a partial
             // publish must retry on the next tick, never be marked done)
-            if (bad.length === 0) lastPublished.set(r.id, headSha);
+            if (bad.length === 0 && seenKey && !skipped) lastPublished.set(r.id, seenKey);
             if (bad.length > 0) return `publish:${r.id}:${bad.map((b) => b.reason).join(";").slice(0, 60)}`;
           } catch (e) {
             return `publish:${r.id}:${String(e).slice(0, 60)}`;

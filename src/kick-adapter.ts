@@ -86,10 +86,14 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
           // — a huge dossier OOMs before it can be refused. Pre-check the size.
           try { const sz = Bun.file(p).size; if (sz > ATTACH_MAX) { dropped.push(`${p} (>${ATTACH_MAX}B)`); continue; } }
           catch (e) { console.error(`kick-attach-stat-failed:${p}:${String(e).slice(0, 60)}`); }
-          const data = await (opts.readFile ?? (async (q: string) => await Bun.file(q).text()))(p);
-          // FIXED (the W15 ship gate MEDIUM): String.length is UTF-16 units; the daemon's
-          // limit is BYTES. Measure the wire size.
-          if (Buffer.byteLength(data, "utf8") > ATTACH_MAX) { dropped.push(`${p} (>${ATTACH_MAX}B)`); continue; }
+          const raw = await (opts.readFile ?? (async (q: string) => await Bun.file(q).text()))(p);
+          if (Buffer.byteLength(raw, "utf8") > ATTACH_MAX) { dropped.push(`${p} (>${ATTACH_MAX}B)`); continue; }
+          // FIXED (FOUND BY FIRING THE KICK LIVE — the exact gap "test-proven only" hides):
+          // the live daemon REJECTED the raw bytes with `attachment data is not valid base64`.
+          // AttachmentInput.data is BASE64 (undocumented in openapi.yaml — the RUNTIME is the
+          // authority). The wire size is the ENCODED size, so bound THAT.
+          const data = Buffer.from(raw, "utf8").toString("base64");
+          if (Buffer.byteLength(data, "utf8") > ATTACH_MAX) { dropped.push(`${p} (base64 >${ATTACH_MAX}B)`); continue; }
           attachments.push({ data, mimeType: p.endsWith(".json") ? "application/json" : "text/markdown" });
         } catch { dropped.push(p); }
       }
