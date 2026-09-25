@@ -185,12 +185,16 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // verify(), violating the never-reject contract.
   // FIXED (the W17 ship gate MEDIUM): normalize() throws on an embedded NUL — wrap it.
   let normJobDir = "";
+  let normJobFail = "";   // FIXED (the poolside-lane finding): the cause must survive
   if (typeof opts.jobDir === "string") {
     try { normJobDir = normalize(opts.jobDir.trim()); }
-    catch (e) { console.error(`jobdir-normalize-failed:${String(e).slice(0, 60)}`); normJobDir = ""; }
+    catch (e) { normJobFail = `NUL-EMBEDDED:${String(e).slice(0, 80)}`; console.error(`jobdir-normalize-failed:${String(e).slice(0, 80)}`); normJobDir = ""; }
   }
   if (typeof opts.jobDir !== "string" || normJobDir === "" || normJobDir === "." || normJobDir === "/") {
-    return { verdict: "UNVERIFIED", sources: { fence: { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: "NO-JOB-DIR" }, review: { ran: false, verdict: null, targetSha: null, harness: null, reason: "NO-JOB-DIR" } }, reasons: ["NO-JOB-DIR"] };
+    // FIXED (the poolside-lane finding): a NUL-embedded jobDir lost its forensic cause in
+    // the bare "NO-JOB-DIR". The specific failure now travels with the refusal.
+    const why = normJobFail ? `NO-JOB-DIR:${normJobFail}` : "NO-JOB-DIR";
+    return { verdict: "UNVERIFIED", sources: { fence: { ran: false, exitCode: null, sha: opts.headSha, ledgerVerdict: null, reason: why }, review: { ran: false, verdict: null, targetSha: null, harness: null, reason: why } }, reasons: [why] };
   }
   const fenceBin = opts.fenceBin ?? FENCE_DEFAULT;
   const ledgerPath = opts.ledgerPath ?? LEDGER_DEFAULT;
@@ -241,7 +245,7 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
       const sp = readFileSync(`${normJobDir}/SPEC.md`, "utf8");
       const m = sp.match(/^\s*job:\s*(\S+)\s*$/m);
       return m ? { job: m[1] } : { failure: "SPEC-NO-JOB" };
-    } catch (e) { return { failure: `SPEC-UNREADABLE:${String(e).slice(0, 60)}` }; }
+    } catch (e) { return { failure: `SPEC-UNREADABLE:${String(e).slice(0, 80)}` }; }
   })();
   // FIXED (red-team audit R13): the SPEC-read failure was ERASED — the code fell
   // silently back to the jobDir basename, which for a session worktree is the SEAT
@@ -254,9 +258,11 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // FIXED (the W15 ship gate MEDIUM): ledgerRowFor can THROW (a TOCTOU delete, EACCES,
   // a corrupt file) outside any try/catch -> verify() rejected instead of returning
   // UNVERIFIED. Map a throw to a fail-closed refusal.
-  let row: { verdict?: string } | null = null;
+  // FIXED (the poolside-lane finding): the `as { verdict?: string }` assertion was a TYPE-LIE
+  // — the runtime object still carries evidence/sha16. Use the full inferred return type.
+  let row: ReturnType<typeof ledgerRowFor> | null = null;
   if (!("failure" in specRead)) {
-    try { row = ledgerRowFor(ledgerPath, specRead.job) as { verdict?: string } | null; }
+    try { row = ledgerRowFor(ledgerPath, specRead.job); }
     catch (e) { reasons.push(`FENCE-LEDGER-READ:${String(e).slice(0, 80)}`); }
   }
   fence.ledgerVerdict = row?.verdict ?? null;
