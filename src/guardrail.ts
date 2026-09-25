@@ -126,47 +126,52 @@ export async function guardrailRemote(
   // REMOTE-GATE-MISSING, `ci_green` was ALWAYS `fail`, and **no PR could ever be
   // eligible**. The factory could never do its job. Read the check-runs endpoint too.
   try {
-    // FIXED (the W21 ship gate MEDIUM): per_page=100 with NO pagination — beyond 100 runs
-    // (many re-runs) the required contexts truncated to REMOTE-GATE-MISSING and ci_green
-    // could never go green. Follow the pages (bounded) and raise per_page.
+    // FIXED (the W26 ship gate MEDIUM x3 — the pagination was rewritten):
+    //  (a) a page-N fetch/json FAILURE jumped to the catch, DISCARDING the runs already
+    //      collected on pages 0..N-1 -> a spurious REMOTE-GATE-MISSING;
+    //  (b) a RELATIVE `Link: rel="next"` threw in `new URL()` -> pagination aborted early;
+    //  (c) the early-exit checked `latest`, which is only merged AFTER the loop -> it never fired.
+    // The runs are now merged into `byName` AS THEY ARRIVE, each page is independently
+    // guarded, the Link is resolved against the current URL, and the exit checks the MERGED map.
     const crBase = `${base}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/commits/${encodeURIComponent(opts.sha)}/check-runs?per_page=100`;
-    const runs: { name?: string; conclusion?: string | null; started_at?: string; completed_at?: string | null }[] = [];
-    let crUrl: string | null = crBase;
-    // FIXED (the W25 ship gate MEDIUM): this walked up to 10 pages x 10s SEQUENTIALLY even
-    // when every REQUIRED_CONTEXT already had a run, stalling the tick (~100s worst case).
-    const haveAll = () => REQUIRED_CONTEXTS.every((c) => c in latest);
-    for (let page = 0; page < 10 && crUrl && !haveAll(); page++) {
-      const cr = await fetchFn(crUrl, { headers, signal: AbortSignal.timeout(10000) });
-      if (!cr.ok) break;
-      const j = (await cr.json()) as { total_count?: number; check_runs?: typeof runs };
-      if (Array.isArray(j.check_runs)) runs.push(...j.check_runs);
-      const link = cr.headers?.get?.("link") ?? "";
-      const next = /<([^>]+)>;\s*rel="next"/.exec(link);
-      // FIXED (the W25 ship gate HIGH — a TOKEN-FORWARDING risk): the `next` URL was followed
-      // VERBATIM while re-sending the Authorization header, so an off-origin Link (a proxy, a
-      // mocked API, a redirect) leaked the GitHub token to an arbitrary host. Same-origin only.
-      if (next) {
-        try {
-          const n = new URL(next[1]);
-          const b = new URL(base);
-          crUrl = (n.origin === b.origin) ? next[1] : null;
-          if (crUrl === null) console.error(`check-runs-next-off-origin:${n.origin}`);
-        } catch { crUrl = null; }
-      } else { crUrl = null; }
-    }
-    if (runs.length > 0) {
-      // A re-run adds a NEW check run for the same name — the LATEST wins (the same
-      // supersession the statuses path handles with FIRST-wins on the newest-first list).
-      const byName = new Map<string, { conclusion: string | null; at: string }>();
-      for (const r of runs) {
+    // A re-run adds a NEW run for the same name — the LATEST wins.
+    const byName = new Map<string, { conclusion: string | null; at: string }>();
+    const merge = (rs: { name?: string; conclusion?: string | null; started_at?: string; completed_at?: string | null }[]) => {
+      for (const r of rs) {
         if (typeof r.name !== "string" || r.name.length === 0) continue;
-        // FIXED (ship gate MEDIUM): with BOTH timestamps missing `at` was "" and `"" > x`
-        // is always false, so a freshly QUEUED re-run never superseded a prior completed run
-        // (a stale PASS won). A missing timestamp sorts LAST (a just-queued run is newest).
+        // a missing timestamp sorts LAST (a just-queued run is the newest)
         const at = r.completed_at ?? r.started_at ?? "\uffff";
         const prev = byName.get(r.name);
         if (!prev || at >= prev.at) byName.set(r.name, { conclusion: r.conclusion ?? null, at });
       }
+    };
+    const haveAll = () => REQUIRED_CONTEXTS.every((c) => byName.has(c));
+    let crUrl: string | null = crBase;
+    let hops = 0;
+    while (crUrl && hops < 10 && !haveAll()) {
+      hops++;
+      const cur: string = crUrl;
+      try {
+        const cr = await fetchFn(cur, { headers, signal: AbortSignal.timeout(10000) });
+        if (!cr.ok) break;
+        const j = (await cr.json()) as { check_runs?: unknown };
+        if (Array.isArray(j.check_runs)) merge(j.check_runs as never[]);
+        const link = cr.headers?.get?.("link") ?? "";
+        const next = /<([^>]+)>;\s*rel="next"/.exec(link);
+        if (!next) { crUrl = null; continue; }
+        // FIXED (a TOKEN-FORWARDING risk): the next URL was followed VERBATIM while
+        // re-sending Authorization — an off-origin Link leaked the token. Resolve RELATIVE
+        // references against the CURRENT url, and require the SAME ORIGIN as the base.
+        const n: URL = new URL(next[1], cur);
+        const same: boolean = n.origin === new URL(base).origin;
+        crUrl = same ? n.toString() : null;
+        if (crUrl === null) console.error(`check-runs-next-off-origin:${n.origin}`);
+      } catch (e) {
+        console.error(`check-runs-page-failed:${String(e).slice(0, 60)}`);
+        break;   // the runs already merged are KEPT
+      }
+    }
+    if (byName.size > 0) {
       for (const [name, v] of byName) {
         // a check run's NAME IS its context name; a null conclusion = still running.
         // FIXED (ship gate MEDIUM): check-run conclusions use a DIFFERENT vocabulary than

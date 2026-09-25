@@ -53,15 +53,12 @@ test("test_spawn_attachments_are_base64", async () => {
   // FIXED (FOUND BY FIRING THE KICK LIVE): the daemon rejected raw bytes with
   // `attachment data is not valid base64`. AttachmentInput.data is BASE64.
   const { daemonKickDeps } = await import("../src/kick-adapter");
-  const p = `/tmp/w19-attach-${Date.now()}.md`;
-  await Bun.write(p, "# dossier\nplain text\n");
   const calls: { op: string; opts: { body?: { attachments?: { data: string; mimeType: string }[] } } }[] = [];
   const callFn = (async (op: string, opts: never) => { calls.push({ op, opts }); return { session: { id: "s" } }; }) as never;
   const deps = daemonKickDeps({ callFn });
-  await deps.spawn({ projectId: "p", brief: "b", attachments: [p] });
+  await deps.spawn({ projectId: "p", brief: "b", attachments: [{ name: "dossier.md", content: "# dossier\nplain text\n" }] });
   const att = calls[0].opts.body?.attachments?.[0];
   expect(att).toBeDefined();
   expect(att!.data).toBe(Buffer.from("# dossier\nplain text\n", "utf8").toString("base64"));
   expect(Buffer.from(att!.data, "base64").toString("utf8")).toContain("# dossier");   // round-trips
-  await Bun.file(p).delete?.();
 });

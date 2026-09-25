@@ -27,6 +27,16 @@ export async function listSessions(opts: { callFn?: typeof call } = {}): Promise
 // EN-010: the REAL PR lister. Enumerates sessions through the typed client, asks AO
 // for each session's PRs, and maps them to rail rows. A reviewer/terminal session
 // legitimately has no PRs; a null headSha is preserved as null (never the string).
+/** FIXED (the W26 ship gate HIGH x3 — flagged in W16, W24 AND W25): a property bolted onto an
+ *  ARRAY is invisible to JSON.stringify (indexed elements only) and lost on spread/iteration.
+ *  The ONLY correct surface is a WRAPPER. Callers read `.rows`; `.partialErrors` is a
+ *  first-class field. */
+export interface SyncResult {
+  rows: PrRow[];
+  /** per-session failures — [] means a COMPLETE sync (the loud-fail law, observable) */
+  partialErrors: { session: string; reason: string }[];
+}
+
 export async function listPrsFromAo(opts: {
   callFn?: typeof call;
   project?: string;
@@ -36,7 +46,7 @@ export async function listPrsFromAo(opts: {
   // FIXED (ship gate LOW): the runtime supports an async callback (it attaches a .then),
   // so the type must allow it — a `void`-only signature forced a cast at every async caller.
   onPartial?: (errors: { session: string; reason: string }[]) => void | Promise<void>;
-} = {}): Promise<PrRow[]> {
+} = {}): Promise<SyncResult> {
   const c = opts.callFn ?? call;
   // FIXED 2026-09-23 (ocr round-4 HIGH): the inline `(await c(...)).sessions`
   // crashed when the client returned a null body (the `?? []` guards only the
@@ -104,7 +114,7 @@ export async function listPrsFromAo(opts: {
     // attempts (non-enumerable, then enumerable) were BOTH ineffective. A collection either
     // returns a WRAPPER or the partial state must be a first-class loud signal. It is now
     // returned on the documented `PrRow[] & { partialErrors }` shape AND logged loudly.
-    (out as unknown as { partialErrors?: unknown }).partialErrors = allErrors.map((e) => ({ ...e }));
+    // (no array-prop hack: the WRAPPER below carries it)
     // FIXED (ship gate MEDIUM): a sync try/catch misses an ASYNC callback's rejection
     // (an unhandled rejection). Handle both the throw and the returned thenable.
     // FIXED (ship gate LOW): the type was `void` while an async caller is supported — widen
@@ -116,13 +126,15 @@ export async function listPrsFromAo(opts: {
       // threw a TypeError mis-reported as onPartial-threw. Promise.resolve wraps ANY thenable.
       // FIXED (the W15 ship gate MEDIUM): the thenable was fire-and-forget — the widened
       // type implies an async handler is supported, so AWAIT it (best-effort via try/catch).
+      // FIXED (the W26 ship gate MEDIUM): the observer was AWAITED without a bound,
+      // reintroducing the unbounded hang. Best-effort: fire-and-forget with a rejection log.
       if (r && typeof (r as { then?: unknown }).then === "function") {
-        try { await Promise.resolve(r as PromiseLike<unknown>); }
-        catch (e) { console.error(`onPartial-rejected:${String(e).slice(0, 80)}`); }
+        Promise.resolve(r as PromiseLike<unknown>).catch((e) => console.error(`onPartial-rejected:${String(e).slice(0, 80)}`));
       }
     } catch (e) { console.error(`onPartial-threw:${String(e).slice(0, 80)}`); }
   }
-  return out;
+  // FIXED (the W26 ship gate HIGH x3): the WRAPPER — a first-class, serializable field.
+  return { rows: out, partialErrors: allErrors.map((e) => ({ ...e })) };
 }
 
 interface PrPayload { number: number; state?: string; repo?: string;

@@ -74,7 +74,7 @@ test("muse2-2: a missing PR state does NOT throw the store CHECK (no batch rollb
     if (method === "listSessionPRs") return { sessionId: "s1", prs: [{ number: 7, headSha: "h" }] };
     return null;
   };
-  const rows = await listPrsFromAo({ callFn: fakeCall as never });
+  const rows = (await listPrsFromAo({ callFn: fakeCall as never })).rows;
   expect(rows.length).toBe(1);
   expect(rows[0].state).toBe("open");                          // a VALID state
   // and the row inserts without a CHECK violation

@@ -87,7 +87,8 @@ export async function verbSync(root: string, arg?: string): Promise<VerbResult> 
   // throw there skipped the db cleanup path (and the error was not shaped as a
   // VerbResult). It is inside the try now.
   const projects = await listProjects();
-  const { rows: n, skipped } = await syncPrs(db, () => listPrsFromAo({ project: arg }));
+  // FIXED (W26): listPrsFromAo returns { rows, partialErrors }.
+  const { rows: n, skipped } = await syncPrs(db, async () => (await listPrsFromAo({ project: arg })).rows);
   const prs = db.query("SELECT COUNT(*) AS n FROM pr_node WHERE state != 'merged'").get() as { n: number };
   return emit(0, { ok: true, projects: projects.length, prNodes: n, openPrNodes: prs.n });
   } finally { db.close(); }
@@ -165,7 +166,9 @@ export async function verbKick(root: string, arg?: string, mode?: string): Promi
     });
     // FIXED (the W20 ship gate LOW): every FAILURE path names the bugId; the success path
     // did not — a caller could not correlate the output without re-passing the input.
-    return { code: 0, out: { ok: true, bugId: arg, ...res } };
+    // FIXED (the W26 ship gate LOW): a future KickResult key could overwrite `ok`/`bugId`.
+    // The stable correlation fields go LAST.
+    return { code: 0, out: { ...res, ok: true, bugId: arg } };
   } catch (e) {
     return { code: 1, out: { ok: false, refused: "KICK-FAILED", bugId: arg, error: String(e).slice(0, 140) } };
   } finally { db.close(); }

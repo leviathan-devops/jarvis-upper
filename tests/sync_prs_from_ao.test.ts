@@ -23,7 +23,7 @@ test("sync_prs_from_ao: maps AO sessions+PRs into PrRow with the head sha bound"
     }
     throw new Error("unexpected op " + op);
   };
-  const rows: PrRow[] = await listPrsFromAo({ callFn: fake as any });
+  const rows: PrRow[] = (await listPrsFromAo({ callFn: fake as any })).rows;
   expect(rows.length).toBe(2);
   expect(rows[0].pr_number).toBe(7);
   expect(rows[0].head_sha).toBe("a".repeat(40));
@@ -39,7 +39,7 @@ test("sync_prs_from_ao: a filter narrows to one project and an AO failure is LOU
       { id: "w1", projectId: "p1" }, { id: "w2", projectId: "p2" } ] };
     return { prs: [] };
   };
-  const rows = await listPrsFromAo({ callFn: fake as any, project: "p1" });
+  const rows = (await listPrsFromAo({ callFn: fake as any, project: "p1" })).rows;
   expect(rows.length).toBe(0);
   const boom = async () => { throw new Error("AO_DOWN"); };
   await expect(listPrsFromAo({ callFn: boom as any })).rejects.toThrow("AO_DOWN");

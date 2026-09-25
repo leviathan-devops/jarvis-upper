@@ -130,7 +130,7 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
         break;
       }
       const { done, value } = result;
-      if (done) break;
+      if (done) { readerCancelled = true; break; }   // FIXED: a clean EOF needs no cancel
       buf += dec.decode(value, { stream: true });
       // FIXED (ship-gate LOW): `buf.length` counts UTF-16 code units, not wire bytes, so a
       // non-ASCII stream hit the "memory" limit at a different point than the cap implies.
@@ -182,7 +182,9 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
         // FIXED (the W24 ship gate MEDIUM): parseSse derives seq primarily from the SSE `id:`
         // field; matching only JSON `"seq":` fell through to last_seq+1, which CRAWLS one seq
         // per tick across a gap. Match the `id:` frame form too.
-        const m = buf.match(/"seq"\s*:\s*(\d+)/) ?? buf.match(/^id:\s*(\d+)\s*$/m);
+        // FIXED (the W26 ship gate MEDIUM): parseSse derives seq from the SSE `id:` field —
+        // matching a nested JSON `"seq"` FIRST could diverge from the cursor attach advances.
+        const m = buf.match(/^id:\s*(\d+)\s*$/m) ?? buf.match(/"seq"\s*:\s*(\d+)/);
         // FIXED (the W21 ship gate MEDIUM): if the seq is ABSENT from the partial buffer the
         // cursor still could not advance (an infinite loop). Fall back to the highest seq we
         // have EVER seen + 1 — guaranteed forward progress past the unparseable frame.
@@ -286,7 +288,9 @@ export async function publishVerdictForPr(opts: PublishVerdictForPrOpts): Promis
     // FIXED (ship gate MEDIUM): this branch POSTed UNCONDITIONALLY, bypassing the dedup
     // added for the other two branches — a persistently throwing verify re-posted both
     // contexts on EVERY tick (the same storm). Consult the hook first.
-    const throwKey = `${headSha}:verify-threw:${String(e).slice(0, 40)}`;
+    // FIXED (the W26 ship gate MEDIUM): a 40-char slice of the message churned the key every
+    // tick (a timestamp/counter inside it) while distinct errors sharing a prefix collided.
+    const throwKey = `${headSha}:verify-threw:${new Bun.CryptoHasher("sha256").update(String(e)).digest("hex").slice(0, 16)}`;
     if (opts.allowPublish && !opts.allowPublish(throwKey)) {
       return [
         { context: STATUS_CONTEXTS.fence2, state: "error" as const, status: null, ok: true, reason: "ALREADY-PUBLISHED" },
@@ -363,7 +367,12 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
   const probe = deps.probe ?? defaultProbe;
   // EN-010: the default is the REAL adapter. A daemon tick that silently syncs
   // zero PRs is a wrong answer wearing a green light — so the default pulls AO.
-  const listPrs = deps.listPrs ?? ((): Promise<PrRow[]> => listPrsFromAo());
+  // FIXED (W26): unwrap the { rows, partialErrors } sync result; a partial is logged loudly.
+  const listPrs = deps.listPrs ?? (async (): Promise<PrRow[]> => {
+    const r = await listPrsFromAo();
+    if (r.partialErrors.length > 0) console.error(`sync-partial:${r.partialErrors.length}`);
+    return r.rows;
+  });
   const rails = deps.rails ?? defaultRails;
   const now = deps.now ?? (() => new Date());
   // W5 — the publish target (absent by default: the tick publishes only when

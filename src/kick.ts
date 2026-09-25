@@ -16,7 +16,11 @@ export type Liveness = "alive" | "dead" | "unknown";
 export interface KickDeps {
   sessionAlive: (sessionId: string) => Promise<Liveness>;
   send: (sessionId: string, brief: string) => Promise<{ ok: boolean }>;
-  spawn: (input: { projectId: string; brief: string; attachments: string[] }) => Promise<{ sessionId: string }>;
+  /** FIXED (the W26 ship gate HIGH x2 — the TOCTOU): the dossier was hash-verified by kick()
+   *  and then RE-READ from disk by the adapter, so a mutation between the two reads sent
+   *  UNVERIFIED bytes while the kick row recorded the verified sha. The deps now carry the
+   *  ALREADY-VERIFIED CONTENT, never a path. */
+  spawn: (input: { projectId: string; brief: string; attachments: { name: string; content: string }[] }) => Promise<{ sessionId: string }>;
   openBranch: (bugId: string) => Promise<{ ok: boolean }>;
   readFile: (path: string) => Promise<string>;
 }
@@ -52,12 +56,15 @@ export async function kick(
   deps: KickDeps,
   input: { bugId: string; projectId: string; originSession: string | null; originCommit: string; dossierPath: string; mode?: KickMode },
 ): Promise<KickResult> {
+  // (the DB row below is the authority for origin_session — see the FIX note there)
   // FIXED 2026-09-23 (qwen-code-audit C3): the file READS ran BEFORE the
   // bug_record validation — a caller-supplied dossierPath reached the filesystem
   // before the db check could refuse it. Validation comes FIRST.
   // FIXED (the W21 ship gate MEDIUM): TWO SELECTs on the same row (a round-trip + a race
   // window). One SELECT carries both facts.
-  const row = db.query("SELECT id, dossier_path AS p FROM bug_record WHERE id = ?").get(input.bugId) as { id: string; p: string | null } | null;
+  // FIXED (the W26 ship gate HIGH): originSession came from the CALLER, so a stale/wrong id
+  // was checked (or the check skipped). The DB row is the authority for it.
+  const row = db.query("SELECT id, dossier_path AS p, origin_session AS os FROM bug_record WHERE id = ?").get(input.bugId) as { id: string; p: string | null; os: string | null } | null;
   if (!row) throw new Error(`BUG-UNKNOWN:${input.bugId}`);
   // FIXED (the W17 ship gate MEDIUM): the path-equality gate ran AFTER the filesystem reads,
   // so a caller-supplied arbitrary path reached the FS (an existence/read probe) before any
@@ -71,7 +78,9 @@ export async function kick(
   // only collapsed `//` + a trailing `/`. A real normalizer resolves `.`/`..` too.
   // FIXED (the W25 ship gate MEDIUM): posix.normalize preserves a TRAILING SLASH and the
   // try/catch was dead (it never throws). Strip the trailing slash too.
-  const norm = (q: string) => posix.normalize(q).replace(/\/+$/, "");
+  // FIXED (the W26 ship gate MEDIUM): stripping the trailing slash turned "/" into ""
+  // (colliding with an empty path). Preserve a root.
+  const norm = (q: string) => { const n = posix.normalize(q); return n === "/" ? "/" : n.replace(/\/+$/, ""); };
   // FIXED (the W25 ship gate MEDIUM): a NULL `p` + an empty input path both normalized to ""
   // and PASSED, then readFile("/dossier.md") probed the filesystem root. Reject empties.
   if (!dossierRow.p || !input.dossierPath) throw new Error(`DOSSIER-EMPTY-PATH:${input.bugId}`);
@@ -99,8 +108,9 @@ export async function kick(
     // FIXED (the W21 ship gate MEDIUM): an explicit `spawn` SKIPPED the liveness check, so a
     // spawn while the origin session is still ALIVE manufactured the duplicate session the
     // tri-state fix exists to prevent. Validate the ORIGIN for both live and spawn.
-    if (mode === "spawn" && input.originSession) {
-      const sv = await settleLiveness(deps, input.originSession);
+    const originSess = row.os ?? input.originSession;
+    if (mode === "spawn" && originSess) {
+      const sv = await settleLiveness(deps, originSess);
       // FIXED (the W24 ship gate HIGH): this only refused `alive`, so `unknown` (a transient
       // outage) fell through to SPAWN — manufacturing the duplicate session the tri-state
       // fix exists to prevent. Refuse `unknown` too.
@@ -119,7 +129,10 @@ export async function kick(
     // FIXED (ship gate MEDIUM): the old `.catch(()=>false)` tolerated a THROWING
     // KickDeps; the bare await let it escape as a raw error, bypassing the fail-closed
     // refusal. A throw is now `unknown` -> the refusal.
-    const alive: Liveness = input.originSession ? await settleLiveness(deps, input.originSession) : "dead";
+    // FIXED (the W26 ship gate HIGH): the DB row's origin_session is the AUTHORITY — a
+    // caller-supplied id could be stale/wrong (checking the wrong session, or skipping the check).
+    const originSess = row.os ?? input.originSession;
+    const alive: Liveness = originSess ? await settleLiveness(deps, originSess) : "dead";
     if (alive === "unknown") throw new Error("KICK-LIVENESS-UNKNOWN");
     mode = alive === "alive" ? "live" : "spawn";
   }
@@ -134,7 +147,11 @@ export async function kick(
     return { mode, target: sessionId, dossierSha16: sha };
   }
   if (mode === "spawn") {
-    const r = await deps.spawn({ projectId: input.projectId, brief, attachments: [`${input.dossierPath}/dossier.md`, `${input.dossierPath}/origin.json`] });
+    // FIXED (W26): pass the VERIFIED bytes (md/oj), never the paths the adapter would re-read.
+    const r = await deps.spawn({
+      projectId: input.projectId, brief,
+      attachments: [{ name: "dossier.md", content: md }, { name: "origin.json", content: oj }],
+    });
     db.query(`INSERT INTO kick(id, bug_record, mode, spawned_session, dossier_path, dossier_sha16, sent_at, outcome)
               VALUES (?,?,?,?,?,?,strftime('%s','now'),'spawned')`)
       .run(`kick:${input.bugId}:${Date.now()}:${kickSuffix()}`, input.bugId, mode, r.sessionId, input.dossierPath, sha);

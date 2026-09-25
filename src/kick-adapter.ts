@@ -56,6 +56,11 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
         // did). Require a SHAPE CUE — the session view carries an id/name.
         if (typeof sv !== "object") return "unknown";
         const svo = sv as Record<string, unknown>;
+        // FIXED (the W26 ship gate HIGH): a TERMINATED session still carries `id` (the view
+        // REQUIRES it) — `isTerminated` is the liveness signal. Without this, kick() would
+        // `send` to a dead session and bypass the spawn-origin-alive guard.
+        if (svo.isTerminated === true) return "dead";
+        if (typeof svo.status === "string" && /terminat|exit|dead|stopp?ed/i.test(svo.status)) return "dead";
         return ("id" in svo || "name" in svo || "sessionId" in svo) ? "alive" : "unknown";
       } catch (e) {
         // FIXED (ship-gate MEDIUM): a 404 is a DEFINITIVE dead; a timeout / 5xx / network
@@ -77,7 +82,9 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
         // transport cause is now NAMED for the post-mortem.
       } catch (e) { console.error(`kick-send-failed:${String(e).slice(0, 80)}`); return { ok: false }; }
     },
-    spawn: async (input: { projectId: string; brief: string; attachments: string[] }): Promise<{ sessionId: string }> => {
+    // FIXED (the W26 ship gate HIGH — the TOCTOU): the attachments arrive as VERIFIED CONTENT,
+    // never paths the adapter would re-read.
+    spawn: async (input: { projectId: string; brief: string; attachments: { name: string; content: string }[] }): Promise<{ sessionId: string }> => {
       // FIXED (ship-gate CRITICAL x2, measured against openapi.yaml): the request field is
       // `prompt` (NOT `message`), and SpawnSessionResponse nests the id at `session.id`
       // (NOT a top-level sessionId/id). The old shape sent an empty prompt and ALWAYS threw
@@ -89,31 +96,14 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
       const prompt = clamp(input.brief, SPAWN_MAX);
       const attachments: { data: string; mimeType: string }[] = [];
       const dropped: string[] = [];
-      for (const p of input.attachments) {
+      // FIXED (the W26 ship gate HIGH): the content arrives VERIFIED (kick() hash-gated it) —
+      // NO disk read, no race. The daemon requires BASE64 (measured live).
+      for (const a of input.attachments) {
         try {
-          // FIXED (ship gate MEDIUM): read via deps.readFile (the SAME hash-gated content
-          // kick() verified — not a second Bun.file read that could see a changed/deleted
-          // file), and bound the RESULTING STRING (the size check could race a growing file
-          // and byte-size != the JSON-encoded size).
-          // FIXED (the W15 ship gate MEDIUM): the whole file was loaded BEFORE the size gate
-          // — a huge dossier OOMs before it can be refused. Pre-check the size.
-          // FIXED (the W20 ship gate MEDIUM): the stat read the REAL filesystem even when
-          // opts.readFile supplies the bytes (tests/production could disagree). Only stat when
-          // NO seam is injected — the injected reader's output is bounded below anyway.
-          if (!opts.readFile) {
-            try { const sz = Bun.file(p).size; if (sz > ATTACH_MAX) { dropped.push(`${p} (>${ATTACH_MAX}B)`); continue; } }
-            catch (e) { console.error(`kick-attach-stat-failed:${p}:${String(e).slice(0, 60)}`); }
-          }
-          const raw = await (opts.readFile ?? (async (q: string) => await Bun.file(q).text()))(p);
-          if (Buffer.byteLength(raw, "utf8") > ATTACH_MAX) { dropped.push(`${p} (>${ATTACH_MAX}B)`); continue; }
-          // FIXED (FOUND BY FIRING THE KICK LIVE — the exact gap "test-proven only" hides):
-          // the live daemon REJECTED the raw bytes with `attachment data is not valid base64`.
-          // AttachmentInput.data is BASE64 (undocumented in openapi.yaml — the RUNTIME is the
-          // authority). The wire size is the ENCODED size, so bound THAT.
-          const data = Buffer.from(raw, "utf8").toString("base64");
-          if (Buffer.byteLength(data, "utf8") > ATTACH_MAX) { dropped.push(`${p} (base64 >${ATTACH_MAX}B)`); continue; }
-          attachments.push({ data, mimeType: p.endsWith(".json") ? "application/json" : "text/markdown" });
-        } catch (e) { console.error(`kick-attach-read-failed:${p}:${String(e).slice(0, 60)}`); dropped.push(p); }
+          const data = Buffer.from(a.content, "utf8").toString("base64");
+          if (Buffer.byteLength(data, "utf8") > ATTACH_MAX) { dropped.push(`${a.name} (base64 >${ATTACH_MAX}B)`); continue; }
+          attachments.push({ data, mimeType: a.name.endsWith(".json") ? "application/json" : "text/markdown" });
+        } catch (e) { console.error(`kick-attach-encode-failed:${a.name}:${String(e).slice(0, 60)}`); dropped.push(a.name); }
       }
       // FIXED (ship gate MEDIUM): a dropped attachment silently degraded the spawn — the
       // session worked from an incomplete dossier with the caller unable to detect it.

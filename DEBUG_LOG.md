@@ -1734,3 +1734,53 @@ preflight measured (PASS on a good tree, ignores a stray file, FAILs a no-SPEC t
 
 **ANCHORS:** gates/rt-preflight.sh:137, src/adapter-verbs.ts:104, src/kick-adapter.ts:53,
 src/guardrail.ts:134,136, src/kick.ts:72,73, src/verdict.ts:193.
+
+## EN-207 - W26: THE STRUCTURAL FIXES (the design, not the symptom) (2026-09-25T10:19:36Z)
+
+**The gate stayed at 5 high — with DIFFERENT findings each round. That is the audit-treadmill
+signature.** The same three complaints recurred (the partial signal, the TOCTOU, the pagination),
+so the response was the STRUCTURAL fix rather than another layer.
+
+### ★ A — listPrsFromAo returns a WRAPPER (flagged in W16, W24 AND W25)
+A property bolted onto an **ARRAY** is invisible to `JSON.stringify` (indexed elements only) and
+lost on spread/iteration — the W16 (non-enumerable) and W24 (enumerable) attempts were BOTH
+ineffective, and the gate said so twice. **The only correct surface is a wrapper:**
+`Promise<{{ rows: PrRow[]; partialErrors: {{session,reason}}[] }}``. The 3 call sites were updated.
+The caller-supplied observer is now fire-and-forget (the W25 `await` reintroduced the unbounded
+hang the per-attempt timeout had just removed).
+
+### ★ B — the kick passes VERIFIED BYTES (the TOCTOU, flagged twice)
+`kick()` hash-verified `dossier.md`/`origin.json` and then `spawn()` **RE-READ the same paths**
+— a mutation between the two reads sent UNVERIFIED bytes while the kick row recorded the verified
+sha. The deps now carry the **already-verified CONTENT** (`{{name, content}}[]`), never a path: no
+disk read, no race, at either end.
+
+### ★ C — a TERMINATED session is not alive
+The session view **REQUIRES** `id`, so a terminated/exited session still looked alive — `kick()`
+would `send` to a dead session and the spawn-origin-alive guard was bypassed. `isTerminated`
+(and a status match) is the liveness signal.
+
+### ★ D — the duplicate guard reads origin_session from the DB
+It trusted `input.originSession` (the CALLER), while `dossierPath` got a DB gate. A stale/wrong
+id checked the wrong session or skipped the check. The DB row is the authority.
+
+### THE PAGINATION REWRITE (3 findings at one site)
+(a) a page-N failure DISCARDED the runs from pages 0..N-1 → a spurious REMOTE-GATE-MISSING;
+(b) a RELATIVE `Link: rel="next"` threw in `new URL()` → pagination aborted early;
+(c) the early-exit checked `latest` (merged only AFTER the loop) → it could never fire.
+Runs now merge into `byName` AS THEY ARRIVE, each page is independently guarded, the Link resolves
+against the CURRENT url, and the exit checks the MERGED map. Same-origin enforced (the token fix).
+
+### THE REMAINING MEDIUMS/LOWS
+the dedup key now hashes the FULL message (a 40-char slice churned/collided) · `verify(null)` and
+a null `readRemote` now fail closed · the jobDir guard refuses ANY `..` segment (an absolute
+traversal passed) · `AO_CALL_TIMEOUT_MS` gains a 30s CEILING (a huge value re-hung the tick) ·
+`norm("/")` no longer collapses to "" · the SSE `id:` is preferred over a nested JSON `"seq"` (the
+cursor-attach authority) · a clean EOF no longer double-cancels · the spread order · the dossier
+exemption narrowed to the SIX exact generator names.
+
+**THE VERIFICATION:** 181 pass / 0 fail (620 expect, 49 files); tsc exit 0; corpus 25/0; the
+daemon ARMED, eligible=1, errors=[].
+
+**ANCHORS:** src/adapter-verbs.ts:30, src/kick.ts:60,137, src/kick-adapter.ts:58,107,
+src/guardrail.ts:127, src/verdict.ts:196, src/target-guard.ts:123, ao-client/client.ts:25.

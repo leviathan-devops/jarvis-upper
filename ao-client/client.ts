@@ -25,7 +25,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const AO_CALL_TIMEOUT_MS = ((): number => {
   // FIXED (the W17 ship gate MEDIUM): a fractional value (<1ms) truncated to 0 in
   // AbortSignal.timeout -> an instant abort. Require an integer >= 1.
-  const n = Math.floor(Number(process.env.AO_CALL_TIMEOUT_MS ?? 8000));
+  // FIXED (the W26 ship gate MEDIUM): only a LOWER bound was validated — a huge value
+  // (3600000) made the per-attempt timeout effectively hang the tick again. Cap it.
+  const n = Math.min(Math.floor(Number(process.env.AO_CALL_TIMEOUT_MS ?? 8000)) || 8000, 30000);
   return Number.isFinite(n) && n > 0 ? n : 8000;
 })();
 

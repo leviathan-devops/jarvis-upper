@@ -120,6 +120,9 @@ export function targetMatchesRemote(opts: {
   } catch (e) {
     return { ok: false, remote: "", reason: `GIT-UNAVAILABLE:${String(e).slice(0, 60)}` };
   }
+  // FIXED (the W26 ship gate MEDIUM): a custom readRemote returning null/undefined threw at
+  // `res.error` out of the guard instead of returning a fail-closed TargetCheck.
+  if (res === null || typeof res !== "object") return { ok: false, remote: "", reason: "GIT-UNAVAILABLE:readRemote-returned-" + String(res) };
   if (res.error) return { ok: false, remote: "", reason: `GIT-UNAVAILABLE:${res.error}` };
   // FAIL-CLOSED: a tree that is NOT a git work tree cannot be verified — refuse.
   if (!res.isRepo) return { ok: false, remote: "", reason: "GIT-UNAVAILABLE:not-a-repo" };

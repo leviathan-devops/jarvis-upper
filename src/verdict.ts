@@ -165,6 +165,11 @@ export function artifactBoundToHead(jobDir: string, headSha: string): { ok: bool
 }
 
 export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
+  // FIXED (the W26 ship gate MEDIUM): `verify(null)` threw at `opts.jobDir` before the guard
+  // could return UNVERIFIED — violating the never-reject contract.
+  if (opts === null || typeof opts !== "object") {
+    return { verdict: "UNVERIFIED", sources: { fence: { ran: false, exitCode: null, sha: "", ledgerVerdict: null, reason: "NO-OPTS" }, review: { ran: false, verdict: null, targetSha: null, harness: null, reason: "NO-OPTS" } }, reasons: ["NO-OPTS"] };
+  }
   // FIXED (ship-gate LOW): an EMPTY jobDir made the SPEC path "/SPEC.md" (the filesystem
   // root). Refuse immediately instead of reading an unrelated file.
   // FIXED (ship-gate LOW): only a FALSY jobDir was rejected — "/" still built "/SPEC.md"
@@ -193,8 +198,11 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
   // FIXED (the W25 ship gate MEDIUM): normalize('..') stays '..', so a parent-traversal path
   // passed the guard and the SPEC read/fence ran OUTSIDE the intended directory. Refuse any
   // leading-`..` (a jobDir must be a real, owned directory).
+  // FIXED (the W26 ship gate MEDIUM): the guard only rejected a LEADING `..`, so an ABSOLUTE
+  // traversal (`/worktrees/safe/../../etc` -> `/etc`) passed and the fence ran outside the owned
+  // dir. Refuse ANY remaining parent segment.
   if (typeof opts.jobDir !== "string" || normJobDir === "" || normJobDir === "." || normJobDir === "/"
-      || normJobDir === ".." || normJobDir.startsWith("../")) {
+      || normJobDir.split("/").includes("..")) {
     // FIXED (the poolside-lane finding): a NUL-embedded jobDir lost its forensic cause in
     // the bare "NO-JOB-DIR". The specific failure now travels with the refusal.
     const why = normJobFail ? `NO-JOB-DIR:${normJobFail}` : "NO-JOB-DIR";

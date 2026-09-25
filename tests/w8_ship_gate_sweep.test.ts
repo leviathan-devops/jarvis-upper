@@ -41,25 +41,23 @@ test("test_spawn_prompt_cap_is_16384", async () => {
 test("test_spawn_sends_attachments", async () => {
   // FIXED (ship-gate MEDIUM): attachments were SILENTLY DROPPED — the dossier bytes never
   // reached the daemon. AttachmentInput is {data, mimeType} (openapi.yaml:7619).
-  const p = `/tmp/w8-attach-${Date.now()}.md`;
-  await Bun.write(p, "# dossier\norigin: x\n");
+  // (W26: the contract is VERIFIED CONTENT, not a path)
   const calls: { op: string; opts: { body?: { attachments?: { data: string; mimeType: string }[] } } }[] = [];
   const callFn = (async (op: string, opts: never) => { calls.push({ op, opts }); return { session: { id: "s" } }; }) as never;
   const deps = daemonKickDeps({ callFn });
-  await deps.spawn({ projectId: "p", brief: "b", attachments: [p] });
+  await deps.spawn({ projectId: "p", brief: "b", attachments: [{ name: "dossier.md", content: "# dossier\norigin: x\n" }] });
   const att = calls[0].opts.body?.attachments;
   expect(att?.length).toBe(1);
   // UPDATED (W19, found by firing the kick LIVE): the daemon requires BASE64.
   expect(Buffer.from(att![0].data, "base64").toString("utf8")).toContain("# dossier");
   expect(att?.[0].mimeType).toBe("text/markdown");
-  await Bun.file(p).delete?.();
 });
 
 test("test_kick_liveness_unknown_refuses", async () => {
   // FIXED (ship-gate MEDIUM): a TRANSPORT failure collapsed to "not alive", so kick()
   // fell through to spawn and created a DUPLICATE session during a transient outage.
   const db = new Database(":memory:");
-  db.run("CREATE TABLE bug_record (id TEXT PRIMARY KEY, dossier_path TEXT)");
+  db.run("CREATE TABLE bug_record (id TEXT PRIMARY KEY, dossier_path TEXT, origin_session TEXT)");   // W26: + origin_session
   db.run("CREATE TABLE kick (id TEXT PRIMARY KEY, bug_record TEXT, mode TEXT, target_session TEXT, spawned_session TEXT, dossier_path TEXT, dossier_sha16 TEXT, sent_at INTEGER, outcome TEXT)");
   db.run("INSERT INTO bug_record (id, dossier_path) VALUES ('B1','/tmp/d')");
   const md = "# dossier\n", oj = "{}";
