@@ -806,3 +806,48 @@ hand-seeded green (TH-3) this session was opened to kill.
 **THE SPEC the fence adjudicated** (\`~/.ao/data/worktrees/jarvis-upper/jarvis-upper-4/SPEC.md\`):
 \`job: fence\` · \`seat: jarvis-upper-4\` · one step whose artifact is \`README.md\` with
 \`done-when: test -f/s\` and a \`sha16\` map — the fence2 v2 contract.
+
+## TEST RESULT - 2026-09-25 - ★ THE "PRIVACY GATE" WAS A 429 RATE LIMIT (the operator was right)
+
+**THE CHARGE:** the operator said "i have this enabled already you're fucking something up here".
+
+**THE OPERATOR WAS RIGHT.** Two distinct defects, neither of them their privacy setting.
+
+### D-A - THE PROXY SUBSTITUTED A DEAD POOL KEY (FIXED)
+
+`go-session-proxy.mjs:328` **unconditionally replaced the caller's Authorization with a pool key**:
+
+    goPk = poolPick();
+    if (goPk) headers["authorization"] = `Bearer ${goPk.key}`;   // the caller's key THROWN AWAY
+
+The pool's keys belong to a workspace WITHOUT the entitlement, so every request 400'd with the
+privacy message - while the CALLER's key answered **200 DIRECT at every payload size**. FIXED:
+a caller-supplied key is primary; the pool is used only when the caller sent none (and rotation
+on a 429 works in both cases). Re-bisected through the proxy: **n=50..8000 ALL OK.**
+
+### D-B - THE REMAINING FAILURE IS A 429 RATE LIMIT (not a setting, not the code)
+
+The ocr retry report names the mechanism directly:
+
+    "error_class": "rate_limited", "status_code": 429
+       then attempt 2 -> "error_class": "provider", "status_code": 400
+
+**MEASURED by payload size** (the same content, three sizes):
+
+| the payload | the result |
+|---|---|
+| `.gitignore` alone (980 B) | **OK** |
+| `.gitignore` + `gates/rt-preflight.sh` (12,343 B) | **429** `rate_limit_exceeded` |
+| the 3-file batch (28,263 B) | **429** |
+
+The Go plan's budget scales with the payload, and the audit's own skill documents this:
+*"Per-file serial, one file per session, NOT one 7-file run - a mid-batch lane death wastes the
+whole run."* The 49-file diff exceeds it.
+
+**THE STATE:** the daemon `tick=253 daemonOk=true ready=1 eligible=1 errors=[]` - PR #2
+`mergeable=MERGEABLE review=REVIEW_REQUIRED` - the tree clean at `903ba2e` - the proxy active
+with the fix holding.
+
+**RESUME CONDITION:** wait out the Go 429 window (or run the gate per-file / on a smaller range).
+The gate DID run fully at W24/W25 (both GATE: FAIL with real findings) - the lane degrades under
+a sustained sweep, not because of any configuration.
