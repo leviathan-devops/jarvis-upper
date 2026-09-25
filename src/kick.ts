@@ -27,6 +27,18 @@ export interface KickDeps {
 
 export type KickMode = "live" | "spawn" | "direct";
 
+/** FIXED (the W28 per-file gate MEDIUM): the three INSERT INTO kick blocks differed only in
+ *  mode/target — a drift risk for the id format, the timestamp, and the sha recording. ONE
+ *  writer. */
+function recordKick(db: Database, r: {
+  bugId: string; mode: KickMode; targetSession?: string; spawnedSession?: string;
+  dossierPath: string; sha: string; outcome: string;
+}): void {
+  db.query(`INSERT INTO kick(id, bug_record, mode, target_session, spawned_session, dossier_path, dossier_sha16, sent_at, outcome)
+            VALUES (?,?,?,?,?,?,?,unixepoch(),?)`)
+    .run(`kick:${r.bugId}:${Date.now()}:${kickSuffix()}`, r.bugId, r.mode, r.targetSession ?? null, r.spawnedSession ?? null, r.dossierPath, r.sha, r.outcome);
+}
+
 /** FIXED (the W24 ship gate MEDIUM): the tri-state coercion+validation was triplicated
  *  across the explicit-spawn / explicit-live / auto paths and could drift. ONE helper.
  *  A legacy boolean dep is coerced (true=alive, false=dead); anything else unrecognized
@@ -85,12 +97,16 @@ export async function kick(
   // and PASSED, then readFile("/dossier.md") probed the filesystem root. Reject empties.
   if (!dossierRow.p || !input.dossierPath) throw new Error(`DOSSIER-EMPTY-PATH:${input.bugId}`);
   if (norm(dossierRow.p) !== norm(input.dossierPath)) throw new Error('DOSSIER-PATH-MISMATCH');
-  const md = await deps.readFile(`${input.dossierPath}/dossier.md`);
-  const oj = await deps.readFile(`${input.dossierPath}/origin.json`);
+  // FIXED (W28): three INDEPENDENT reads ran serially. Promise.all (bounded: the manifest's
+  // failure is still tolerated as a tamper signal).
+  const base = input.dossierPath;
+  const [md, oj, manRaw] = await Promise.all([
+    deps.readFile(`${base}/dossier.md`),
+    deps.readFile(`${base}/origin.json`),
+    deps.readFile(`${base}/manifest.sha16`).catch(() => ""),   // missing = tamper
+  ]);
   const sha = dossierSha16(md, oj);
-  const manifestPath = `${input.dossierPath}/manifest.sha16`;
-  let recordedSha = "";
-  try { recordedSha = (await deps.readFile(manifestPath)).trim(); } catch { /* missing = tamper */ }
+  const recordedSha = String(manRaw ?? "").trim();
   if (recordedSha !== sha) throw new Error("DOSSIER-TAMPER");
   let origin: unknown;
   try { origin = JSON.parse(oj); } catch { throw new Error('DOSSIER-CORRUPT:origin.json'); }
@@ -120,8 +136,12 @@ export async function kick(
     // FIXED (the W15 ship gate HIGH): an explicit `live` SKIPPED the liveness check — the
     // CLI's `upper kick <id> live` would send to a DEAD session. Validate it.
     if (mode === "live") {
-      if (!input.originSession) throw new Error("KICK-NO-SESSION");
-      const lv = await settleLiveness(deps, input.originSession);
+      // FIXED (the W28 per-file gate HIGH — my W26 fix was INCOMPLETE): the spawn + auto paths
+      // use `row.os ?? input.originSession`, but this one validated the CALLER's id directly —
+      // a stale/wrong id checked the wrong session (the exact TOCTOU W26 claimed to close).
+      const sess = row.os ?? input.originSession;
+      if (!sess) throw new Error("KICK-NO-SESSION");
+      const lv = await settleLiveness(deps, sess);
       if (lv !== "alive") throw new Error(`KICK-LIVENESS-${lv.toUpperCase()}`);
     }
   }
@@ -137,30 +157,35 @@ export async function kick(
     mode = alive === "alive" ? "live" : "spawn";
   }
   if (mode === "live") {
-    const sessionId = input.originSession;
+    // FIXED (W28): the SEND target is the DB-authoritative session too, and a faulty dep
+    // resolving null/undefined is a NAMED failure, never a TypeError.
+    const sessionId = row.os ?? input.originSession;
     if (!sessionId) throw new Error('KICK-NO-SESSION');
-    const r = await deps.send(sessionId, brief);
-    if (!r.ok) throw new Error("KICK-SEND-FAILED");
-    db.query(`INSERT INTO kick(id, bug_record, mode, target_session, dossier_path, dossier_sha16, sent_at, outcome)
-              VALUES (?,?,?,?,?,?,strftime('%s','now'),'delivered')`)
-      .run(`kick:${input.bugId}:${Date.now()}:${kickSuffix()}`, input.bugId, mode, input.originSession, input.dossierPath, sha);
+    let r: { ok?: boolean } | null = null;
+    try { r = await deps.send(sessionId, brief); } catch (e) { throw new Error(`KICK-SEND-THREW:${String(e).slice(0, 80)}`); }
+    if (!r || r.ok !== true) throw new Error("KICK-SEND-FAILED");
+    recordKick(db, { bugId: input.bugId, mode, targetSession: sessionId, dossierPath: input.dossierPath, sha, outcome: "delivered" });
     return { mode, target: sessionId, dossierSha16: sha };
   }
   if (mode === "spawn") {
     // FIXED (W26): pass the VERIFIED bytes (md/oj), never the paths the adapter would re-read.
-    const r = await deps.spawn({
-      projectId: input.projectId, brief,
-      attachments: [{ name: "dossier.md", content: md }, { name: "origin.json", content: oj }],
-    });
-    db.query(`INSERT INTO kick(id, bug_record, mode, spawned_session, dossier_path, dossier_sha16, sent_at, outcome)
-              VALUES (?,?,?,?,?,?,strftime('%s','now'),'spawned')`)
-      .run(`kick:${input.bugId}:${Date.now()}:${kickSuffix()}`, input.bugId, mode, r.sessionId, input.dossierPath, sha);
+    // FIXED (W28): a deps.spawn rejection escaped RAW with no kick row (an audit gap), and a
+    // null resolution threw a TypeError. Both are NAMED failures now.
+    let r: { sessionId?: string } | null = null;
+    try {
+      r = await deps.spawn({
+        projectId: input.projectId, brief,
+        attachments: [{ name: "dossier.md", content: md }, { name: "origin.json", content: oj }],
+      });
+    } catch (e) { throw new Error(`KICK-SPAWN-THREW:${String(e).slice(0, 80)}`); }
+    if (!r || typeof r.sessionId !== "string" || !r.sessionId) throw new Error("KICK-SPAWN-NO-SESSION");
+    recordKick(db, { bugId: input.bugId, mode, spawnedSession: r.sessionId, dossierPath: input.dossierPath, sha, outcome: "spawned" });
     return { mode, target: r.sessionId, dossierSha16: sha };
   }
-  const b = await deps.openBranch(input.bugId);
-  if (!b.ok) throw new Error("KICK-BRANCH-FAILED");
-  db.query(`INSERT INTO kick(id, bug_record, mode, dossier_path, dossier_sha16, sent_at, outcome)
-            VALUES (?,?,?, ?,?,strftime('%s','now'),'branched')`)
-    .run(`kick:${input.bugId}:${Date.now()}:${kickSuffix()}`, input.bugId, mode, input.dossierPath, sha);
+  // FIXED (W28): a rejection escaped raw and a null resolution threw. Both NAMED.
+  let b: { ok?: boolean } | null = null;
+  try { b = await deps.openBranch(input.bugId); } catch (e) { throw new Error(`KICK-BRANCH-THREW:${String(e).slice(0, 80)}`); }
+  if (!b || b.ok !== true) throw new Error("KICK-BRANCH-FAILED");
+  recordKick(db, { bugId: input.bugId, mode, dossierPath: input.dossierPath, sha, outcome: "branched" });
   return { mode, target: `fix/${input.bugId}`, dossierSha16: sha };
 }

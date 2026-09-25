@@ -1817,3 +1817,32 @@ clean, tick=2 ready=1 eligible=1 errors=[].
 plan's per-request budget and 429s (measured: 980 B OK / 12 KB 429 / 28 KB 429).
 
 **ANCHORS:** src/guardrail.ts:79,101,120,148,219.
+
+## EN-209 - W28: THE PER-FILE GATE ON src/kick.ts — the HIGH WAS MY OWN INCOMPLETE W26 FIX
+
+**GATE: FAIL (0 critical, 1 high), 4 findings** from the per-file scan of the kick rail.
+
+### THE HIGH (my W26 fix was INCOMPLETE)
+**`src/kick.ts:122` — the explicit `live` path bypassed the DB session authority.** W26 fixed the
+spawn + auto paths to use `row.os ?? input.originSession`, but the explicit-`live` branch still
+validated the CALLER's id directly — so a stale/wrong id checked the wrong session, reintroducing
+the exact TOCTOU W26 claimed to close. Both the CHECK and the SEND now use the DB-authoritative
+session.
+
+### THE MEDIUMS
+- **`:142` — three unguarded dep calls:** a `deps.send/spawn/openBranch` REJECTION escaped RAW
+  with no `kick` row (an audit gap), and a null resolution threw a TypeError. All three are NAMED
+  failures now (`KICK-SEND-THREW` / `KICK-SPAWN-THREW` / `KICK-BRANCH-THREW` + the no-session
+  guards), so the kick ledger records WHAT happened.
+- **`:144` — the three `INSERT INTO kick` blocks were triplicated** (differing only in
+  mode/target) — a drift risk for the id format, the timestamp, and the sha recording. Extracted
+  into ONE `recordKick` helper (which also moved `at` to `unixepoch()` for type consistency).
+
+### THE LOW
+**`:88` — three INDEPENDENT dossier reads ran SERIALLY.** `Promise.all` (the manifest's failure is
+still tolerated as a tamper signal).
+
+**THE VERIFICATION:** 181 pass / 0 fail (620 expect, 49 files); tsc exit 0; the daemon restarted
+clean.
+
+**ANCHORS:** src/kick.ts:88,122,142,144.
