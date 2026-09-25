@@ -743,3 +743,37 @@ gate + the P5 corpus (25/0) + the two dispatched adversarial auditors (both 0 cr
 
 **THE RESIDUAL:** 13 medium + 7 low — real, non-blocking. The cheap ones were fixed in W17;
 the remainder is named in the ledger.
+
+
+## TEST RESULT - 2026-09-25T08:48:00Z - THE OPERATIONAL PROOF (the operator's 4 conditions)
+
+**THE CHARGE (verbatim):** *"until LITERALLY ALL OF THIS IS 100% OPERATIONAL THERE IS NO LEGAL
+STOP."* Each condition, measured against the LIVE system this turn:
+
+| # | the condition | the verdict | the EVIDENCE (verbatim) |
+|---|---|---|---|
+| 1 | zero open findings | **PARTIAL** | every finding from 8 gate runs + 2 adversarial auditors + the poolside lane is FIXED; the residual is real but non-blocking medium/low. **The gate LANE is BLOCKED** (see below). |
+| 2 | the factory does its job end-to-end | **DEMONSTRATED** | \`{"daemonOk":true,"tick":351,"ready":1,"eligible":1,"planHash":"5d57ef06cef90b7c","errors":[]}\` — **planHash is NOT sha256("")** (e3b0c44298fc1c14), so the daemon does REAL work; \`ready_to_merge 1\` |
+| 3 | the kick rail works | **FIRED LIVE** | the kick row: \`{"bug_record":"LIVE-KICK-1","mode":"spawn","spawned_session":"jarvis-upper-5","outcome":"spawned"}\`; the AO session \`jarvis-upper-5\` exists |
+| 4 | a PR green→mergeable via this kernel | **MET** | \`gh pr view 2 --json mergeable,reviewDecision\` → \`merge=BLOCKED mergeable=MERGEABLE review=REVIEW_REQUIRED\` — the CHECKS ARE GREEN; only the operator's approval remains |
+
+## THE THREE DEFECTS FOUND BY DRIVING IT LIVE (no test could see them)
+1. **D-1 (CRITICAL):** \`guardrailRemote\` read only \`/statuses\`, so the 6 \`gates/*\` **CHECK RUNS**
+   were invisible — \`ci_green\` was ALWAYS \`fail\` and **no PR could ever be eligible**. The
+   factory could never do its job. Fixed (the check-runs merge + pagination).
+2. **D-2 (HIGH):** the publish dedup was **DEAD CODE** (\`lastPublished\` set, never read) → a live
+   15s POST storm. Fixed (an \`allowPublish\` hook); measured **GROWTH 0** over 4 ticks.
+3. **D-3 (HIGH):** the attachments were sent raw; the daemon requires **BASE64**. Fixed;
+   the kick then returned \`{"ok":true,"mode":"spawn","target":"jarvis-upper-5"}\`.
+
+## THE AUDIT LANE: BLOCKED (operator-owned, named)
+**GATE: BLOCKED (HT-BUG-20, THE WORKSPACE PRIVACY GATE).** The \`muse-go\` lane returns:
+\`\`\`
+400 "This Go model trains on request data. Allow paid endpoints that train on request data
+     in your workspace's Privacy settings to use it."
+\`\`\`
+This is NOT the protocol (HT-BUG-19 is fixed) and NOT a quota. **RESUME CONDITION:** the
+operator enables "paid endpoints that train on request data" at opencode.ai → workspace Privacy
+settings. No local config change unblocks it.
+**THE WORKING FALLBACK:** \`poolside-laguna-s\` (the skill's documented lane) — it produced 3
+real findings (fixed in W22); it is slow (30s/request) and degrades on a full-diff run.
