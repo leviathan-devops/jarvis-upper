@@ -19,3 +19,7 @@ dist/
 Checkpoints/
 .trident/
 .aider.chat.history.md
+
+# KICK DOSSIERS: machine-generated per-bug working artifacts (writeDossier),
+# the same class as .trident/ — never source, never shipped.
+dossiers/

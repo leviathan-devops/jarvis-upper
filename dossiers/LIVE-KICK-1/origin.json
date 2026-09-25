@@ -1,6 +1,0 @@
-{
-  "file": "src/runtime.ts",
-  "line": 1,
-  "symptom": "the kick rail was never exercised live",
-  "originCommit": "c3c3ed0d562edd0443a2fe2ba4e5473bb3e4bf50"
-}
