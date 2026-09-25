@@ -1609,3 +1609,32 @@ ARMED, tick=2, ready=1, eligible=1, cursor=1050, errors=[].
 
 **ANCHORS:** src/target-guard.ts:128, src/runtime.ts:182, src/guardrail.ts:129,
 src/kick-adapter.ts:59, src/kick.ts:50,75.
+
+## EN-204 - W23: THE RED->GREEN ATTACK BATTERY + THE OPERATOR RUNBOOK (2026-09-25T08:53:35Z)
+
+**MY OWN ADVERSARIAL PASS** (the two dispatched auditors both hit the zen-free 429 lane limit):
+11 crafted attacks against the REAL `guardrailRemote`, each run end-to-end.
+
+**THE RESULT: NO BYPASS FOUND.** Every attack was refused; the two GitHub non-blocking
+conclusions pass.
+
+| the attack | the result |
+|---|---|
+| a failing check-run | REFUSED |
+| a check-run still RUNNING (null conclusion) | REFUSED |
+| a MISSING check-run | REFUSED |
+| empty check-runs | REFUSED |
+| a RED commit-status masking a green check-run | REFUSED |
+| a re-run whose LATEST is a failure | REFUSED |
+| **a QUEUED re-run (no timestamps at all)** | REFUSED (the W21 fix holds) |
+| `neutral` / `skipped` (GitHub treats as PASSING) | PASS (correct) |
+| a re-run fail->success | PASS (correct — the latest wins) |
+
+**THE OPERATOR RUNBOOK** (`OPERATOR_RUNBOOK.md`, 119 lines): the second-operator artifact — a
+zero-context operator can answer "is it alive?", "why is it idle?", "how do I promote?", "how do
+I fire a kick?", "what does each field mean?", and every failure mode has a named diagnosis +
+remedy. It states the IDLE-GREEN explicitly (`planHash == sha256("")` means NO WORK).
+
+**THE VERIFICATION:** 181 pass / 0 fail (620 expect, 49 files); tsc exit 0.
+
+**ANCHORS:** tests/w23_eligibility_attacks.test.ts, OPERATOR_RUNBOOK.md, src/guardrail.ts:127.
