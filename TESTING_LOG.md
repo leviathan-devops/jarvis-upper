@@ -777,3 +777,32 @@ operator enables "paid endpoints that train on request data" at opencode.ai → 
 settings. No local config change unblocks it.
 **THE WORKING FALLBACK:** \`poolside-laguna-s\` (the skill's documented lane) — it produced 3
 real findings (fixed in W22); it is slow (30s/request) and degrades on a full-diff run.
+
+
+## TEST RESULT - 2026-09-25T08:51:20Z - THE FENCE REALLY RAN (the publish is not a hand-seed)
+
+**The question:** the daemon posts \`factory/fence2: success\` and \`factory/verdict: success\`. Is
+that backed by a REAL fence adjudication, or is it a status someone set?
+
+**THE COMMAND:** \`verify({ jobDir: ~/.ao/data/worktrees/jarvis-upper/jarvis-upper-4,
+headSha: c3c3ed0d562e..., sessionId: "jarvis-upper-4" })\` — the SAME call the daemon's tick makes.
+
+**THE OUTPUT (verbatim):**
+\`\`\`console
+verdict: VERIFIED
+fence:  {"ran":true,"exitCode":0,"sha":"c3c3ed0d562edd0443a2fe2ba4e5473bb3e4bf50","ledgerVerdict":"PASS","reason":"FENCE-GREEN"}
+review: {"ran":true,"verdict":"approved","targetSha":"c3c3ed0d562edd0443a2fe2ba4e5473bb3e4bf50","harness":"opencode","reason":"REVIEW-GREEN"}
+reasons: []
+\`\`\`
+
+**THE READING:** the fence ACTUALLY RAN (\`ran:true\`, \`exitCode:0\`), it read a REAL PASS row from
+the ledger (\`ledgerVerdict:"PASS"\`), and a REAL review is APPROVED and BOUND TO THE SAME HEAD
+SHA (\`targetSha === headSha\`). Both sources green on the same commit → \`VERIFIED\`.
+
+**WHY THIS MATTERS:** the two-source law is satisfied by REAL evidence. The daemon's published
+\`"verdict: approved"\` is the OUTPUT of a real adjudication — the exact opposite of the
+hand-seeded green (TH-3) this session was opened to kill.
+
+**THE SPEC the fence adjudicated** (\`~/.ao/data/worktrees/jarvis-upper/jarvis-upper-4/SPEC.md\`):
+\`job: fence\` · \`seat: jarvis-upper-4\` · one step whose artifact is \`README.md\` with
+\`done-when: test -f/s\` and a \`sha16\` map — the fence2 v2 contract.
