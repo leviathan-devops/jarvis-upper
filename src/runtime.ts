@@ -180,8 +180,14 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
         // the SAME frame — an infinite refetch loop that also logs rail-failed every tick.
         // Consume it: read the frame's own `seq` from the partial buffer and advance past it.
         const m = buf.match(/"seq"\s*:\s*(\d+)/);
-        if (m) {
-          const dropped = Number(m[1]);
+        // FIXED (the W21 ship gate MEDIUM): if the seq is ABSENT from the partial buffer the
+        // cursor still could not advance (an infinite loop). Fall back to the highest seq we
+        // have EVER seen + 1 — guaranteed forward progress past the unparseable frame.
+        const dropped = m ? Number(m[1]) : (() => {
+          const cur = db.query("SELECT last_seq FROM rail_seq WHERE source='ao-events'").get() as { last_seq: number } | null;
+          return (cur?.last_seq ?? 0) + 1;
+        })();
+        {
           db.query(`INSERT INTO rail_seq(source, last_seq, updated_at) VALUES('ao-events', ?, strftime('%s','now'))
                     ON CONFLICT(source) DO UPDATE SET last_seq=MAX(last_seq, excluded.last_seq), updated_at=excluded.updated_at`).run(dropped);
           console.error(`rail-oversized-frame-dropped:seq=${dropped}:bytes=${bufBytes}:cap=${RAIL_MAX_BUF}`);

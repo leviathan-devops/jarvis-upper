@@ -30,8 +30,12 @@ test("test_target_refuses_mismatch", () => {
   // ship-gate HIGH: FAIL-CLOSED — a NON-REPO refuses (the header always said so)
   expect(targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: () => ({ url: null, isRepo: false }) }).ok).toBe(false);
   expect(targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: () => { throw new Error("git gone"); } }).ok).toBe(false);
-  // a real work tree with NO origin has nothing to contradict -> allowed
-  expect(targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: repo(null) }).ok).toBe(true);
+  // UPDATED (W21, ship gate HIGH): a tree with NO origin is FAIL-CLOSED — the target
+  // cannot be verified, and an unverified target is the wrong-target risk the guard exists
+  // for. (The old "nothing to contradict -> allowed" was a fail-open vs the file's contract.)
+  const noOrigin = targetMatchesRemote({ root: "/tmp", owner: "o", repo: "r", readRemote: repo(null) });
+  expect(noOrigin.ok).toBe(false);
+  expect(noOrigin.reason ?? "").toContain("TARGET-NO-ORIGIN");
 
   // ship-gate MEDIUM: empty owner/repo must not make the needle "//" (every https URL matches)
   expect(targetMatchesRemote({ root: "/tmp", owner: "", repo: "r", readRemote: repo(URL) }).ok).toBe(false);

@@ -21,13 +21,17 @@ const ATTACH_MAX = 262144;
 // THREW — inconsistent. It is now LOGGED loudly so a degraded spawn is observable.
 // FIXED (the W15 ship gate MEDIUM): the prompt cap used UTF-16 units while the attachment
 // cap used BYTES — one of them was wrong. Both measure bytes now (the daemon's limit).
+// FIXED (the W21 ship gate MEDIUM): a truncation was console-only while an oversized
+// ATTACHMENT threw — so kick() recorded 'delivered'/'spawned' against the full dossier sha
+// while the worker got a TRUNCATED brief (overstating the delivery). It now THROWS.
 const clamp = (s: string, max: number): string => {
   if (Buffer.byteLength(s, "utf8") <= max) return s;
   console.error(`kick-prompt-truncated:${Buffer.byteLength(s, "utf8")}->${max}`);
+  throw new Error(`KICK-BRIEF-TOO-LONG:${Buffer.byteLength(s, "utf8")}>${max}`);
   // slice by code units, then trim to the byte budget
   let out = s.slice(0, max - 16);
   while (Buffer.byteLength(out, "utf8") > max - 16) out = out.slice(0, -1);
-  return out + "\n[truncated]";
+  return out + "\n[truncated]";   // unreachable (the throw above is the loud-fail)
 };
 
 export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readFile?: (p: string) => Promise<string> } = {}): KickDeps {

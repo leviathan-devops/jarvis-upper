@@ -42,17 +42,21 @@ export async function kick(
   // FIXED 2026-09-23 (qwen-code-audit C3): the file READS ran BEFORE the
   // bug_record validation — a caller-supplied dossierPath reached the filesystem
   // before the db check could refuse it. Validation comes FIRST.
-  const row = db.query("SELECT id FROM bug_record WHERE id = ?").get(input.bugId) as { id: string } | null;
+  // FIXED (the W21 ship gate MEDIUM): TWO SELECTs on the same row (a round-trip + a race
+  // window). One SELECT carries both facts.
+  const row = db.query("SELECT id, dossier_path AS p FROM bug_record WHERE id = ?").get(input.bugId) as { id: string; p: string | null } | null;
   if (!row) throw new Error(`BUG-UNKNOWN:${input.bugId}`);
   // FIXED (the W17 ship gate MEDIUM): the path-equality gate ran AFTER the filesystem reads,
   // so a caller-supplied arbitrary path reached the FS (an existence/read probe) before any
   // check. The row check now runs FIRST.
-  const dossierRow = db.query(
-    "SELECT dossier_path AS p FROM bug_record WHERE id = ?").get(input.bugId) as { p: string } | null;
+  const dossierRow = row;   // the single SELECT above
   // FIXED (ship gate MEDIUM): a NULL row (a concurrent delete / a race) SKIPPED the gate and
   // the caller-supplied path still reached the filesystem (an arbitrary-read probe). Fail closed.
   if (!dossierRow) throw new Error(`DOSSIER-NO-ROW:${input.bugId}`);
-  if (dossierRow.p !== input.dossierPath) throw new Error('DOSSIER-PATH-MISMATCH');
+  // FIXED (the W21 ship gate MEDIUM): strict !== with no normalization meant a trailing slash
+  // or a dot-segment caused a false DOSSIER-PATH-MISMATCH. Normalize both sides.
+  const norm = (q: string) => q.replace(/\/+/g, "/").replace(/\/+$/, "");
+  if (norm(dossierRow.p ?? "") !== norm(input.dossierPath)) throw new Error('DOSSIER-PATH-MISMATCH');
   const md = await deps.readFile(`${input.dossierPath}/dossier.md`);
   const oj = await deps.readFile(`${input.dossierPath}/origin.json`);
   const sha = dossierSha16(md, oj);
@@ -73,6 +77,15 @@ export async function kick(
       throw new Error(`KICK-BAD-MODE:${String(input.mode).slice(0, 32)}`);
     }
     mode = input.mode;
+    // FIXED (the W21 ship gate MEDIUM): an explicit `spawn` SKIPPED the liveness check, so a
+    // spawn while the origin session is still ALIVE manufactured the duplicate session the
+    // tri-state fix exists to prevent. Validate the ORIGIN for both live and spawn.
+    if (mode === "spawn" && input.originSession) {
+      let sv: Liveness = "unknown";
+      try { sv = await deps.sessionAlive(input.originSession); } catch { sv = "unknown"; }
+      if (typeof sv === "boolean") sv = sv ? "alive" : "dead";
+      if (sv === "alive") throw new Error("KICK-SPAWN-ORIGIN-ALIVE:use mode=live (or an explicit intent)");
+    }
     // FIXED (the W15 ship gate HIGH): an explicit `live` SKIPPED the liveness check — the
     // CLI's `upper kick <id> live` would send to a DEAD session. Validate it.
     if (mode === "live") {

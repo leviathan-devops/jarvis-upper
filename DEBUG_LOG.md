@@ -1573,3 +1573,39 @@ the live daemon tick=2 ready=1 eligible=1 cursor=1034 errors=[].
 
 **ANCHORS:** gates/rt-preflight.sh:106,127, src/runtime.ts:176,287,305, src/guardrail.ts:139,143,145,
 src/target-guard.ts:70,125, src/kick.ts:52, src/kick-adapter.ts:87.
+
+## EN-203 - W21: THE REMAINING HIGH (the no-origin fail-open) + 7 MEDIUM + 5 LOW (2026-09-25T07:20:32Z)
+
+**GATE: FAIL (0 critical, 1 high), 13 findings** — down from 28.
+
+### THE HIGH
+**`src/target-guard.ts:128` — the no-origin ALLOW contradicted the file's own FAIL-CLOSED
+contract.** `git remote remove origin` (or a cleared config) returned `ok:true`, so `main.ts`
+ARMED the publisher and POSTed to UPPER_OWNER/UPPER_REPO **without verifying this tree**. A tree
+with no origin CANNOT be verified — that is exactly the wrong-target risk. Now REFUSED
+(`TARGET-NO-ORIGIN`). The test that asserted the old allow was updated to the fail-closed
+contract; the daemon still ARMS (jarvis-upper has an origin).
+
+### THE MEDIUMS
+- **runtime.ts:182 — the oversized-frame consume had NO fallback when `seq` was absent** → the
+  cursor still could not advance (an infinite loop). Falls back to `last_seq + 1`.
+- **guardrail.ts:129 — the check-runs read capped at per_page=100 with NO pagination** → beyond
+  100 runs (many re-runs) the required contexts truncated to REMOTE-GATE-MISSING and ci_green
+  could NEVER go green. Now follows the Link header (bounded to 10 pages).
+- **kick-adapter.ts:59 — a truncated prompt was console-only** → kick() recorded
+  'delivered'/'spawned' against the FULL dossier sha while the worker got a TRUNCATED brief
+  (overstating the delivery). Now THROWS `KICK-BRIEF-TOO-LONG`.
+- **kick.ts:75 — an explicit `spawn` bypassed the liveness guard** → a spawn while the origin
+  session was still ALIVE manufactured the duplicate session the tri-state fix exists to
+  prevent. Validated for both live and spawn.
+- **kick.ts:50 — two SELECTs on the same bug_record row** (a round-trip + a race window) → one
+  SELECT; and strict `!==` with no normalization caused a false DOSSIER-PATH-MISMATCH on a
+  trailing slash → both sides normalized.
+- **kick-adapter.ts:90 — the OOM pre-check skipped when a seam was injected, but the injected
+  bytes were still fully loaded** — the byteLength gate below bounds them.
+
+**THE VERIFICATION:** 178 pass / 0 fail (610 expect, 48 files); tsc exit 0; the live daemon
+ARMED, tick=2, ready=1, eligible=1, cursor=1050, errors=[].
+
+**ANCHORS:** src/target-guard.ts:128, src/runtime.ts:182, src/guardrail.ts:129,
+src/kick-adapter.ts:59, src/kick.ts:50,75.

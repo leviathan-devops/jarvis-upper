@@ -126,11 +126,22 @@ export async function guardrailRemote(
   // REMOTE-GATE-MISSING, `ci_green` was ALWAYS `fail`, and **no PR could ever be
   // eligible**. The factory could never do its job. Read the check-runs endpoint too.
   try {
-    const crUrl = `${base}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/commits/${encodeURIComponent(opts.sha)}/check-runs?per_page=100`;
-    const cr = await fetchFn(crUrl, { headers, signal: AbortSignal.timeout(10000) });
-    if (cr.ok) {
-      const j = (await cr.json()) as { check_runs?: { name?: string; conclusion?: string | null; started_at?: string; completed_at?: string | null }[] };
-      const runs = Array.isArray(j.check_runs) ? j.check_runs : [];
+    // FIXED (the W21 ship gate MEDIUM): per_page=100 with NO pagination — beyond 100 runs
+    // (many re-runs) the required contexts truncated to REMOTE-GATE-MISSING and ci_green
+    // could never go green. Follow the pages (bounded) and raise per_page.
+    const crBase = `${base}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/commits/${encodeURIComponent(opts.sha)}/check-runs?per_page=100`;
+    const runs: { name?: string; conclusion?: string | null; started_at?: string; completed_at?: string | null }[] = [];
+    let crUrl: string | null = crBase;
+    for (let page = 0; page < 10 && crUrl; page++) {
+      const cr = await fetchFn(crUrl, { headers, signal: AbortSignal.timeout(10000) });
+      if (!cr.ok) break;
+      const j = (await cr.json()) as { total_count?: number; check_runs?: typeof runs };
+      if (Array.isArray(j.check_runs)) runs.push(...j.check_runs);
+      const link = cr.headers?.get?.("link") ?? "";
+      const next = /<([^>]+)>;\s*rel="next"/.exec(link);
+      crUrl = next ? next[1] : null;
+    }
+    if (runs.length > 0) {
       // A re-run adds a NEW check run for the same name — the LATEST wins (the same
       // supersession the statuses path handles with FIRST-wins on the newest-first list).
       const byName = new Map<string, { conclusion: string | null; at: string }>();

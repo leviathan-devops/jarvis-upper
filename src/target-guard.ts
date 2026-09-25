@@ -125,7 +125,12 @@ export function targetMatchesRemote(opts: {
   if (!res.isRepo) return { ok: false, remote: "", reason: "GIT-UNAVAILABLE:not-a-repo" };
   // FIXED (the W15 ship gate LOW): `!res.url` conflated null (no origin -> allow) with ""
   // (a cleared origin -> must refuse). Check for null EXPLICITLY.
-  if (res.url === null) return { ok: true, remote: "(no remote)" };
+  // FIXED (ship gate HIGH): this ALLOWED a missing origin, contradicting the file's own
+  // FAIL-CLOSED contract — `git remote remove origin` (or a cleared config) let the daemon
+  // in main.ts ARM the publisher and POST to UPPER_OWNER/UPPER_REPO without verifying this
+  // tree. A tree with no origin CANNOT be verified, and an unverified target is exactly the
+  // wrong-target risk. Refuse, naming the cause.
+  if (res.url === null) return { ok: false, remote: "(no remote)", reason: "TARGET-NO-ORIGIN:this tree has no origin remote — the target cannot be verified" };
   // FIXED (ship gate MEDIUM): a strict `=== null` missed UNDEFINED (a custom readRemote
   // returning {isRepo:true} with no url) — it fell through to parseRemote(undefined) which
   // THREW instead of returning a fail-closed TargetCheck.
