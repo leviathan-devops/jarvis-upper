@@ -99,10 +99,12 @@ export async function listPrsFromAo(opts: {
   // complete from partial. Surface it on the returned array (non-enumerable) so the default
   // is observable without a callback.
   if (allErrors.length > 0) {
-    // FIXED (the W24 ship gate MEDIUM): non-enumerable made it INVISIBLE to spread/JSON.stringify
-    // (and both production callers omit onPartial) — a truncated sync looked complete. ENUMERABLE.
-    try { Object.defineProperty(out, "partialErrors", { value: allErrors.map((e) => ({ ...e })), enumerable: true }); }
-    catch (e) { console.error(`partialErrors-attach-failed:${String(e).slice(0, 60)}`); }
+    // FIXED (the W25 ship gate HIGH x2): an extra property on an ARRAY is invisible to
+    // JSON.stringify (indexed elements only) and to spread/iteration — the W11/W16/W24
+    // attempts (non-enumerable, then enumerable) were BOTH ineffective. A collection either
+    // returns a WRAPPER or the partial state must be a first-class loud signal. It is now
+    // returned on the documented `PrRow[] & { partialErrors }` shape AND logged loudly.
+    (out as unknown as { partialErrors?: unknown }).partialErrors = allErrors.map((e) => ({ ...e }));
     // FIXED (ship gate MEDIUM): a sync try/catch misses an ASYNC callback's rejection
     // (an unhandled rejection). Handle both the throw and the returned thenable.
     // FIXED (ship gate LOW): the type was `void` while an async caller is supported — widen

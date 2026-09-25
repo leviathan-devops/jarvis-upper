@@ -132,14 +132,27 @@ export async function guardrailRemote(
     const crBase = `${base}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/commits/${encodeURIComponent(opts.sha)}/check-runs?per_page=100`;
     const runs: { name?: string; conclusion?: string | null; started_at?: string; completed_at?: string | null }[] = [];
     let crUrl: string | null = crBase;
-    for (let page = 0; page < 10 && crUrl; page++) {
+    // FIXED (the W25 ship gate MEDIUM): this walked up to 10 pages x 10s SEQUENTIALLY even
+    // when every REQUIRED_CONTEXT already had a run, stalling the tick (~100s worst case).
+    const haveAll = () => REQUIRED_CONTEXTS.every((c) => c in latest);
+    for (let page = 0; page < 10 && crUrl && !haveAll(); page++) {
       const cr = await fetchFn(crUrl, { headers, signal: AbortSignal.timeout(10000) });
       if (!cr.ok) break;
       const j = (await cr.json()) as { total_count?: number; check_runs?: typeof runs };
       if (Array.isArray(j.check_runs)) runs.push(...j.check_runs);
       const link = cr.headers?.get?.("link") ?? "";
       const next = /<([^>]+)>;\s*rel="next"/.exec(link);
-      crUrl = next ? next[1] : null;
+      // FIXED (the W25 ship gate HIGH — a TOKEN-FORWARDING risk): the `next` URL was followed
+      // VERBATIM while re-sending the Authorization header, so an off-origin Link (a proxy, a
+      // mocked API, a redirect) leaked the GitHub token to an arbitrary host. Same-origin only.
+      if (next) {
+        try {
+          const n = new URL(next[1]);
+          const b = new URL(base);
+          crUrl = (n.origin === b.origin) ? next[1] : null;
+          if (crUrl === null) console.error(`check-runs-next-off-origin:${n.origin}`);
+        } catch { crUrl = null; }
+      } else { crUrl = null; }
     }
     if (runs.length > 0) {
       // A re-run adds a NEW check run for the same name — the LATEST wins (the same

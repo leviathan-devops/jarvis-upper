@@ -190,7 +190,11 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     try { normJobDir = normalize(opts.jobDir.trim()); }
     catch (e) { normJobFail = `NUL-EMBEDDED:${String(e).slice(0, 80)}`; console.error(`jobdir-normalize-failed:${String(e).slice(0, 80)}`); normJobDir = ""; }
   }
-  if (typeof opts.jobDir !== "string" || normJobDir === "" || normJobDir === "." || normJobDir === "/") {
+  // FIXED (the W25 ship gate MEDIUM): normalize('..') stays '..', so a parent-traversal path
+  // passed the guard and the SPEC read/fence ran OUTSIDE the intended directory. Refuse any
+  // leading-`..` (a jobDir must be a real, owned directory).
+  if (typeof opts.jobDir !== "string" || normJobDir === "" || normJobDir === "." || normJobDir === "/"
+      || normJobDir === ".." || normJobDir.startsWith("../")) {
     // FIXED (the poolside-lane finding): a NUL-embedded jobDir lost its forensic cause in
     // the bare "NO-JOB-DIR". The specific failure now travels with the refusal.
     const why = normJobFail ? `NO-JOB-DIR:${normJobFail}` : "NO-JOB-DIR";

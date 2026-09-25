@@ -52,8 +52,11 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
         // `alive`. Require a PLAUSIBLE session object (or null = dead); else it is UNKNOWN.
         const sv = (r as { session: unknown }).session;
         if (sv === null) return "dead";
+        // FIXED (the W25 ship gate HIGH): `{{}}`/`[]` counted as a plausible session (any object
+        // did). Require a SHAPE CUE — the session view carries an id/name.
         if (typeof sv !== "object") return "unknown";
-        return "alive";
+        const svo = sv as Record<string, unknown>;
+        return ("id" in svo || "name" in svo || "sessionId" in svo) ? "alive" : "unknown";
       } catch (e) {
         // FIXED (ship-gate MEDIUM): a 404 is a DEFINITIVE dead; a timeout / 5xx / network
         // failure is UNKNOWN. Collapsing every throw to `false` made kick() spawn a
@@ -148,8 +151,12 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
       if (git(["checkout", "-b", `fix/${bugId}`])) return { ok: true };
       // FIXED (the W15 ship gate MEDIUM): the fallback ran for ANY `-b` failure, not just
       // branch-exists — a dirty tree / missing repo still mutated the tree. Gate on exists.
+      // FIXED (the W25 ship gate MEDIUM): a `-b` failure from a DIRTY TREE also fell into the
+      // checkout fallback, switching branches while carrying dirty changes. Require BOTH the
+      // branch to exist AND a clean tree before the fallback.
       const exists = (() => { try { return Bun.spawnSync(["git", "-C", cwd, "rev-parse", "--verify", `refs/heads/fix/${bugId}`], { stderr: "pipe", stdout: "pipe" }).exitCode === 0; } catch { return false; } })();
-      if (!exists) return { ok: false };
+      const clean = (() => { try { return (Bun.spawnSync(["git", "-C", cwd, "status", "--porcelain"], { stderr: "pipe", stdout: "pipe" }).stdout?.toString() ?? "").trim() === ""; } catch { return false; } })();
+      if (!exists || !clean) return { ok: false };
       return { ok: git(["checkout", `fix/${bugId}`]) };
     },
     // FIXED (ship gate MEDIUM): this ignored opts.readFile, so an injected seam

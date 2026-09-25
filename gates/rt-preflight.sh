@@ -95,7 +95,7 @@ elif { [ -e "$WORKTREE_ROOT" ] || [ -L "$WORKTREE_ROOT" ]; } && { [ ! -d "$WORKT
   echo "REJECT(G-RT): the worktree root $WORKTREE_ROOT is not a listable directory — refusing to PASS unverified" >&2
   FAIL=1
 elif [ -d "$WORKTREE_ROOT" ]; then
-  WT_N=0; WT_NO_SPEC=0; BAD_N=0   # FIXED: non-directories counted separately
+  WT_N=0; WT_NO_SPEC=0
   # FIXED (ship-gate LOW): the `*/` glob skips dot-directories, so a hidden worktree
   # bypassed the gate while still being adjudicated. dotglob makes the glob complete.
   # FIXED (ship-gate LOW): an unconditional `shopt -u` clobbered the CALLER's option state.
@@ -137,24 +137,13 @@ elif [ -d "$WORKTREE_ROOT" ]; then
     # FIXED (ship gate HIGH): a readable non-blank SPEC.md still PASSed here while the
     # fence REFUSED it (verdict.ts requires an `artifact:` line + a committed, byte-identical
     # artifact -> FENCE-NO-ARTIFACT). Require the SAME shape the fence requires.
-    # FIXED (the W24 ship gate HIGH): the `artifact:` line PRESENCE was not fence-accept.
-    # The fence additionally requires the artifact to be COMMITTED at HEAD and byte-identical
-    # on disk. Check that too (fail closed).
-    ART_OK=1
-    if [ -f "$wt/SPEC.md" ] && [ -r "$wt/SPEC.md" ]; then
-      ART="$(grep -E '^[[:space:]]*artifact:[[:space:]]*[^[:space:]]' -- "$wt/SPEC.md" 2>/dev/null | head -1 | sed -E 's/^[[:space:]]*artifact:[[:space:]]*//' | tr -d '\r')"
-      if [ -n "$ART" ]; then
-        REL="${ART#$wt/}"
-        if [ "$REL" = "$ART" ]; then
-          echo "REJECT(G-RT): $wt — the SPEC artifact '$ART' is OUTSIDE the worktree (the fence refuses FENCE-NO-ARTIFACT)" >&2; ART_OK=0
-        elif ! git -C "$wt" cat-file -e "HEAD:$REL" 2>/dev/null; then
-          echo "REJECT(G-RT): $wt — the SPEC artifact '$REL' is NOT committed at HEAD (the fence refuses FENCE-ARTIFACT-UNCOMMITTED)" >&2; ART_OK=0
-        elif ! cmp -s "$wt/$REL" <(git -C "$wt" show "HEAD:$REL" 2>/dev/null); then
-          echo "REJECT(G-RT): $wt — the SPEC artifact '$REL' DRIFTED from HEAD (the fence refuses FENCE-ARTIFACT-DRIFT)" >&2; ART_OK=0
-        fi
-      fi
-    fi
-    if [ "$ART_OK" -eq 0 ] || [ ! -f "$wt/SPEC.md" ] || [ ! -r "$wt/SPEC.md" ] || [ ! -s "$wt/SPEC.md" ] || ! grep -q -e '[^[:space:]]' -- "$wt/SPEC.md" 2>/dev/null || ! grep -qE '^[[:space:]]*artifact:[[:space:]]*[^[:space:]]' -- "$wt/SPEC.md" 2>/dev/null; then
+    # NOTE (W25 SIMPLIFICATION): W24 tried to REPLICATE the fence here (resolving the
+    # artifact, checking it is committed + byte-identical). That diverged from the fence's own
+    # rules in BOTH directions (it rejected relative artifact values the fence ACCEPTS, and it
+    # kept trailing comments the fence strips) — two false-REJECT classes. A PREFLIGHT is a
+    # PRE-check: its job is to catch the FENCE-NO-SPEC class (a worktree the fence will refuse
+    # on EVERY PR). The fence's `artifactBoundToHead` is the AUTHORITY for the rest.
+    if [ ! -f "$wt/SPEC.md" ] || [ ! -r "$wt/SPEC.md" ] || [ ! -s "$wt/SPEC.md" ] || ! grep -q -e '[^[:space:]]' -- "$wt/SPEC.md" 2>/dev/null || ! grep -qE '^[[:space:]]*artifact:[[:space:]]*[^[:space:]]' -- "$wt/SPEC.md" 2>/dev/null; then
       # FIXED (ship-gate LOW): `basename --` is GNU-only (fails on BSD/macOS). Strip in-shell.
       WT_NAME="${wt%/}"; WT_NAME="${WT_NAME##*/}"
       echo "REJECT(G-RT): the worktree $WT_NAME has NO readable, non-empty SPEC.md — the fence would answer FENCE-NO-SPEC on every PR" >&2
@@ -170,7 +159,7 @@ elif [ -d "$WORKTREE_ROOT" ]; then
   # FIXED (the W20 ship gate LOW): `export` ADDED an attribute the caller may not have had.
   # A plain assignment (or an unset) restores the attribute too.
   if [ -n "$GLOBIGNORE_WAS" ]; then GLOBIGNORE="$GLOBIGNORE_WAS"; else unset GLOBIGNORE; fi
-  if [ "$WT_NO_SPEC" -gt 0 ] || [ "$BAD_N" -gt 0 ]; then
+  if [ "$WT_NO_SPEC" -gt 0 ]; then   # FIXED: BAD_N was dead (non-dirs now warn, not count)
     FAIL=1
   elif [ "$WT_N" -eq 0 ]; then
     echo "G-RT: the worktree root exists but holds no session worktree (nothing to fence yet)"

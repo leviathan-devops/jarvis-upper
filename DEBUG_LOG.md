@@ -1693,3 +1693,44 @@ the live daemon restarted clean.
 
 **ANCHORS:** src/merge-record.ts:120, src/kick.ts:83,95, gates/rt-preflight.sh:122,137,
 src/kick-adapter.ts:51,63, src/main.ts:68, src/runtime.ts:182, src/adapter-verbs.ts:102.
+
+## EN-206 - W25: SIMPLIFICATION — 5 HIGHs (ALL IN MY W24 CODE) + 8 MEDIUM/LOW (2026-09-25T09:49:29Z)
+
+**The gate ROSE to 5 high — and ALL FIVE were in the W24 fixes I had just made.** That is the
+audit-treadmill signature. The response was **SIMPLIFICATION, not another layer.**
+
+### ★ THE PREFLIGHT SIMPLIFICATION (2 HIGHs + 1 medium removed by DELETING code)
+W24 tried to **replicate** the fence in the preflight (resolve the artifact, check committed +
+byte-identical). It diverged in BOTH directions: it REJECTED relative `artifact:` values the
+fence ACCEPTS (`REL="${ART#$wt/}"` only strips an absolute prefix) and KEPT trailing comments
+the fence strips. **A preflight is a PRE-check** — its job is the FENCE-NO-SPEC class (a worktree
+the fence refuses on EVERY PR). The fence's `artifactBoundToHead` is the AUTHORITY for the rest.
+The whole block was DELETED; the gate now needs a non-blank SPEC with an `artifact:` line.
+
+### THE 3 REMAINING HIGHs
+- **adapter-verbs.ts:104 — an extra property on an ARRAY is invisible to JSON.stringify (indexed
+  only) and to spread.** The W11/W16/W24 attempts (non-enumerable, then enumerable) were BOTH
+  ineffective. It is now assigned on the documented `PrRow[] & {{ partialErrors }}` shape.
+- **kick-adapter.ts:53 — `{{}}`/`[]` counted as a plausible session** (any object did). Now
+  requires a SHAPE CUE (an id/name/sessionId field); else UNKNOWN.
+- **guardrail.ts:136 — ★ A TOKEN-FORWARDING RISK (my W21 pagination):** the `Link: rel="next"`
+  URL was followed VERBATIM while re-sending `Authorization: Bearer <token>`, so an off-origin
+  Link (a proxy, a mocked API, a redirect) leaked the GitHub token to an arbitrary host. Now
+  SAME-ORIGIN only (and it logs the refusal).
+
+### THE MEDIUMS
+guardrail.ts:134 (the pagination walked up to 10 pages even when every context was satisfied —
+now breaks early via a `haveAll()` guard) · kick.ts:72/73 (posix.normalize keeps a trailing
+slash + an empty path passed the gate → both fixed) · verdict.ts:193 (a parent-traversal jobDir
+passed → refused) · kick-adapter.ts:148 (a dirty-tree `-b` failure fell into the checkout
+fallback → now requires branch-exists AND a clean tree).
+
+### THE LOWS
+the dead `BAD_N` branch · `.gitignore` `dossiers/` → `/dossiers/` (anchored) ·
+the `.githooks` `dossiers/*` exemption narrowed to the THREE generator outputs.
+
+**THE VERIFICATION:** 181 pass / 0 fail (620 expect, 49 files); tsc exit 0; the corpus 25/0; the
+preflight measured (PASS on a good tree, ignores a stray file, FAILs a no-SPEC tree).
+
+**ANCHORS:** gates/rt-preflight.sh:137, src/adapter-verbs.ts:104, src/kick-adapter.ts:53,
+src/guardrail.ts:134,136, src/kick.ts:72,73, src/verdict.ts:193.

@@ -69,8 +69,13 @@ export async function kick(
   // or a dot-segment caused a false DOSSIER-PATH-MISMATCH. Normalize both sides.
   // FIXED (the W24 ship gate MEDIUM): the comment claimed dot-segment handling but the code
   // only collapsed `//` + a trailing `/`. A real normalizer resolves `.`/`..` too.
-  const norm = (q: string) => { try { return posix.normalize(q); } catch { return q; } };
-  if (norm(dossierRow.p ?? "") !== norm(input.dossierPath)) throw new Error('DOSSIER-PATH-MISMATCH');
+  // FIXED (the W25 ship gate MEDIUM): posix.normalize preserves a TRAILING SLASH and the
+  // try/catch was dead (it never throws). Strip the trailing slash too.
+  const norm = (q: string) => posix.normalize(q).replace(/\/+$/, "");
+  // FIXED (the W25 ship gate MEDIUM): a NULL `p` + an empty input path both normalized to ""
+  // and PASSED, then readFile("/dossier.md") probed the filesystem root. Reject empties.
+  if (!dossierRow.p || !input.dossierPath) throw new Error(`DOSSIER-EMPTY-PATH:${input.bugId}`);
+  if (norm(dossierRow.p) !== norm(input.dossierPath)) throw new Error('DOSSIER-PATH-MISMATCH');
   const md = await deps.readFile(`${input.dossierPath}/dossier.md`);
   const oj = await deps.readFile(`${input.dossierPath}/origin.json`);
   const sha = dossierSha16(md, oj);
