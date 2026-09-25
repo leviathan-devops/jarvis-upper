@@ -6,7 +6,7 @@
 // started log all ran on import (only rt.start() was guarded). A module must be
 // side-effect-free on import, so EVERY side effect now lives in main().
 import { fileURLToPath } from "node:url";
-import { createRuntime } from "./runtime";
+import { createRuntime, parseTickMs } from "./runtime";
 import { targetMatchesRemote } from "./target-guard";
 import { statusPath, ticksPath } from "./status";
 
@@ -18,8 +18,9 @@ const root = process.env.UPPER_ROOT || fileURLToPath(new URL("..", import.meta.u
 // FIXED 2026-09-23 (ocr round-4 HIGH): Number("") === 0 and Number("abc")
 // === NaN — an empty/invalid env var produced a 0/NaN interval (a runaway
 // tick storm). The default now applies to a parsed-but-invalid value too.
-const rawTickMs = Number(process.env.UPPER_TICK_MS ?? 15000);
-const tickMs = Number.isFinite(rawTickMs) && rawTickMs > 0 ? rawTickMs : 15000;
+// FIXED (the W24 ship gate MEDIUM): this was a SECOND authority for the same env parse
+// (runtime.ts owns parseTickMs). One implementation.
+const tickMs = parseTickMs(process.env.UPPER_TICK_MS);
 // FIXED 2026-09-23 (the built-but-not-wired defect): main.ts NEVER passed
 // publishOpts, so the PRODUCTION daemon could never POST the two factory/*
 // contexts the ruleset waits on — the whole publisher (runtime.ts + verdict.ts
@@ -45,6 +46,8 @@ const jobDirFor = (prId: string): string => {
   const session = prId.split(":")[1] ?? "";
   return session ? `${WORKTREE_ROOT}/${session}` : "";
 };
+
+let signalsWired = false;   // FIXED: our OWN registration flag, not the global listener count
 
 export function main(): void {
   // THE TARGET ASSERTION (extracted to src/target-guard.ts so it is TESTABLE).
@@ -83,10 +86,12 @@ export function main(): void {
   }
   // FIXED (the W20 ship gate LOW): main() is exported + test-callable, so a second call
   // ACCUMULATED listeners (a double stop()/exit + a MaxListeners warning). Register once.
-  if (!process.listenerCount("SIGTERM")) {
+  // FIXED (the W24 ship gate LOW): `listenerCount` was a FRAGILE guard — any other library's
+  // SIGTERM listener made the daemon's stop() never wire (unkillable by signals). A
+  // module-scoped flag keys on OUR registration, not the global count.
+  if (!signalsWired) {
+    signalsWired = true;
     process.on("SIGTERM", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
-  }
-  if (!process.listenerCount("SIGINT")) {
     process.on("SIGINT", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
   }
 

@@ -29,6 +29,10 @@ export function writeStatus(root: string, s: RuntimeStatus): void {
   renameSync(tmp, p);
 }
 
+// FIXED (the W24 ship gate LOW): declared ABOVE its only user (it was below — a TDZ hazard
+// on any module-init call).
+let lastRotateLogAt = 0;
+
 export function appendTick(root: string, s: RuntimeStatus): void {
   mkdirSync(join(root, "runtime"), { recursive: true });
   const line = `${s.ts} tick=${s.tick} daemonOk=${s.daemonOk} cursor=${s.cursor} prNodes=${s.prNodes} planKind=${s.planKind} errors=${s.errors.length}`;
@@ -61,8 +65,6 @@ export function appendTick(root: string, s: RuntimeStatus): void {
     if (now - lastRotateLogAt > 60_000) { lastRotateLogAt = now; console.error(`status-rotate-failed:${String(e).slice(0, 60)}`); }
   }
 }
-
-let lastRotateLogAt = 0;   // FIXED: throttle the rotation-failure log
 
 export function readStatus(root: string): RuntimeStatus | null {
   const p = statusPath(root);

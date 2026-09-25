@@ -120,8 +120,11 @@ elif [ -d "$WORKTREE_ROOT" ]; then
   for wt in "$WORKTREE_ROOT"/*; do
     { [ -e "$wt" ] || [ -L "$wt" ]; } || continue     # the unexpanded literal (an empty root)
     if [ ! -d "$wt" ]; then
-      echo "REJECT(G-RT): the worktree entry $wt is not a directory — refusing to PASS unverified" >&2
-      FAIL=1; BAD_N=$((BAD_N + 1)); continue   # FIXED: a bad entry is not a worktree
+      # FIXED (the W24 ship gate MEDIUM): a hard FAIL on ANY non-directory blocked every
+      # session on a stray file (.DS_Store, a lock, a socket). The daemon enumerates the DB
+      # and resolves WORKTREE_ROOT/<session> — it never adjudicates a stray file. WARN, do not block.
+      echo "G-RT: note: $wt is not a directory (ignored — the daemon adjudicates only DB sessions)" >&2
+      continue
     fi
     WT_N=$((WT_N + 1))
     # FIXED (ship-gate MEDIUM): -f was weaker than the fence's own readability check, so an
@@ -134,7 +137,24 @@ elif [ -d "$WORKTREE_ROOT" ]; then
     # FIXED (ship gate HIGH): a readable non-blank SPEC.md still PASSed here while the
     # fence REFUSED it (verdict.ts requires an `artifact:` line + a committed, byte-identical
     # artifact -> FENCE-NO-ARTIFACT). Require the SAME shape the fence requires.
-    if [ ! -f "$wt/SPEC.md" ] || [ ! -r "$wt/SPEC.md" ] || [ ! -s "$wt/SPEC.md" ] || ! grep -q -e '[^[:space:]]' -- "$wt/SPEC.md" 2>/dev/null || ! grep -qE '^[[:space:]]*artifact:[[:space:]]*[^[:space:]]' -- "$wt/SPEC.md" 2>/dev/null; then
+    # FIXED (the W24 ship gate HIGH): the `artifact:` line PRESENCE was not fence-accept.
+    # The fence additionally requires the artifact to be COMMITTED at HEAD and byte-identical
+    # on disk. Check that too (fail closed).
+    ART_OK=1
+    if [ -f "$wt/SPEC.md" ] && [ -r "$wt/SPEC.md" ]; then
+      ART="$(grep -E '^[[:space:]]*artifact:[[:space:]]*[^[:space:]]' -- "$wt/SPEC.md" 2>/dev/null | head -1 | sed -E 's/^[[:space:]]*artifact:[[:space:]]*//' | tr -d '\r')"
+      if [ -n "$ART" ]; then
+        REL="${ART#$wt/}"
+        if [ "$REL" = "$ART" ]; then
+          echo "REJECT(G-RT): $wt — the SPEC artifact '$ART' is OUTSIDE the worktree (the fence refuses FENCE-NO-ARTIFACT)" >&2; ART_OK=0
+        elif ! git -C "$wt" cat-file -e "HEAD:$REL" 2>/dev/null; then
+          echo "REJECT(G-RT): $wt — the SPEC artifact '$REL' is NOT committed at HEAD (the fence refuses FENCE-ARTIFACT-UNCOMMITTED)" >&2; ART_OK=0
+        elif ! cmp -s "$wt/$REL" <(git -C "$wt" show "HEAD:$REL" 2>/dev/null); then
+          echo "REJECT(G-RT): $wt — the SPEC artifact '$REL' DRIFTED from HEAD (the fence refuses FENCE-ARTIFACT-DRIFT)" >&2; ART_OK=0
+        fi
+      fi
+    fi
+    if [ "$ART_OK" -eq 0 ] || [ ! -f "$wt/SPEC.md" ] || [ ! -r "$wt/SPEC.md" ] || [ ! -s "$wt/SPEC.md" ] || ! grep -q -e '[^[:space:]]' -- "$wt/SPEC.md" 2>/dev/null || ! grep -qE '^[[:space:]]*artifact:[[:space:]]*[^[:space:]]' -- "$wt/SPEC.md" 2>/dev/null; then
       # FIXED (ship-gate LOW): `basename --` is GNU-only (fails on BSD/macOS). Strip in-shell.
       WT_NAME="${wt%/}"; WT_NAME="${WT_NAME##*/}"
       echo "REJECT(G-RT): the worktree $WT_NAME has NO readable, non-empty SPEC.md — the fence would answer FENCE-NO-SPEC on every PR" >&2

@@ -154,10 +154,10 @@ export function openStore(path?: string): Database {
   // + a data rewrite even with zero duplicates) and the DELETE+CREATE INDEX pair was not
   // transactional (a crash between them left the table deduped but un-indexed). Gate it
   // on an actual duplicate count and wrap the pair in one transaction.
-  // FIXED (the W14 ship gate LOW): a full GROUP BY scanned every row on every open. An
-  // existence probe with LIMIT 1 short-circuits.
-  const dup = db.query("SELECT 1 x FROM gate_pass GROUP BY pr_node, gate HAVING COUNT(*) > 1 LIMIT 1").get();
+  // FIXED (the W24 ship gate LOW): the duplicate probe ran on EVERY open even when the UNIQUE
+  // index already existed (duplicates are then IMPOSSIBLE — wasted work). Check the index FIRST.
   const needsIndex = !db.query("SELECT 1 x FROM sqlite_master WHERE type='index' AND name='gate_pass_pr_gate'").get();
+  const dup = needsIndex ? db.query("SELECT 1 x FROM gate_pass GROUP BY pr_node, gate HAVING COUNT(*) > 1 LIMIT 1").get() : null;
   if ((dup !== undefined && dup !== null) || needsIndex) {   // .get() may return undefined
     db.exec("BEGIN");
     try { for (const sql of POST_REBUILD) db.exec(sql); db.exec("COMMIT"); }

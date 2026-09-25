@@ -1,6 +1,7 @@
 // Kick rails: live (steerOrSend) | spawn (delegateTask) | direct (branch).
 // Dossier hash gates every kick: payload must hash-match the recorded manifest.
 import { Database } from "bun:sqlite";
+import { posix } from "node:path";
 import { dossierSha16 } from "./dossier";
 
 // FIXED 2026-09-23 (ocr round-4 HIGH): `kick:<bugId>:<Date.now()>` collided for
@@ -21,6 +22,18 @@ export interface KickDeps {
 }
 
 export type KickMode = "live" | "spawn" | "direct";
+
+/** FIXED (the W24 ship gate MEDIUM): the tri-state coercion+validation was triplicated
+ *  across the explicit-spawn / explicit-live / auto paths and could drift. ONE helper.
+ *  A legacy boolean dep is coerced (true=alive, false=dead); anything else unrecognized
+ *  is a STABLE refusal, never a silent fall-through. */
+async function settleLiveness(deps: KickDeps, sessionId: string): Promise<Liveness> {
+  let v: unknown = "unknown";
+  try { v = await deps.sessionAlive(sessionId); } catch { v = "unknown"; }
+  if (typeof v === "boolean") return v ? "alive" : "dead";
+  if (v === "alive" || v === "dead" || v === "unknown") return v;
+  throw new Error(`KICK-LIVENESS-INVALID:${String(v).slice(0, 32)}`);
+}
 
 export interface KickResult {
   mode: KickMode;
@@ -49,13 +62,14 @@ export async function kick(
   // FIXED (the W17 ship gate MEDIUM): the path-equality gate ran AFTER the filesystem reads,
   // so a caller-supplied arbitrary path reached the FS (an existence/read probe) before any
   // check. The row check now runs FIRST.
-  const dossierRow = row;   // the single SELECT above
-  // FIXED (ship gate MEDIUM): a NULL row (a concurrent delete / a race) SKIPPED the gate and
-  // the caller-supplied path still reached the filesystem (an arbitrary-read probe). Fail closed.
-  if (!dossierRow) throw new Error(`DOSSIER-NO-ROW:${input.bugId}`);
+  // FIXED (the W24 ship gate LOW): `dossierRow` aliased `row` AFTER the `!row` throw above, so
+  // the second null check could never fire. One row, one check.
+  const dossierRow = row;
   // FIXED (the W21 ship gate MEDIUM): strict !== with no normalization meant a trailing slash
   // or a dot-segment caused a false DOSSIER-PATH-MISMATCH. Normalize both sides.
-  const norm = (q: string) => q.replace(/\/+/g, "/").replace(/\/+$/, "");
+  // FIXED (the W24 ship gate MEDIUM): the comment claimed dot-segment handling but the code
+  // only collapsed `//` + a trailing `/`. A real normalizer resolves `.`/`..` too.
+  const norm = (q: string) => { try { return posix.normalize(q); } catch { return q; } };
   if (norm(dossierRow.p ?? "") !== norm(input.dossierPath)) throw new Error('DOSSIER-PATH-MISMATCH');
   const md = await deps.readFile(`${input.dossierPath}/dossier.md`);
   const oj = await deps.readFile(`${input.dossierPath}/origin.json`);
@@ -81,23 +95,18 @@ export async function kick(
     // spawn while the origin session is still ALIVE manufactured the duplicate session the
     // tri-state fix exists to prevent. Validate the ORIGIN for both live and spawn.
     if (mode === "spawn" && input.originSession) {
-      let sv: Liveness = "unknown";
-      try { sv = await deps.sessionAlive(input.originSession); } catch { sv = "unknown"; }
-      if (typeof sv === "boolean") sv = sv ? "alive" : "dead";
+      const sv = await settleLiveness(deps, input.originSession);
+      // FIXED (the W24 ship gate HIGH): this only refused `alive`, so `unknown` (a transient
+      // outage) fell through to SPAWN — manufacturing the duplicate session the tri-state
+      // fix exists to prevent. Refuse `unknown` too.
       if (sv === "alive") throw new Error("KICK-SPAWN-ORIGIN-ALIVE:use mode=live (or an explicit intent)");
+      if (sv === "unknown") throw new Error("KICK-LIVENESS-UNKNOWN");
     }
     // FIXED (the W15 ship gate HIGH): an explicit `live` SKIPPED the liveness check — the
     // CLI's `upper kick <id> live` would send to a DEAD session. Validate it.
     if (mode === "live") {
       if (!input.originSession) throw new Error("KICK-NO-SESSION");
-      let lv: Liveness = "unknown";
-      try { lv = await deps.sessionAlive(input.originSession); } catch { lv = "unknown"; }
-      if (typeof lv === "boolean") lv = lv ? "alive" : "dead";   // FIXED: the legacy boolean
-      // FIXED (the W17 ship gate MEDIUM): a garbage value must be a STABLE refusal, matching
-      // the auto path — not KICK-LIVENESS-<GARBAGE>.
-      // FIXED (the W20 ship gate LOW): the auto path kept the value in the error (the value
-      // IS the diagnosis for a legacy/typo dep); the explicit path dropped it. Both keep it.
-      if (lv !== "alive" && lv !== "dead" && lv !== "unknown") throw new Error(`KICK-LIVENESS-INVALID:${String(lv).slice(0, 32)}`);
+      const lv = await settleLiveness(deps, input.originSession);
       if (lv !== "alive") throw new Error(`KICK-LIVENESS-${lv.toUpperCase()}`);
     }
   }
@@ -105,18 +114,7 @@ export async function kick(
     // FIXED (ship gate MEDIUM): the old `.catch(()=>false)` tolerated a THROWING
     // KickDeps; the bare await let it escape as a raw error, bypassing the fail-closed
     // refusal. A throw is now `unknown` -> the refusal.
-    let alive: Liveness = "dead";
-    if (input.originSession) {
-      try { alive = await deps.sessionAlive(input.originSession); } catch { alive = "unknown"; }
-    }
-    // FIXED (ship gate MEDIUM): an unrecognized Liveness (a legacy boolean `true`, a typo)
-    // fell through to `spawn` — a duplicate session. Exhaustive.
-    // FIXED (the W15 ship gate MEDIUM): a legacy boolean dep (the pre-tri-state shape) threw
-    // KICK-LIVENESS-INVALID. Coerce it (true=alive, false=dead) for back-compat.
-    if (typeof alive === "boolean") alive = alive ? "alive" : "dead";
-    if (alive !== "alive" && alive !== "dead" && alive !== "unknown") {
-      throw new Error(`KICK-LIVENESS-INVALID:${String(alive).slice(0, 32)}`);
-    }
+    const alive: Liveness = input.originSession ? await settleLiveness(deps, input.originSession) : "dead";
     if (alive === "unknown") throw new Error("KICK-LIVENESS-UNKNOWN");
     mode = alive === "alive" ? "live" : "spawn";
   }

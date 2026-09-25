@@ -1638,3 +1638,58 @@ remedy. It states the IDLE-GREEN explicitly (`planHash == sha256("")` means NO W
 **THE VERIFICATION:** 181 pass / 0 fail (620 expect, 49 files); tsc exit 0.
 
 **ANCHORS:** tests/w23_eligibility_attacks.test.ts, OPERATOR_RUNBOOK.md, src/guardrail.ts:127.
+
+## EN-205 - W24: THE GATE'S 2 HIGHs + THE W11 REGRESSION + 9 MEDIUM + 7 LOW (2026-09-25T09:39:33Z)
+
+**THE GATE IS RUNNING AGAIN** — after repairing the go-session-proxy (see below), the muse-go
+lane returned **GATE: FAIL (0 critical, 2 high), 18 findings**. The pinned audit lane is BACK.
+
+### ★ THE PROXY DEFECT (THE REAL ROOT CAUSE OF THE "PRIVACY GATE" ERROR)
+**MEASURED, and the operator was RIGHT that their setting was enabled:** the go-session-proxy
+at `:4097` **UNCONDITIONALLY replaced the caller's Authorization header with a POOL key**:
+```js
+goPk = poolPick();
+if (goPk) headers["authorization"] = `Bearer ${goPk.key}`;   // the caller's key THROWN AWAY
+```
+The pool's 8 keys belong to a workspace WITHOUT the "paid endpoints that train on request data"
+entitlement, so EVERY request 400'd with the privacy message — while the CALLER's key (the
+auth-store credential, entitlement ON) answered **200 DIRECT at every payload size
+(50/200/500/1000/2000/4000/8000 bytes)**. The pool's purpose is RATE-LIMIT rotation, never
+entitlement substitution. FIXED: keep a caller-supplied key as primary; use the pool only when
+the caller sent none; and rotate on a 429 in BOTH cases. Restarted + re-bisected: **ALL sizes OK.**
+
+### THE 2 HIGHs
+- **src/kick.ts:83 — the explicit `spawn` let `unknown` through** (auto + explicit-live both
+  refused it), so a transient outage + explicit spawn manufactured the duplicate session the
+  tri-state fix exists to prevent. Now refuses `unknown` too.
+- **gates/rt-preflight.sh:137 — `artifact:` line PRESENCE != fence-accept.** The fence also
+  requires the artifact INSIDE the worktree, COMMITTED at HEAD, and byte-identical. The gate now
+  checks all three (FENCE-NO-ARTIFACT / FENCE-ARTIFACT-UNCOMMITTED / FENCE-ARTIFACT-DRIFT).
+
+### ★ THE W11 REGRESSION (found by the restored lane)
+**src/merge-record.ts:131 — the eager throw inside `.some()` POISONED the whole ledger scan:**
+a single historic corrupt line aborted the scan, so `mergeRecorded()` threw even when the
+requested sha WAS recorded later. Now: scan ALL lines; only if NO line matched AND a corrupt one
+was seen is it an error.
+
+### THE MEDIUMS
+kick-adapter.ts:63 (the clamp was inside the try, so KICK-BRIEF-TOO-LONG became an ambiguous
+KICK-SEND-FAILED — hoisted) · kick-adapter.ts:51 (any non-nullish `session` mapped to alive →
+require a plausible object) · kick.ts:58 (norm() claimed dot-segment handling but did not →
+`posix.normalize`) · kick.ts:95 (the tri-state was TRIPLICATED → ONE `settleLiveness` helper) ·
+main.ts:68 (a 2nd tick-parse authority → `parseTickMs`) · runtime.ts:182 (the oversized-frame seq
+matched only JSON `"seq":` — parseSse derives it from the SSE `id:` field too) ·
+gates/rt-preflight.sh:122 (a stray file hard-FAILED every session → WARN, since the daemon
+enumerates the DB, not the directory) · adapter-verbs.ts:102 (partialErrors was non-enumerable →
+invisible to spread/JSON → now enumerable).
+
+### THE LOWS
+the dead post-throw fallback · the dead `dossierRow` alias · the fragile `listenerCount` guard →
+a module flag · the bugId allowlist permitted `.`/`..` · the `lastRotateLogAt` TDZ order · the
+duplicate probe ran even with the UNIQUE index present.
+
+**THE VERIFICATION:** 181 pass / 0 fail (620 expect, 49 files); tsc exit 0; the P5 corpus 25/0;
+the live daemon restarted clean.
+
+**ANCHORS:** src/merge-record.ts:120, src/kick.ts:83,95, gates/rt-preflight.sh:122,137,
+src/kick-adapter.ts:51,63, src/main.ts:68, src/runtime.ts:182, src/adapter-verbs.ts:102.

@@ -26,12 +26,12 @@ const ATTACH_MAX = 262144;
 // while the worker got a TRUNCATED brief (overstating the delivery). It now THROWS.
 const clamp = (s: string, max: number): string => {
   if (Buffer.byteLength(s, "utf8") <= max) return s;
-  console.error(`kick-prompt-truncated:${Buffer.byteLength(s, "utf8")}->${max}`);
+  // FIXED (the W24 ship gate LOW): the truncate fallback below was UNREACHABLE (after the
+  // throw). Throw-on-oversize IS the policy (a truncated brief overstates the delivery).
   throw new Error(`KICK-BRIEF-TOO-LONG:${Buffer.byteLength(s, "utf8")}>${max}`);
   // slice by code units, then trim to the byte budget
   let out = s.slice(0, max - 16);
   while (Buffer.byteLength(out, "utf8") > max - 16) out = out.slice(0, -1);
-  return out + "\n[truncated]";   // unreachable (the throw above is the loud-fail)
 };
 
 export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readFile?: (p: string) => Promise<string> } = {}): KickDeps {
@@ -48,7 +48,12 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
         // no `session` mapped to `dead` -> a duplicate spawn on a transport anomaly.
         if (typeof r !== "object" || r === null) return "unknown";
         if (!("session" in r)) return "unknown";
-        return r.session !== undefined && r.session !== null ? "alive" : "dead";
+        // FIXED (the W24 ship gate MEDIUM): any non-nullish value (a string/number) mapped to
+        // `alive`. Require a PLAUSIBLE session object (or null = dead); else it is UNKNOWN.
+        const sv = (r as { session: unknown }).session;
+        if (sv === null) return "dead";
+        if (typeof sv !== "object") return "unknown";
+        return "alive";
       } catch (e) {
         // FIXED (ship-gate MEDIUM): a 404 is a DEFINITIVE dead; a timeout / 5xx / network
         // failure is UNKNOWN. Collapsing every throw to `false` made kick() spawn a
@@ -57,10 +62,11 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call; readF
       }
     },
     send: async (sessionId: string, brief: string): Promise<{ ok: boolean }> => {
+      // FIXED (the W24 ship gate MEDIUM): clamp() was called INSIDE the try, so its
+      // KICK-BRIEF-TOO-LONG throw was mapped to {ok:false} -> KICK-SEND-FAILED — losing the
+      // specific loud-fail (and looking like a retryable transient). Hoist it OUT.
+      const message = clamp(brief, SEND_MAX);
       try {
-        // SendSessionMessageRequest.message is required with maxLength 4096; an oversized
-        // brief 400s and collapsed to a generic failure. Cap it explicitly.
-        const message = clamp(brief, SEND_MAX);
         await c("sendSessionMessage", { params: { sessionId }, body: { message } });
         return { ok: true };
         // FIXED (red-team slop audit SLOP-05): the cause was swallowed at the adapter

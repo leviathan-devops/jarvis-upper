@@ -84,10 +84,18 @@ test("test_preflight_refuses_no_spec", async () => {
   const bad = run(wt);
   expect(bad.exitCode).toBe(1);
   expect(bad.stderr.toString()).toContain("FENCE-NO-SPEC");
-  // the same tree WITH a SPEC.md -> the fence check passes (exit 0)
-  // UPDATED (W20, ship gate HIGH): the gate now requires the SAME `artifact:` line the
-  // FENCE requires (verdict.ts) — a readable non-blank SPEC.md alone was a false PASS.
-  writeFileSync(join(wt, "no-spec", "SPEC.md"), "# spec\njob: w2\nartifact: src/x.ts\n");
+  // the same tree WITH a fence-acceptable SPEC -> exit 0.
+  // UPDATED (W20): the gate requires the `artifact:` line the FENCE requires.
+  // UPDATED (W24, ship gate HIGH): the gate now ALSO requires the artifact COMMITTED at HEAD
+  // and byte-identical (the fence's real condition), so the fixture is a real git repo.
+  const good = join(wt, "no-spec");
+  writeFileSync(join(good, "src-x.ts"), "export const x = 1;\n");
+  writeFileSync(join(good, "SPEC.md"), `# spec\njob: w2\nartifact: ${good}/src-x.ts\n`);
+  Bun.spawnSync(["git", "init", "-q"], { cwd: good });
+  Bun.spawnSync(["git", "-C", good, "config", "user.email", "t@t"], {});
+  Bun.spawnSync(["git", "-C", good, "config", "user.name", "t"], {});
+  Bun.spawnSync(["git", "-C", good, "add", "-A"], {});
+  Bun.spawnSync(["git", "-C", good, "commit", "-qm", "w2 fixture: a committed artifact"], {});
   expect(run(wt).exitCode).toBe(0);
 });
 

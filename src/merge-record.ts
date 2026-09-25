@@ -116,21 +116,21 @@ export function mergeRecorded(ledgerPath: string, mergeSha: string): boolean {
     // TRUE for an empty mergeSha (every string contains ""), so a blank sha
     // deduped every merge. The match is now an EXACT field test on a validated sha.
     if (!/^[0-9a-f]{7,40}$/i.test(mergeSha)) return false;
-    // a malformed LINE is skipped, but the READ itself throwing is an ERROR (below)
-    return readFileSync(ledgerPath, "utf8")
-      .split("\n")
-      .some((l) => {
-        if (!l.includes('"job":"merge"')) return false;
-        try {
-          const row = JSON.parse(l) as { evidence?: string };
-          return (row.evidence ?? "").split("|")[0] === mergeSha;
-        } catch (e) {
-          // FIXED (red-team slop audit SLOP-10): a CORRUPT merge line read as
-          // "not recorded" -> the tick appended a DUPLICATE terminal row. A line that
-          // claims job:"merge" but cannot be parsed is an ERROR, never an absence.
-          throw new Error(`LEDGER-CORRUPT-LINE:${String(e).slice(0, 60)}`);
-        }
-      });
+    // FIXED (the W24 ship gate MEDIUM — a REGRESSION from W11): the eager throw inside
+    // `.some()` aborted the scan on the FIRST corrupt line, so a historic bad line made
+    // mergeRecorded THROW even when the requested sha WAS recorded LATER. Scan ALL lines;
+    // only if NO line matched AND a corrupt one was seen is it an error.
+    let corrupt = "";
+    const found = readFileSync(ledgerPath, "utf8").split("\n").some((l) => {
+      if (!l.includes('"job":"merge"')) return false;
+      try {
+        const row = JSON.parse(l) as { evidence?: string };
+        return (row.evidence ?? "").split("|")[0] === mergeSha;
+      } catch (e) { corrupt = String(e).slice(0, 60); return false; }
+    });
+    if (found) return true;
+    if (corrupt) throw new Error(`LEDGER-CORRUPT-LINE:${corrupt}`);   // a claimed line that is garbage
+    return false;
   } catch (e) {
     // FIXED (ship gate MEDIUM): the inner LEDGER-CORRUPT-LINE was re-wrapped into
     // LEDGER-UNREADABLE, losing the distinct corrupt-line signal. An ALREADY-NAMED

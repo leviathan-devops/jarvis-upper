@@ -179,7 +179,10 @@ export async function defaultRails(db: Database, root: string): Promise<RailCapt
         // `attach` processes ZERO events, rail_seq never advances, and the next tick refetches
         // the SAME frame — an infinite refetch loop that also logs rail-failed every tick.
         // Consume it: read the frame's own `seq` from the partial buffer and advance past it.
-        const m = buf.match(/"seq"\s*:\s*(\d+)/);
+        // FIXED (the W24 ship gate MEDIUM): parseSse derives seq primarily from the SSE `id:`
+        // field; matching only JSON `"seq":` fell through to last_seq+1, which CRAWLS one seq
+        // per tick across a gap. Match the `id:` frame form too.
+        const m = buf.match(/"seq"\s*:\s*(\d+)/) ?? buf.match(/^id:\s*(\d+)\s*$/m);
         // FIXED (the W21 ship gate MEDIUM): if the seq is ABSENT from the partial buffer the
         // cursor still could not advance (an infinite loop). Fall back to the highest seq we
         // have EVER seen + 1 — guaranteed forward progress past the unparseable frame.

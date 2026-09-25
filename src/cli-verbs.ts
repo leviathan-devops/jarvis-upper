@@ -141,7 +141,9 @@ export async function verbKick(root: string, arg?: string, mode?: string): Promi
     // FIXED (ship gate LOW): the mode is a CLI arg echoed into JSON/logs — bound it.
     return emit(2, { ok: false, refused: `KICK-BAD-MODE:${String(mode).slice(0, 32)}`, hint: "live | spawn | direct" });
   }
-  if (!/^[A-Za-z0-9._-]{1,64}$/.test(arg)) {
+  // FIXED (the W24 ship gate LOW): this allowed `.`/`..`/`---` (invalid git refs). Require an
+  // alphanumeric, matching the adapter's own gate — fail fast at the CLI boundary.
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(arg) || !/[A-Za-z0-9]/.test(arg)) {
     // FIXED (the W17 ship gate LOW): `arg` is arbitrary-length here — bound the echo.
     return emit(2, { ok: false, refused: "KICK-BAD-BUG-ID", bugId: String(arg).slice(0, 64), hint: "an id matching /^[A-Za-z0-9._-]{1,64}$/" });
   }
