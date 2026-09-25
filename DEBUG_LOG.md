@@ -1784,3 +1784,36 @@ daemon ARMED, eligible=1, errors=[].
 
 **ANCHORS:** src/adapter-verbs.ts:30, src/kick.ts:60,137, src/kick-adapter.ts:58,107,
 src/guardrail.ts:127, src/verdict.ts:196, src/target-guard.ts:123, ao-client/client.ts:25.
+
+## EN-208 - W27: THE PER-FILE GATE FOUND A HIGH IN MY OWN W9 FIX (2026-09-25T11:44:26Z)
+
+**★ THE OPERATIONAL BREAKTHROUGH:** the per-file `scan` WORKS on the rate-limited lane (a small
+payload never 429s). The skill's own procedure — *"Per-file serial, one file per session"* — was
+right. `ocr scan --provider muse-go --model muse-spark-1.3-contributor --scanPath <one file>`.
+
+### THE HIGH (in MY OWN W9 fix)
+**`src/guardrail.ts:219` — a MIXED TIMESTAMP TYPE broke `ORDER BY at DESC`.** `recordGatePass`
+wrote `at` via `strftime('%s','now')` (**TEXT**) while legacy rows carry **INTEGER** `at` — and
+SQLite ranks **TEXT > INTEGER**. My W9 "latest verdict" read (`ORDER BY at DESC`) therefore
+compared ACROSS types and could pick the wrong row. FIXED: `unixepoch()` (a consistent INTEGER)
++ the whole mirror in ONE TRANSACTION (a mid-loop failure could leave a mixed pass/fail mirror).
+
+### THE MEDIUMS
+- **`guardrail.ts:148` — MY OWN W26 BUG:** `haveAll()` required ALL 8 `REQUIRED_CONTEXTS`, but
+  the 2 `factory/*` ones are COMMIT STATUSES and NEVER appear as check-runs — so the condition
+  was **impossible to satisfy** and every call walked 10 pages. Now checks `GITHUB_JOB_CONTEXTS`.
+- **`guardrail.ts:120`** — a single null/malformed status row threw at `r.context`, and `in`
+  consults the PROTOTYPE chain (`"constructor" in {{}}` is true → a status called `__proto__`
+  polluted the map). Each row is validated + a **NULL-PROTOTYPE** map.
+- **`guardrail.ts:101`** — a non-Response/non-JSON `fetchImpl` threw outside the guards, and a
+  raw cast let malformed check-runs through. Both guarded.
+- **`guardrail.ts:79`** — / passed `safeSeg` (encodeURIComponent does not encode dots, so
+  `repos/../..` was reachable). Now requires an alphanumeric start.
+
+**THE VERIFICATION:** 181 pass / 0 fail (620 expect, 49 files); tsc exit 0; the daemon restarted
+clean, tick=2 ready=1 eligible=1 errors=[].
+
+**THE METHOD (recorded):** the gate is run PER-FILE on this lane; a 20-file batch exceeds the Go
+plan's per-request budget and 429s (measured: 980 B OK / 12 KB 429 / 28 KB 429).
+
+**ANCHORS:** src/guardrail.ts:79,101,120,148,219.

@@ -6,7 +6,7 @@
 // below stays as a local mirror, but the authoritative read is guardrailRemote()
 // against REQUIRED_CONTEXTS from the frozen contract.
 import { Database } from "bun:sqlite";
-import { GATE_TO_CONTEXT, REQUIRED_CONTEXTS } from "./status-contract";
+import { GATE_TO_CONTEXT, REQUIRED_CONTEXTS, GITHUB_JOB_CONTEXTS } from "./status-contract";
 
 export interface Eligibility {
   ok: boolean;
@@ -76,7 +76,9 @@ export async function guardrailRemote(
 ): Promise<RemoteEligibility> {
   const fetchFn = opts.fetchImpl ?? fetch;
   const base = (opts.baseUrl ?? "https://api.github.com").replace(/\/$/, "");
-  const safeSeg = /^[A-Za-z0-9._-]+$/;
+  // FIXED (the W27 per-file gate MEDIUM): `.`/`..` passed (encodeURIComponent does not encode
+  // dots, so `repos/../..` was reachable) and the sha was not validated as hex.
+  const safeSeg = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
   // FIXED 2026-09-23 (qwen-code-audit re-run REAL): a null/undefined sha crashed
   // at `.includes()` instead of returning an honest refusal.
   if (typeof opts.owner !== "string" || typeof opts.repo !== "string" || !safeSeg.test(opts.owner) || !safeSeg.test(opts.repo)) {
@@ -110,8 +112,13 @@ export async function guardrailRemote(
   if (!Array.isArray(rows)) {
     return { ok: false, reasons: ["REMOTE-JSON-NOT-ARRAY"], missing: [...REQUIRED_CONTEXTS], states: {} };
   }
-  const latest: Record<string, string> = {};
+  // FIXED (the W27 per-file gate MEDIUM): a single null/malformed entry threw at `r.context`
+  // (breaking the never-throw contract), and `in` consults the PROTOTYPE chain
+  // (`"constructor" in {{}}` is true) — a status named `__proto__`/`constructor` polluted the
+  // map. Each row is validated, and a NULL-PROTOTYPE map removes the chain entirely.
+  const latest: Record<string, string> = Object.create(null) as Record<string, string>;
   for (const r of rows) {
+    if (r === null || typeof r !== "object" || typeof (r as { context?: unknown }).context !== "string") continue;
     // FIXED 2026-09-23 (ocr round-4 HIGH): the GitHub /statuses API returns
     // NEWEST FIRST. The old last-wins let the OLDEST status for a context
     // OVERWRITE the newest — a CI re-run flipping factory/verdict
@@ -145,7 +152,10 @@ export async function guardrailRemote(
         if (!prev || at >= prev.at) byName.set(r.name, { conclusion: r.conclusion ?? null, at });
       }
     };
-    const haveAll = () => REQUIRED_CONTEXTS.every((c) => byName.has(c));
+    // FIXED (the W27 per-file gate MEDIUM — my OWN W26 bug): haveAll required ALL 8
+    // REQUIRED_CONTEXTS, but the 2 `factory/*` ones are COMMIT STATUSES and NEVER appear as
+    // check-runs — so the condition could never be true and every call walked 10 pages.
+    const haveAll = () => GITHUB_JOB_CONTEXTS.every((c) => byName.has(c));
     let crUrl: string | null = crBase;
     let hops = 0;
     while (crUrl && hops < 10 && !haveAll()) {
@@ -154,8 +164,11 @@ export async function guardrailRemote(
       try {
         const cr = await fetchFn(cur, { headers, signal: AbortSignal.timeout(10000) });
         if (!cr.ok) break;
-        const j = (await cr.json()) as { check_runs?: unknown };
-        if (Array.isArray(j.check_runs)) merge(j.check_runs as never[]);
+        // FIXED (the W27 per-file gate MEDIUM): a non-Response / non-JSON resolved value
+        // threw outside the guards, and a raw cast let malformed runs through.
+        const j = (await cr.json()) as { check_runs?: unknown } | null;
+        const rs = j && typeof j === "object" && Array.isArray(j.check_runs) ? j.check_runs : [];
+        merge(rs.filter((x): x is Record<string, unknown> => x !== null && typeof x === "object") as never[]);
         const link = cr.headers?.get?.("link") ?? "";
         const next = /<([^>]+)>;\s*rel="next"/.exec(link);
         if (!next) { crUrl = null; continue; }
@@ -206,6 +219,13 @@ export async function guardrailRemote(
 // design: GitHub decides MAY, the DB check is the local mirror of it). Called by
 // the runtime tick immediately after guardrailRemote().
 export function recordGatePass(db: Database, prId: string, headSha: string, states: Record<string, string>): void {
+  // FIXED (the W27 per-file gate HIGH): `strftime('%s','now')` returns TEXT while LEGACY rows
+  // carry INTEGER `at` — and SQLite ranks TEXT > INTEGER, so `ORDER BY at DESC` (the W9
+  // "latest verdict" read) compared ACROSS types and could pick the wrong row. `unixepoch()`
+  // yields a consistent INTEGER for every write. The mirror is also ONE TRANSACTION so a
+  // mid-loop failure can never leave a mixed pass/fail mirror.
+  db.exec("BEGIN");
+  try {
   for (const g of REQUIRED_GATES) {
     const ctxs = GATE_TO_CONTEXT[g] as readonly string[];
     const ok = ctxs.length > 0 && ctxs.every((c) => states[c] === "success");
@@ -217,10 +237,12 @@ export function recordGatePass(db: Database, prId: string, headSha: string, stat
     // that a sibling writer (desks.ts) set for the hardened gate. DO UPDATE with NO target
     // preserves untouched columns + handles any uniqueness with no index-name dependency.
     db.query(`INSERT INTO gate_pass(id, pr_node, gate, verdict, head_sha, at)
-              VALUES (?, ?, ?, ?, ?, strftime('%s','now'))
+              VALUES (?, ?, ?, ?, ?, unixepoch())
               ON CONFLICT DO UPDATE SET verdict=excluded.verdict, head_sha=excluded.head_sha, at=excluded.at`)
       // FIXED (runs 3-6): a `:`-joined composite key is ambiguous if prId ever
       // contains one. JSON.stringify of the pair is injective.
       .run(JSON.stringify([prId, g]), prId, g, ok ? "pass" : "fail", headSha);
   }
+  db.exec("COMMIT");
+  } catch (e) { db.exec("ROLLBACK"); throw e; }
 }
