@@ -1,12 +1,14 @@
 // upper CLI: one JSON object on stdout, human text on stderr, exit 0/1/2.
 import { openStore, tableNames, STORE_PATH } from "./store";
-import { VERBS } from "./cli-verbs";
+import { VERBS, parseKickMode } from "./cli-verbs";
 
 const usage = `usage: upper <init|cursor|status|plan|order|graph|gates|sync|bug|desks|kick> [args]
   init             create/open the store, print tables
   cursor <source>  print last_seq for an event source (default ao-events)`;
 
-const [verb, arg, mode] = Bun.argv.slice(2);
+const argv = Bun.argv.slice(2);
+const [verb, arg, ...tail] = argv;
+const mode = parseKickMode(tail);
 if (verb === "order") {
   console.error("order is plan-only: executePlan runs in-process with {confirm:true}; no CLI path prints a merge list for execution");
   process.exit(2);

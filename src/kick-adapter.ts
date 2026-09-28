@@ -34,8 +34,22 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call } = {}
       // SpawnSessionRequest.prompt is maxLength 16384 (openapi.yaml:11860);
       // SpawnSessionResponse nests the id at session.id.
       const prompt = input.brief.length > 16384 ? input.brief.slice(0, 16368) + "\n[truncated]" : input.brief;
+      // AttachmentInput is { data: base64, mimeType } (openapi.yaml:7619) — raw
+      // text 400s ("attachment data is not valid base64", measured live). The
+      // brief alone carries the fix contract; the dossier files ride along so
+      // the spawned worker can verify the hash gate itself.
+      const attachments: { data: string; mimeType: string }[] = [];
+      for (const p of input.attachments) {
+        try {
+          const text = await Bun.file(p).text();
+          attachments.push({
+            data: Buffer.from(text, "utf8").toString("base64"),
+            mimeType: p.endsWith(".json") ? "application/json" : "text/markdown",
+          });
+        } catch { /* unreadable: the brief still carries the contract */ }
+      }
       const r = await c<{ session?: { id?: string } } | null>("spawnSession", {
-        body: { projectId: input.projectId, prompt },
+        body: attachments.length > 0 ? { projectId: input.projectId, prompt, attachments } : { projectId: input.projectId, prompt },
       });
       const sessionId = r?.session?.id;
       if (!sessionId) throw new Error("KICK-SPAWN-NO-SESSION");
@@ -47,7 +61,9 @@ export function daemonKickDeps(opts: { cwd?: string; callFn?: typeof call } = {}
       // absent, else check out the existing branch.
       const cwd = opts.cwd ?? process.cwd();
       const git = (args: string[]): boolean => {
-        try { return Bun.spawnSync(["git", "-C", cwd, ...args], { stderr: "pipe" }).exitCode === 0; } catch { return false; }
+        // Both streams piped: git checkout prints to stdout, and the CLI
+        // contract is one JSON object on stdout — an inherited stdout breaks it.
+        try { return Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" }).exitCode === 0; } catch { return false; }
       };
       if (git(["checkout", "-b", `fix/${bugId}`])) return { ok: true };
       return { ok: git(["checkout", `fix/${bugId}`]) };

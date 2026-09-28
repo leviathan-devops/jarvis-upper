@@ -11,7 +11,7 @@ import { waveA, waveB, waveC, waveD } from "./desks";
 import { readStatus } from "./status";
 import { syncPrs } from "./sync";
 import { listProjects, listPrsFromAo } from "./adapter-verbs";
-import { kick } from "./kick";
+import { kick, type KickDeps } from "./kick";
 import { daemonKickDeps } from "./kick-adapter";
 
 export interface VerbResult { code: number; out: Record<string, unknown> }
@@ -86,17 +86,34 @@ export async function verbDesks(root: string, arg?: string): Promise<VerbResult>
   }
   return emit(0, { ok: true, desks: ["waveA-assemble", "waveB-harden", "waveC-audit", "waveD-research"], hint: "run: upper desks run" });
 }
+// `upper kick <bug-id> [--mode live|spawn|direct]`: the documented flag form
+// (`--mode live`, `--mode=live`) and the bare positional form. A raw third argv
+// token once misread `--mode` itself as the mode and silently fell back to auto.
+export function parseKickMode(tail: string[]): string | undefined {
+  let mode: string | undefined;
+  for (let i = 0; i < tail.length; i++) {
+    const t = tail[i];
+    if (t === "--mode" && i + 1 < tail.length) mode = tail[++i];
+    else if (t.startsWith("--mode=")) mode = t.slice("--mode=".length);
+    else if (mode === undefined && !t.startsWith("-")) mode = t;
+  }
+  return mode;
+}
 
-export async function verbKick(root: string, arg?: string, mode?: string): Promise<VerbResult> {
+
+export async function verbKick(root: string, arg?: string, mode?: string, deps?: KickDeps): Promise<VerbResult> {
   if (!arg) return emit(2, { ok: false, refused: "KICK-NEEDS-BUG-ID", hint: "upper kick <bug-id> [--mode live|spawn|direct]" });
+  const m = (mode === "live" || mode === "spawn" || mode === "direct") ? mode : undefined;
+  // An explicit but unknown mode is a usage error, never a silent auto fallback.
+  if (mode !== undefined && m === undefined)
+    return { code: 2, out: { ok: false, refused: "KICK-BAD-MODE", bugId: arg, mode, hint: "upper kick <bug-id> [--mode live|spawn|direct]" } };
   const db = openStore();
   try {
     const bug = db.query("SELECT id, dossier_path, origin_commit, origin_session FROM bug_record WHERE id = ?").get(arg) as
       { id: string; dossier_path: string | null; origin_commit: string | null; origin_session: string | null } | null;
     if (!bug) return { code: 1, out: { ok: false, refused: "NO-SUCH-BUG", bugId: arg } };
     if (!bug.dossier_path) return { code: 1, out: { ok: false, refused: "NO-DOSSIER-PATH", bugId: arg } };
-    const m = (mode === "live" || mode === "spawn" || mode === "direct") ? mode : undefined;
-    const res = await kick(db, daemonKickDeps({ cwd: root }), {
+    const res = await kick(db, deps ?? daemonKickDeps({ cwd: root }), {
       bugId: arg,
       projectId: process.env.UPPER_PROJECT_ID ?? "jarvis-upper",
       originSession: bug.origin_session,

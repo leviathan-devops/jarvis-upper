@@ -33,7 +33,7 @@ const MIGRATIONS: string[] = [
      source TEXT PRIMARY KEY, last_seq INTEGER NOT NULL, updated_at INTEGER);`,
 ];
 
-export function openStore(path: string = STORE_PATH): Database {
+export function openStore(path: string = process.env.UPPER_STORE ?? STORE_PATH): Database {
   const db = new Database(path, { create: true });
   db.exec("PRAGMA journal_mode=WAL;");
   db.exec("PRAGMA foreign_keys=ON;");
