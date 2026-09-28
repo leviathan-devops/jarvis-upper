@@ -1,12 +1,14 @@
 // upper CLI: one JSON object on stdout, human text on stderr, exit 0/1/2.
 import { openStore, tableNames, STORE_PATH } from "./store";
-import { VERBS } from "./cli-verbs";
+import { VERBS, parseKickMode } from "./cli-verbs";
 
 const usage = `usage: upper <init|cursor|status|plan|order|graph|gates|sync|bug|desks|kick> [args]
   init             create/open the store, print tables
   cursor <source>  print last_seq for an event source (default ao-events)`;
 
-const [verb, arg] = Bun.argv.slice(2);
+const argv = Bun.argv.slice(2);
+const [verb, arg, ...tail] = argv;
+const mode = parseKickMode(tail);
 if (verb === "order") {
   console.error("order is plan-only: executePlan runs in-process with {confirm:true}; no CLI path prints a merge list for execution");
   process.exit(2);
@@ -24,7 +26,7 @@ if (verb === "init") {
   console.log(JSON.stringify({ ok: true, source: arg ?? "ao-events", last_seq: row?.last_seq ?? 0 }));
 } else if (verb && VERBS[verb]) {
   const root = new URL("..", import.meta.url).pathname;
-  void VERBS[verb](root, arg).then((r) => {
+    void VERBS[verb](root, arg, mode).then((r) => {
     console.log(JSON.stringify(r.out));
     process.exit(r.code);
   });

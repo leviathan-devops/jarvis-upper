@@ -1,7 +1,6 @@
 // cli-verbs.ts — the operator surface: one JSON object per verb on stdout,
 // exit 0 (ok) / 1 (negative verdict) / 2 (refused or usage).
 // Each verb is a CALLER for a library module (graph, attribute, desks, ...).
-import { Database } from "bun:sqlite";
 import { openStore } from "./store";
 import { orderMerges } from "./plan";
 import { guardrail } from "./guardrail";
@@ -12,6 +11,8 @@ import { waveA, waveB, waveC, waveD } from "./desks";
 import { readStatus } from "./status";
 import { syncPrs } from "./sync";
 import { listProjects, listPrsFromAo } from "./adapter-verbs";
+import { kick, type KickDeps } from "./kick";
+import { daemonKickDeps } from "./kick-adapter";
 
 export interface VerbResult { code: number; out: Record<string, unknown> }
 
@@ -85,13 +86,48 @@ export async function verbDesks(root: string, arg?: string): Promise<VerbResult>
   }
   return emit(0, { ok: true, desks: ["waveA-assemble", "waveB-harden", "waveC-audit", "waveD-research"], hint: "run: upper desks run" });
 }
-
-export async function verbKick(root: string, arg?: string): Promise<VerbResult> {
-  if (!arg) return emit(2, { ok: false, refused: "KICK-NEEDS-BUG-ID", hint: "upper kick <bug-id> [--mode live|spawn|direct]" });
-  return emit(2, { ok: false, refused: "KICK-ADAPTER-UNWIRED", bugId: arg, hint: "the kick rails need the daemon adapter wired (W2/W3 follow-up)" });
+// `upper kick <bug-id> [--mode live|spawn|direct]`: the documented flag form
+// (`--mode live`, `--mode=live`) and the bare positional form. A raw third argv
+// token once misread `--mode` itself as the mode and silently fell back to auto.
+export function parseKickMode(tail: string[]): string | undefined {
+  let mode: string | undefined;
+  for (let i = 0; i < tail.length; i++) {
+    const t = tail[i];
+    if (t === "--mode" && i + 1 < tail.length) mode = tail[++i];
+    else if (t.startsWith("--mode=")) mode = t.slice("--mode=".length);
+    else if (mode === undefined && !t.startsWith("-")) mode = t;
+  }
+  return mode;
 }
 
-export const VERBS: Record<string, (root: string, arg?: string) => Promise<VerbResult>> = {
+
+export async function verbKick(root: string, arg?: string, mode?: string, deps?: KickDeps): Promise<VerbResult> {
+  if (!arg) return emit(2, { ok: false, refused: "KICK-NEEDS-BUG-ID", hint: "upper kick <bug-id> [--mode live|spawn|direct]" });
+  const m = (mode === "live" || mode === "spawn" || mode === "direct") ? mode : undefined;
+  // An explicit but unknown mode is a usage error, never a silent auto fallback.
+  if (mode !== undefined && m === undefined)
+    return { code: 2, out: { ok: false, refused: "KICK-BAD-MODE", bugId: arg, mode, hint: "upper kick <bug-id> [--mode live|spawn|direct]" } };
+  const db = openStore();
+  try {
+    const bug = db.query("SELECT id, dossier_path, origin_commit, origin_session FROM bug_record WHERE id = ?").get(arg) as
+      { id: string; dossier_path: string | null; origin_commit: string | null; origin_session: string | null } | null;
+    if (!bug) return { code: 1, out: { ok: false, refused: "NO-SUCH-BUG", bugId: arg } };
+    if (!bug.dossier_path) return { code: 1, out: { ok: false, refused: "NO-DOSSIER-PATH", bugId: arg } };
+    const res = await kick(db, deps ?? daemonKickDeps({ cwd: root }), {
+      bugId: arg,
+      projectId: process.env.UPPER_PROJECT_ID ?? "jarvis-upper",
+      originSession: bug.origin_session,
+      originCommit: bug.origin_commit ?? "unknown",
+      dossierPath: bug.dossier_path,
+      mode: m,
+    });
+    return { code: 0, out: { ok: true, ...res } };
+  } catch (e) {
+    return { code: 1, out: { ok: false, refused: "KICK-FAILED", bugId: arg, error: String(e).slice(0, 140) } };
+  } finally { db.close(); }
+}
+
+export const VERBS: Record<string, (root: string, arg?: string, mode?: string) => Promise<VerbResult>> = {
   status: verbStatus, plan: verbPlan, order: verbOrder, graph: verbGraph,
   gates: verbGates, sync: verbSync, bug: verbBug, desks: verbDesks, kick: verbKick,
 };
