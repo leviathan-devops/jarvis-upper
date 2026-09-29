@@ -32,7 +32,12 @@ export class StoreRefusal extends Error {
 }
 function storeFor(root: string): Database {
   try { return openStore(resolveStorePath(root)); }
-  catch (e) { throw new StoreRefusal((e as Error).message ?? String(e)); }
+  catch (e) {
+    // FIXED (ship gate medium): `(e as Error).message` throws on a null/undefined throw, and
+    // `??` keeps "". A null-safe message with a non-empty fallback.
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new StoreRefusal(msg || "STORE-RESOLUTION-FAILED");
+  }
 }
 
 export async function verbStatus(root: string, _arg?: string): Promise<VerbResult> {

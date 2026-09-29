@@ -105,6 +105,10 @@ export interface LoadResult {
   issues: ProjectIssue[];
   /** true when the registry file was ABSENT and the legacy env project was synthesized. */
   legacy: boolean;
+  /** FIXED (ship gate medium): a STRUCTURED flag for "the registry EXISTS but is unusable"
+   *  (unparseable / a missing `projects` array). The resolver keys on THIS, never a regex on
+   *  the human-readable issue text (renaming a message silently disabled the guard). */
+  registryBroken: boolean;
 }
 
 /** Load + validate the registry. NEVER throws: a bad entry is an ISSUE (named, skipped),
@@ -112,7 +116,7 @@ export interface LoadResult {
  *  other N — that is the whole point of the multi-project requirement. */
 export function loadRegistry(root: string, env: Record<string, string | undefined> = process.env): LoadResult {
   const p = registryPath(root);
-  if (!existsSync(p)) return { projects: [legacyProject(root, env)], issues: [], legacy: true };
+  if (!existsSync(p)) return { projects: [legacyProject(root, env)], issues: [], legacy: true, registryBroken: false };
   let raw: unknown;
   try { raw = JSON.parse(readFileSync(p, "utf8")); }
   catch (e) {
@@ -120,11 +124,11 @@ export function loadRegistry(root: string, env: Record<string, string | undefine
     // the legacy project would look like "one project" when the operator deployed a fleet —
     // the fallback must be LOUD, not merely named in the returned issues.
     console.error(`registry-unparseable:${p}:${String(e).slice(0, 80)} — fell back to the legacy env project`);
-    return { projects: [legacyProject(root, env)], issues: [{ index: -1, id: "registry", reason: `projects.json is unparseable (${String(e).slice(0, 80)}) — fell back to the legacy env project` }], legacy: true };
+    return { projects: [legacyProject(root, env)], issues: [{ index: -1, id: "registry", reason: `projects.json is unparseable (${String(e).slice(0, 80)}) — fell back to the legacy env project` }], legacy: true, registryBroken: true };
   }
   const list = (raw && typeof raw === "object" && Array.isArray((raw as Registry).projects)) ? (raw as Registry).projects : null;
   if (list === null) {
-    return { projects: [legacyProject(root, env)], issues: [{ index: -1, id: "registry", reason: "projects.json has no `projects` array — fell back to the legacy env project" }], legacy: true };
+    return { projects: [legacyProject(root, env)], issues: [{ index: -1, id: "registry", reason: "projects.json has no `projects` array — fell back to the legacy env project" }], legacy: true, registryBroken: true };
   }
   const projects: ProjectSpec[] = [];
   const issues: ProjectIssue[] = [];
@@ -151,9 +155,9 @@ export function loadRegistry(root: string, env: Record<string, string | undefine
     projects.push(r.spec);
   }
   if (projects.length === 0) {
-    return { projects: [legacyProject(root, env)], issues: [...issues, { index: -1, id: "registry", reason: "no VALID enabled project — fell back to the legacy env project" }], legacy: true };
+    return { projects: [legacyProject(root, env)], issues: [...issues, { index: -1, id: "registry", reason: "no VALID enabled project — fell back to the legacy env project" }], legacy: true, registryBroken: false };
   }
-  return { projects, issues, legacy: false };
+  return { projects, issues, legacy: false, registryBroken: false };
 }
 
 /** Resolve the store a CLI VERB must open. FLEET-CORRECT (the audit §3-D): with a registry the
@@ -175,7 +179,7 @@ export function resolveStorePath(root: string, env: Record<string, string | unde
   // NARROWED (ship gate medium): only an UNPARSEABLE file / a MISSING array is BREAKING. A
   // registry that is valid-but-empty, or whose entries are all invalid/disabled, is a
   // LEGITIMATE legacy fallback (the documented never-throws behavior) — not a broker error.
-  if (reg.legacy && reg.issues.some((i) => /unparseable|no `projects` array/.test(i.reason))) {
+  if (reg.registryBroken) {
     throw new Error(`REGISTRY-BROKEN: ${reg.issues.map((i) => i.reason).join("; ").slice(0, 200)}`);
   }
   if (id) {

@@ -58,6 +58,18 @@ test("req5: UPPER_PROJECT env names the store", () => {
   expect(resolveStorePath(root, { UPPER_PROJECT: "a" })).toBe(join(root, "a.sqlite"));
 });
 
+test("HIGH 4: a CORRUPT registry is a NAMED refusal, never a silent root-store fallback", () => {
+  // the ship gate HIGH: loadRegistry falls back to the legacy project on an unparseable file,
+  // so the resolver returned the ROOT store instead of refusing. A registry that EXISTS but
+  // cannot be read is REGISTRY-BROKEN.
+  writeFileSync(join(root, "projects.json"), "{ this is not json");
+  expect(() => resolveStorePath(root, {})).toThrow(/REGISTRY-BROKEN/);
+  // a LEGITIMATE absence (no registry file) still resolves the legacy store — never a refusal
+  rmSync(join(root, "projects.json"));
+  const s = resolveStorePath(root, {});
+  expect(typeof s).toBe("string");
+});
+
 // ═══ §6 req 8 (HIGH G): the arm payload's factoryContexts are DERIVED ═══
 test("req8: rulesetFor derives the 8 vs 6 contexts (the third-copy drift is dead)", () => {
   const eight = rulesetFor({ factoryContexts: true }) as { rules: { type: string; parameters?: { required_status_checks?: { context: string }[] } }[] };

@@ -70,7 +70,7 @@ export function recordMerge(
   // headSha.slice assumed a non-empty string. Both are validated LOUDLY first.
   // FIXED (ocr audit medium): a case-INSENSITIVE sha (git hex is case-insensitive;
   // some tools uppercase) + a null guard on the row itself.
-  if (!row || !/^[0-9a-f]{7,40}$/i.test(row.mergeSha) || !/^[0-9a-f]{7,40}$/i.test(row.headSha)) {
+  if (!row || !isSha(row.mergeSha) || !isSha(row.headSha)) {
     return false;
   }
   try {
@@ -97,6 +97,11 @@ export function recordMerge(
     return false;
   }
 }
+
+/** FIXED (the ship gate low): the git-hex sha rule, in ONE place — the observer's fallback and
+ *  recordMerge's guard now share it, so a rule change cannot diverge them. */
+export const SHA_RE = /^[0-9a-f]{7,40}$/i;
+export function isSha(s: string | null | undefined): s is string { return typeof s === "string" && SHA_RE.test(s); }
 
 /** Has this merge sha already been recorded? (idempotence for a re-polling tick.) */
 /**

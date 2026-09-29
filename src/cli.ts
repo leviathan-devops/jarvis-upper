@@ -39,7 +39,9 @@ if (verb === "init") {
       .get(arg ?? "ao-events") as { last_seq: number } | null;
     console.log(JSON.stringify({ ok: true, source: arg ?? "ao-events", last_seq: row?.last_seq ?? 0 }));
   } finally { db.close(); }
-} else if (verb && VERBS[verb]) {
+  // FIXED (ship gate low): a bare index hits Object.prototype (`upper __proto__` is truthy and
+  // fell into call-as-function). The own-property guard routes it to usage/exit 2.
+} else if (verb && Object.hasOwn(VERBS, verb)) {
   // FIXED 2026-09-23 (the muse rounds' consistency sweep): a file:// URL's
   // `.pathname` is not a filesystem path (Windows drive-letter prefix; URL
   // encoding elsewhere). fileURLToPath is the platform-correct conversion — the
