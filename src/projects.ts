@@ -39,6 +39,13 @@ export interface Registry { projects: ProjectSpec[]; }
  *  `pr:<session>:<num>` id collision impossible (two projects may legitimately share a
  *  session name). The `project` column still exists in each store for the aggregate read. */
 
+/** Normalize a store path for the isolation comparison: collapse `//`, drop a trailing slash,
+ *  resolve `./` — so two spellings of ONE file cannot defeat `one store per project`. A realpath
+ *  would resolve symlinks too, but the file need not exist yet (an enroll target). */
+function normalizePath(p: string): string {
+  return p.replace(/\/{2,}/g, "/").replace(/\/\.\//g, "/").replace(/\/+$/, "");
+}
+
 const ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
 const SEG_RE = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
 
@@ -122,17 +129,21 @@ export function loadRegistry(root: string, env: Record<string, string | undefine
   for (let i = 0; i < list.length; i++) {
     const r = checkProject(list[i], i);
     if (!r.ok) { issues.push(r.issue); continue; }
+    // FIXED (the ship gate medium ×2): (a) the store key is NORMALIZED (resolved, trailing slash
+    // stripped) so `/a/./b` and `/a/b` cannot bypass the isolation; (b) a DISABLED entry no longer
+    // reserves its store nor falsely flags an enabled sibling — the disabled skip runs FIRST.
+    if (r.spec.enabled === false) { issues.push({ index: i, id: r.spec.id, reason: "disabled (enabled:false) — skipped" }); continue; }
     if (seen.has(r.spec.id)) { issues.push({ index: i, id: r.spec.id, reason: "DUPLICATE id — the later entry is skipped" }); continue; }
     // FIXED (the audit HIGH E — "one store per project" was a CONVENTION, not an invariant):
     // the live store held TWO projects' rows. The isolation the layer's own doc comment claims
     // is now ENFORCED: two entries may not point at one store (SQLite has one writer; a shared
     // file is a shared crash domain and a shared write lock).
-    if (seenStores.has(r.spec.store)) {
+    const storeKey = normalizePath(r.spec.store);
+    if (seenStores.has(storeKey)) {
       issues.push({ index: i, id: r.spec.id, reason: `DUPLICATE store — ${r.spec.store} is already claimed by another project (one store per project)` });
       continue;
     }
-    seen.add(r.spec.id); seenStores.add(r.spec.store);
-    if (r.spec.enabled === false) { issues.push({ index: i, id: r.spec.id, reason: "disabled (enabled:false) — skipped" }); continue; }
+    seen.add(r.spec.id); seenStores.add(storeKey);
     projects.push(r.spec);
   }
   if (projects.length === 0) {
@@ -152,6 +163,14 @@ export function loadRegistry(root: string, env: Record<string, string | undefine
 export function resolveStorePath(root: string, env: Record<string, string | undefined> = process.env, projectId?: string): string {
   const id = projectId ?? env.UPPER_PROJECT;
   const reg = loadRegistry(root, env);
+  // FIXED (the ship gate HIGH): loadRegistry falls back to the LEGACY single project on an
+  // UNPARSEABLE registry — so the resolver returned the ROOT store instead of refusing, masking
+  // a fleet misconfiguration as a healthy single-project read/write to the WRONG file. A
+  // registry that EXISTS but cannot be read is a NAMED REFUSAL, never a silent fallback.
+  // (legacy:true with NO issues is the legitimate "no registry file at all" case.)
+  if (reg.legacy && reg.issues.length > 0) {
+    throw new Error(`REGISTRY-BROKEN: ${reg.issues.map((i) => i.reason).join("; ").slice(0, 200)}`);
+  }
   if (id) {
     const p = reg.projects.find((x) => x.id === id);
     if (!p) throw new Error(`NO-PROJECT:${id} (known: ${reg.projects.map((x) => x.id).join(",") || "none"})`);

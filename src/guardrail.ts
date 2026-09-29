@@ -6,7 +6,7 @@
 // below stays as a local mirror, but the authoritative read is guardrailRemote()
 // against REQUIRED_CONTEXTS from the frozen contract.
 import { Database } from "bun:sqlite";
-import { GATE_TO_CONTEXT, REQUIRED_CONTEXTS, GITHUB_JOB_CONTEXTS, EXTERNAL_GATES, OWN_GATES } from "./status-contract";
+import { GATE_TO_CONTEXT, REQUIRED_CONTEXTS, GITHUB_JOB_CONTEXTS, EXTERNAL_GATES } from "./status-contract";
 
 export interface Eligibility {
   ok: boolean;
@@ -32,6 +32,22 @@ const REQUIRED_GATES = Object.keys(GATE_TO_CONTEXT) as (keyof typeof GATE_TO_CON
  *  POSITIVE CONTROL (a regression test must prove BOTH): a PR with green EXTERNAL gates and a
  *  FAILED `factory/fence2` must be publish-eligible (so the correction can go out) while
  *  remaining merge-INeligible (so it cannot merge on a failed verdict). */
+/** THE sha-binding gate check — ONE implementation for BOTH the publisher (EXTERNAL gates) and
+ *  the merge order (REQUIRED gates). FIXED (the ship gate medium): the two callers held
+ *  VERBATIM copies of this loop, so a drift in the binding rule (the exact class this PR fixes)
+ *  could silently diverge them. `reasons` is appended in place. */
+export function checkGateRows(db: Database, prId: string, gates: readonly string[], reasons: string[], prHead: string | null): void {
+  for (const g of gates) {
+    const row = db.query("SELECT verdict, head_sha FROM gate_pass WHERE pr_node = ? AND gate = ? ORDER BY at DESC, rowid DESC LIMIT 1")
+      .get(prId, g) as { verdict: string; head_sha: string | null } | null;
+    // The audit's MEDIUM K: ABSENT (GATE-MISSING) and PRESENT-BUT-FAILED (GATE-FAILED) are distinct.
+    if (!row) { reasons.push(`GATE-MISSING:${g}`); continue; }
+    if (row.verdict !== "pass") { reasons.push(`GATE-FAILED:${g}:${row.verdict}`); continue; }
+    // the sha binding (BOTH sides known; either null = STALE — blocking is the default)
+    if (row.head_sha === null || prHead === null || row.head_sha !== prHead) reasons.push(`STALE-GATE:${g}`);
+  }
+}
+
 export function publishEligible(db: Database, prId: string): Eligibility {
   const reasons: string[] = [];
   const pr = db.query("SELECT id, state, head_sha FROM pr_node WHERE id = ?").get(prId) as
@@ -39,18 +55,7 @@ export function publishEligible(db: Database, prId: string): Eligibility {
     | null;
   if (!pr) return { ok: false, reasons: ["PR-MISSING"] };
   if (pr.state !== "ready_to_merge") reasons.push(`NOT-READY:${pr.state}`);
-  for (const g of EXTERNAL_GATES) {
-    const row = db.query("SELECT verdict, head_sha FROM gate_pass WHERE pr_node = ? AND gate = ? ORDER BY at DESC, rowid DESC LIMIT 1")
-      .get(prId, g) as { verdict: string; head_sha: string | null } | null;
-    // FIXED (the audit MEDIUM K): one branch covered both "the row is ABSENT" and "the row
-    // exists and FAILED", always naming GATE-MISSING — so a live `fence2=fail` read as
-    // "missing", hiding a substantive red behind an absent-gate label. The two are distinct.
-    if (!row) { reasons.push(`GATE-MISSING:${g}`); continue; }
-    if (row.verdict !== "pass") { reasons.push(`GATE-FAILED:${g}:${row.verdict}`); continue; }
-    const gateHead = row.head_sha;
-    const prHead = pr.head_sha;
-    if (gateHead === null || prHead === null || gateHead !== prHead) reasons.push(`STALE-GATE:${g}`);
-  }
+  checkGateRows(db, prId, EXTERNAL_GATES, reasons, pr.head_sha);
   return { ok: reasons.length === 0, reasons };
 }
 
@@ -61,41 +66,7 @@ export function guardrail(db: Database, prId: string): Eligibility {
     | null;
   if (!pr) return { ok: false, reasons: ["PR-MISSING"] };
   if (pr.state !== "ready_to_merge") reasons.push(`NOT-READY:${pr.state}`);
-  for (const g of REQUIRED_GATES) {
-    // FIXED (the runtime seat, H2/H5 — MEASURED LIVE): this read had NO ORDER BY, so
-    // `.get()` returned whichever row SQLite yielded FIRST. The table's PK is a
-    // surrogate `id`, so (pr_node, gate) can hold MANY rows — and a STALE legacy row
-    // (id NULL, which never conflicts under a TEXT PK) masked a NEWER verdict.
-    // Measured on the live store: ci_green held pass(rowid 1, id NULL) + fail(rowid 5,
-    // the live mirror's row) and `.get()` returned the stale PASS. The LATEST verdict
-    // now wins deterministically (NULL `at` sorts last under DESC).
-    const row = db.query("SELECT verdict, head_sha FROM gate_pass WHERE pr_node = ? AND gate = ? ORDER BY at DESC, rowid DESC LIMIT 1")
-      .get(prId, g) as { verdict: string; head_sha: string | null } | null;
-    // FIXED (the audit MEDIUM K): DISTINCT from GATE-MISSING — a present-but-failed gate is
-    // GATE-FAILED (see publishEligible's twin).
-    if (!row) { reasons.push(`GATE-MISSING:${g}`); continue; }
-    if (row.verdict !== "pass") { reasons.push(`GATE-FAILED:${g}:${row.verdict}`); continue; }
-    // FIXED 2026-09-23 (ocr round-4 CRITICAL): this compared gate_pass.sha16 (the
-    // SPEC INVARIANT hash, per verdict.ts) against pr_node.head_sha (a git commit
-    // sha) — CROSS-DOMAIN, so it was always unequal and STALE-GATE fired on every
-    // passing gate in production (the tests masked it by writing the head_sha INTO
-    // the sha16 column). It now compares the commit the gate RAN AGAINST
-    // (gate_pass.head_sha) to the PR's current head.
-    // FIXED 2026-09-23 (muse independent review HIGH): requiring a NON-NULL row
-    // head_sha made a NULL row (a legacy-migrated row, a fixture row) authorize
-    // ANY future head — fail-OPEN where this file's own law is "blocking is the
-    // safe default". An unknown-commit gate is STALE: the PR's head is known, the
-    // gate's is not, so the two cannot be shown to match.
-    // FIXED 2026-09-23 (muse re-review HIGH): the old guard skipped the whole
-    // check when the PR's head was NULL, so an UNKNOWN CURRENT revision read as
-    // eligible. Binding needs BOTH sides KNOWN — either null is STALE (the file's
-    // law: blocking is the default, every block carries its reason).
-    const gateHead = row.head_sha;
-    const prHead = pr.head_sha;
-    if (gateHead === null || prHead === null || gateHead !== prHead) {
-      reasons.push(`STALE-GATE:${g}`);
-    }
-  }
+  checkGateRows(db, prId, REQUIRED_GATES, reasons, pr.head_sha);
   const deps = db
     .query("SELECT from_pr AS f FROM pr_edge WHERE to_pr = ? AND kind = 'depends_on'")
     .all(prId) as { f: string }[];

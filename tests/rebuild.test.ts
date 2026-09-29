@@ -115,14 +115,23 @@ function rtSlow(delayMs: number): Runtime {
   return { tick: async () => { await Bun.sleep(delayMs); return s; }, start() {}, stop: async () => s, status: () => null, state: { running: false, tick: 0 } };
 }
 
-test("SLOP-09: a concurrent cycle is SKIPPED with a LOUD, honest row (never a silent overlap)", async () => {
+test("SLOP-09: a concurrent cycle is SKIPPED — the last healthful aggregate STANDS (ship gate fix)", async () => {
   const enrolled: Enrolled[] = [{ spec: { id: "a", root, owner: "o", repo: "r", tokenEnv: "T", worktreeRoot: root, store: join(root, "a.sqlite") }, rt: rtSlow(80), ok: true }];
   const cycle = makeCycle(enrolled, root, (() => { let n = 0; return () => ++n; })());
-  const first = cycle();                 // in flight for 80 ms
-  await cycle();                         // the concurrent call MUST skip
-  const a = JSON.parse(readFileSync(statusPath(root), "utf8")) as AggregateStatus;
-  expect(a.projects.a.ok).toBe(false);
-  expect(a.projects.a.error).toContain("CYCLE-IN-FLIGHT");
-  expect(a.failed).toBe(1);              // counted, not hidden
+  // cycle 1 completes and writes a healthy aggregate
+  await cycle();
+  const healthy = JSON.parse(readFileSync(statusPath(root), "utf8")) as AggregateStatus;
+  expect(healthy.tick).toBe(1);
+  expect(healthy.projects.a.ok).toBe(true);
+
+  // a CONCURRENT cycle (while one is in flight) must write NOTHING — never regress the tick
+  // (the ship gate HIGH: the first fix wrote a synthetic tick:0/green→red row, which legacy
+  // readers expect to be MONOTONIC). The skip is LOUD on stderr instead.
+  const first = cycle();
+  await cycle();                         // the concurrent call skips
+  const after = JSON.parse(readFileSync(statusPath(root), "utf8")) as AggregateStatus;
+  expect(after.tick).toBeGreaterThanOrEqual(healthy.tick);   // never regressed
+  expect(after.projects.a.ok).toBe(true);
+  expect(after.failed).toBe(0);
   await first;
 });

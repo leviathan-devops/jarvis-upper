@@ -75,16 +75,12 @@ export function makeCycle(enrolled: Enrolled[], root: string, next: () => number
   let inFlight = false;
   return async (): Promise<void> => {
     if (inFlight) {
-      const rows: Record<string, ProjectStatusRow> = {};
-      for (const e of enrolled) {
-        rows[e.spec.id] = { ts: new Date().toISOString(), tick: 0, daemonOk: false, cursor: 0,
-          prNodes: 0, ready: 0, eligible: 0, planHash: null, planKind: "none", kicks: 0,
-          errors: ["CYCLE-IN-FLIGHT"], ok: false, error: "CYCLE-IN-FLIGHT: a previous cycle is still running" };
-      }
-      writeAggregate(root, { ts: new Date().toISOString(), tick: 0, daemonOk: false, cursor: 0,
-        prNodes: 0, ready: 0, eligible: 0, planHash: null, planKind: "none", kicks: 0,
-        errors: ["CYCLE-IN-FLIGHT"], projects: rows, failed: enrolled.length } as never);
-      console.error("cycle-skipped:CYCLE-IN-FLIGHT");
+      // FIXED (the ship gate HIGH): the FIRST fix wrote a synthetic tick:0/daemonOk:false
+      // aggregate — which REGRESSED the tick number (legacy readers + the drift sweep expect a
+      // MONOTONIC tick) and spuriously flipped the fleet GREEN→RED for a cycle that simply did
+      // not run. A skipped cycle now writes NOTHING: the last healthful aggregate stands, and
+      // the skip is LOUD on stderr. (The re-entrancy itself is already prevented by the guard.)
+      console.error("cycle-skipped:CYCLE-IN-FLIGHT (the previous cycle is still running)");
       return;
     }
     inFlight = true;
@@ -102,9 +98,16 @@ export function makeCycle(enrolled: Enrolled[], root: string, next: () => number
       const e = enrolled[i];
       const r = settled[i];
       if (r.status === "fulfilled") {
-        rows[e.spec.id] = e.reason
-          ? { ...r.value, ok: false, error: e.reason, errors: [...r.value.errors, `enrolled:${e.reason}`] }
-          : { ...r.value, ok: true };
+        if (e.reason) {
+          // FIXED (the ship gate medium): a DISARMED project's red row was NOT counted in
+          // `failed` nor named in the top-level errors — so `failed===0 && errors===[]` could
+          // coexist with a red fleet row, hiding the disarm from a health check. Counted now.
+          failed += 1;
+          errors.push(`${e.spec.id}:${e.reason}`);
+          rows[e.spec.id] = { ...r.value, ok: false, error: e.reason, errors: [...(r.value.errors ?? []), `enrolled:${e.reason}`] };
+        } else {
+          rows[e.spec.id] = { ...r.value, ok: true };
+        }
       } else {
         failed += 1;
         errors.push(`${e.spec.id}:${String(r.reason).slice(0, 120)}`);
@@ -171,13 +174,15 @@ export async function main(): Promise<void> {
   // cadence now honours UPPER_TICK_MS; a per-project override applies only when EVERY project
   // agrees on a value (a single cadence cannot honour N disagreeing intervals — the min wins,
   // so no project is starved).
+  // FIXED (the ship gate medium): requiring EVERY project to define tickMs silently DROPPED a
+  // partial override. The cadence is now the MIN of the DEFINED per-project intervals (a faster
+  // project is honoured; a slower one still gets the global cadence — no project is starved, and
+  // the ignoring of partial overrides is NAMED).
   const projectTickMs = enrolled
     .map((e) => e.spec.tickMs)
     .filter((t): t is number => typeof t === "number" && Number.isFinite(t));
-  const effTickMs = projectTickMs.length === enrolled.length && enrolled.length > 0
-    ? Math.min(...projectTickMs)
-    : tickMs;
-  if (effTickMs !== tickMs) console.error(`tickMs-override:${tickMs}->${effTickMs} (the registry's per-project intervals)`);
+  const effTickMs = projectTickMs.length > 0 ? Math.min(...projectTickMs) : tickMs;
+  if (effTickMs !== tickMs) console.error(`tickMs-override:${tickMs}->${effTickMs} (the min of ${projectTickMs.length}/${enrolled.length} per-project intervals)`);
   const timer = setInterval(() => void tickCycle().catch((e) => console.error(`cycle-threw:${String(e).slice(0, 120)}`)), effTickMs);
 
   const armed = enrolled.filter((e) => e.ok && !e.reason).length;

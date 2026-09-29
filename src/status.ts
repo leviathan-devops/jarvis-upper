@@ -72,6 +72,8 @@ export function appendTick(root: string, s: RuntimeStatus, projectId?: string): 
   const dir = projectId ? join(root, "runtime", projectId) : join(root, "runtime");
   mkdirSync(dir, { recursive: true });
   const line = `${s.ts} tick=${s.tick} daemonOk=${s.daemonOk} cursor=${s.cursor} prNodes=${s.prNodes} planKind=${s.planKind} errors=${s.errors.length}`;
+  // FIXED (the ship gate LOW): `logPath` and `tp` were TWO names for ONE value — a future edit
+  // to one could diverge the append target from the rotation/throttle key. ONE name now.
   const logPath = projectId ? projectTicksPath(root, projectId) : ticksPath(root);
   appendFileSync(logPath, line + "\n", "utf8");
   // F54: rotation — truncate when the log exceeds its byte CAP (below). The comment previously
@@ -81,29 +83,35 @@ export function appendTick(root: string, s: RuntimeStatus, projectId?: string): 
   // synchronously on EVERY tick — O(n) per append, O(n^2) over the daemon's
   // life. A cheap statSync size check now gates the expensive read, so the full
   // read happens ONLY when the file is genuinely over the cap.
-  // FIXED (the audit SLOP-08): the throttle keys on the LOG PATH, so `tp` must be visible to
-  // the catch (it was declared INSIDE the try — a scope error the moment the key changed).
-  const tp = projectId ? projectTicksPath(root, projectId) : ticksPath(root);
+  // FIXED (the audit SLOP-08 + the ship gate LOW): ONE path value — `logPath` above — is the
+  // append target, the rotation target, AND the throttle key. (`tp` was a second name for it.)
   try {
-    const CAP_BYTES = 1024 * 1024; // ~1 MiB, well under 10000 short lines
-    if (statSync(tp).size > CAP_BYTES) {
+    const CAP_BYTES = 1024 * 1024; // exactly 1 MiB — the enforced byte cap (≈11,439 short rows)
+    if (statSync(logPath).size > CAP_BYTES) {
       // FIXED 2026-09-23 (qwen-code-audit high): split('\n') on a trailing-newline
       // file yields a final "", so the join produced a DOUBLE newline.
-      const lines = readFileSync(tp, "utf8").split("\n").filter((l) => l !== "");
+      const lines = readFileSync(logPath, "utf8").split("\n").filter((l) => l !== "");
       // FIXED 2026-09-23 (ocr round-4 HIGH): the rotation overwrote the live log
       // in place — a crash mid-write left it truncated. tmp + rename is atomic,
       // matching writeStatus.
       // FIXED (run 4): a pid-derived tmp name is predictable (a symlink target).
-      const tmp = `${tp}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+      const tmp = `${logPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
       writeFileSync(tmp, lines.slice(-5000).join("\n") + "\n", "utf8");
-      renameSync(tmp, tp);
+      renameSync(tmp, logPath);
     }
   } catch (e) {
     // FIXED (red-team slop audit SLOP-07): a persistently failing rotation (readonly
     // dir, full disk) retried each tick and NEVER surfaced. FIXED (the W15 ship gate LOW):
     // it then logged EVERY tick — throttle to once a minute.
     const now = Date.now();
-    if (now - (lastRotateLogAt.get(tp) ?? 0) > 60_000) { lastRotateLogAt.set(tp, now); console.error(`status-rotate-failed:${tp}:${String(e).slice(0, 60)}`); }
+    // FIXED (the ship gate LOW): the throttle Map grew WITHOUT BOUND — one entry per distinct log
+    // path retained forever (a leak under many ephemeral projects). Bound it: over 100 entries,
+    // evict the oldest half (the throttle only needs RECENT keys).
+    if (lastRotateLogAt.size > 100) {
+      const keys = [...lastRotateLogAt.keys()];
+      for (const k of keys.slice(0, 50)) lastRotateLogAt.delete(k);
+    }
+    if (now - (lastRotateLogAt.get(logPath) ?? 0) > 60_000) { lastRotateLogAt.set(logPath, now); console.error(`status-rotate-failed:${logPath}:${String(e).slice(0, 60)}`); }
   }
 }
 

@@ -513,8 +513,12 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       // the sync's sticky-state CASE never advances a `ready_to_merge` row — so a PR that
       // merged while locally ready (the exact live case: PR #2 merged at 2026-09-29T18:01:45Z
       // as `ready_to_merge`) was INVISIBLE to the observer and its merge sha was never recorded.
-      // The observer now polls EVERY pre-merge state and advances to `merged`.
-      const orderedRows = db.query("SELECT id, pr_number, head_sha, session_id FROM pr_node WHERE state IN ('ready_to_merge','merge_ordered')").all() as
+      // FIXED (the ship gate HIGH — my FIRST fix polled only 2 states): a PR merged while
+      // locally `open` (an admin merge before the mirror synced) was STILL invisible. The
+      // observer now polls EVERY non-terminal state — open + ready_to_merge + merge_ordered —
+      // and records the merge whenever GitHub reports one (rejected/kicked cannot merge; merged
+      // is terminal). This is the honest reading of "EVERY pre-merge state".
+      const orderedRows = db.query("SELECT id, pr_number, head_sha, session_id FROM pr_node WHERE state IN ('open','ready_to_merge','merge_ordered')").all() as
         { id: string; pr_number: number; head_sha: string | null; session_id: string | null }[];
       for (const r of orderedRows) {
         try {

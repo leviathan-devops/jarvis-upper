@@ -10,7 +10,7 @@
 // THE ORDER LAW: the workflows must land and RUN once BEFORE the ruleset is armed, because the
 // ruleset requires the OBSERVED check-run names — arming against a guessed name (or one that
 // has never been posted) leaves the merge button dead with every check green.
-import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSync, writeFileSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { join, isAbsolute, dirname } from "node:path";
 import { registryPath, type ProjectSpec, type Registry } from "./projects";
 import { GITHUB_JOB_CONTEXTS, STATUS_CONTEXTS } from "./status-contract";
@@ -47,9 +47,6 @@ export interface EnrollResult {
   reason?: string;
 }
 
-/** EnrollResult with the backup ledger — a caller may construct the legacy shape without it. */
-export type EnrollResultFull = EnrollResult;
-
 const TOP_DIRS = ["gates", ".githooks"];
 const WORKFLOW_FILES = ["gates.yml", "drift.yml"];
 
@@ -62,23 +59,30 @@ function copyTree(src: string, dst: string, copied: string[], backedUp: string[]
     // FIXED (the audit HIGH H): a pre-existing DIFFERING file is backed up before the write —
     // the overwrite is destructive and was silent. A byte-identical file is a no-op (no spurious
     // .bak litter on a re-enroll).
-    if (!dry && existsSync(d)) {
-      try {
-        const a = readFileSync(s), b = readFileSync(d);
-        if (!a.equals(b)) {
-          const bak = `${d}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-          copyFileSync(d, bak);
-          backedUp.push(bak);
-        }
-      } catch (e) {
-        // W-13: a catch must LOG or RETHROW. An unreadable existing target cannot be backed up,
-        // but the write below still lands — the failure is NAMED, never swallowed.
-        console.error(`enroll-backup-unreadable:${d}:${String(e).slice(0, 60)}`);
-      }
-    }
-    if (!dry) copyFileSync(s, d);
-    copied.push(d);
+    copyOne(s, d, copied, backedUp, dry);
   }
+}
+
+/** ONE file through the backup chokepoint: back up a differing existing target, then copy.
+ *  FIXED (ship gate high): a directory-where-a-file-belongs (or an unreadable target) no longer
+ *  THROWS out of enroll — the copy failure is caught and named; the caller sees it in `skipped`. */
+function copyOne(src: string, d: string, copied: string[], backedUp: string[], dry: boolean): void {
+  // FIXED (the ship gate medium): the backup detection runs in DRY-RUN too, so a preview can
+  // see which files WOULD be overwritten (backedUp records the WOULD-BE backup path).
+  if (existsSync(d)) {
+    try {
+      if (statSync(d).isFile() && !readFileSync(src).equals(readFileSync(d))) {
+        const bak = `${d}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+        copyFileSync(d, bak);
+        backedUp.push(bak);
+      }
+    } catch (e) { console.error(`enroll-backup-skip:${d}:${String(e).slice(0, 60)}`); }
+  }
+  if (!dry) {
+    try { copyFileSync(src, d); }
+    catch (e) { copied.push(`${d} (COPY-FAILED:${String(e).slice(0, 40)})`); return; }
+  }
+  copied.push(d);
 }
 
 export function enroll(opts: EnrollOpts): EnrollResult {
@@ -102,8 +106,10 @@ export function enroll(opts: EnrollOpts): EnrollResult {
     for (const f of WORKFLOW_FILES) {
       const s = join(wfSrc, f);
       if (!existsSync(s)) { skipped.push(`.github/workflows/${f} (absent)`); continue; }
-      if (!dry) copyFileSync(s, join(opts.target, ".github", "workflows", f));
-      copied.push(join(opts.target, ".github", "workflows", f));
+      // FIXED (the ship gate medium): the workflows used a BARE copyFileSync — a foreign
+      // gates.yml/drift.yml was still silently overwritten despite the backedUp ledger claiming
+      // visibility. They now route through the SAME backup chokepoint as copyTree.
+      copyOne(s, join(opts.target, ".github", "workflows", f), copied, backedUp, dry);
     }
   } else { skipped.push(".github/workflows (absent in the kernel tree)"); }
   // 3. the vendored build package (the alignment gates READ this path)
@@ -138,9 +144,16 @@ export function enroll(opts: EnrollOpts): EnrollResult {
   // atomic (matching writeStatus/writeAggregate).
   if (!dry) {
     mkdirSync(dirname(regPath), { recursive: true });
-    const tmp = `${regPath}.${process.pid}.${Date.now()}.tmp`;
-    writeFileSync(tmp, JSON.stringify(reg, null, 2) + "\n", "utf8");
-    renameSync(tmp, regPath);
+    // FIXED (the ship gate LOW): a pid+time tmp name is predictable (a symlink target) and a
+    // throw left .tmp litter. Random suffix + cleanup on failure.
+    const tmp = `${regPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+    try {
+      writeFileSync(tmp, JSON.stringify(reg, null, 2) + "\n", "utf8");
+      renameSync(tmp, regPath);
+    } catch (e) {
+      try { if (existsSync(tmp)) rmSync(tmp); } catch { /* best-effort cleanup */ }
+      throw e;
+    }
   }
   wrote.push(regPath);
 

@@ -14,7 +14,10 @@ const [verb, arg, ...extras] = Bun.argv.slice(2);
 // MULTI-PROJECT: `enroll` takes 4-5 positionals (path id owner repo [tokenEnv] [--dry-run]).
 // FIXED (the audit HIGH G-c): `arm` accepts ONE extra (its `[--no-factory]` flag) — without
 // this the documented flag was rejected by the dispatcher and verbArm's param was unreachable.
-const extraAllowance = verb === "kick" ? 1 : verb === "enroll" ? 5 : verb === "arm" ? 1 : 0;
+// FIXED (the ship gate low): a LOOKUP MAP, not a growing nested ternary (the no-nested-ternary
+// rule; and it scales as verbs gain extra positionals).
+const EXTRA_ALLOWANCE: Record<string, number> = { kick: 1, enroll: 5, arm: 1 };
+const extraAllowance = EXTRA_ALLOWANCE[verb] ?? 0;
 if (extras.length > extraAllowance && verb !== "init" && verb !== "cursor") {
   console.error(usage);
   process.exit(2);
@@ -48,6 +51,11 @@ if (verb === "init") {
     .then(() => (VERBS[verb] as (r: string, a?: string, ...x: string[]) => Promise<VerbResult>)(root, arg, ...extras))
     .then((r) => { console.log(JSON.stringify(r.out)); process.exit(r.code); })
     .catch((e) => {
+      // FIXED (the ship gate medium): a store-resolution refusal is a SHAPED exit 2, not a stack.
+      if (String(e).startsWith("StoreRefusal:") || String(e).includes("AMBIGUOUS-STORE") || String(e).includes("NO-PROJECT") || String(e).includes("REGISTRY-BROKEN")) {
+        console.log(JSON.stringify({ ok: false, refused: String(e).replace(/^StoreRefusal:\s*/, "").slice(0, 240) }));
+        process.exit(2);
+      }
       console.error(JSON.stringify({ ok: false, verdict: "VERB-THREW", error: String(e).slice(0, 300) }));
       process.exit(1);
     });

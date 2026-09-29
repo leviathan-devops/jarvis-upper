@@ -64,10 +64,15 @@ export const GATE_TO_CONTEXT = {
 // A gate whose contexts include a factory/* STATUS is OWN: the factory PRODUCES it.
 // The distinction is mechanical (derived from GATE_TO_CONTEXT, never hand-listed).
 const GITHUB_JOBS: ReadonlySet<string> = new Set(GITHUB_JOB_CONTEXTS);
-export const OWN_GATES = (Object.keys(GATE_TO_CONTEXT) as (keyof typeof GATE_TO_CONTEXT)[])
-  .filter((g) => (GATE_TO_CONTEXT[g] as readonly string[]).some((c) => !GITHUB_JOBS.has(c)));
-export const EXTERNAL_GATES = (Object.keys(GATE_TO_CONTEXT) as (keyof typeof GATE_TO_CONTEXT)[])
-  .filter((g) => !OWN_GATES.includes(g));
+/** OWN = a gate whose contexts include a `factory/*` STATUS (the factory PRODUCES it). The
+ *  predicate is the DOCUMENTED law (`factory/` prefix), not the broader "not a GitHub job" —
+ *  a future third-prefix context cannot be mis-classified (the ship gate lows). */
+const isOwn = (g: keyof typeof GATE_TO_CONTEXT): boolean =>
+  (GATE_TO_CONTEXT[g] as readonly string[]).some((c) => c.startsWith("factory/"));
+const GATE_KEYS = Object.keys(GATE_TO_CONTEXT) as (keyof typeof GATE_TO_CONTEXT)[];
+export const OWN_GATES = GATE_KEYS.filter(isOwn);
+/** EXTERNAL = the exact COMPLEMENT of OWN (never an `includes` re-scan that could drift). */
+export const EXTERNAL_GATES = GATE_KEYS.filter((g) => !isOwn(g));
 
 export type StatusContext = (typeof REQUIRED_CONTEXTS)[number];
 export type PublishState = "success" | "failure" | "error";
