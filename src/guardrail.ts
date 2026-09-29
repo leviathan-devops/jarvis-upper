@@ -7,6 +7,7 @@
 // against REQUIRED_CONTEXTS from the frozen contract.
 import { Database } from "bun:sqlite";
 import { GATE_TO_CONTEXT, REQUIRED_CONTEXTS, GITHUB_JOB_CONTEXTS, EXTERNAL_GATES } from "./status-contract";
+import { MAX_SEG_LEN } from "./limits";
 
 export interface Eligibility {
   ok: boolean;
@@ -109,7 +110,7 @@ export async function guardrailRemote(
   // FIXED 2026-09-23 (qwen-code-audit re-run REAL): a null/undefined sha crashed
   // at `.includes()` instead of returning an honest refusal.
   // FIXED (round-5 low): a length cap (a megabyte-long owner/repo built a huge URL → DoS).
-  if (typeof opts.owner !== "string" || typeof opts.repo !== "string" || opts.owner.length > 100 || opts.repo.length > 100 || !safeSeg.test(opts.owner) || !safeSeg.test(opts.repo)) {
+  if (typeof opts.owner !== "string" || typeof opts.repo !== "string" || opts.owner.length > MAX_SEG_LEN || opts.repo.length > MAX_SEG_LEN || !safeSeg.test(opts.owner) || !safeSeg.test(opts.repo)) {
     return { ok: false, reasons: [`INVALID-OWNER-REPO:${String(opts.owner)}/${String(opts.repo)}`], missing: [...REQUIRED_CONTEXTS], states: {} };
   }
   // FIXED (the whole-file scan HIGH): the check was an allow-list INVERTED (only `/`, `..`, `\0`
@@ -121,15 +122,20 @@ export async function guardrailRemote(
   // inverted (only `/`, `..`, `\0` rejected).
   // (the same rule as owner/repo) — this rejects empty, `?`, `#`, `.`/`..`, whitespace, and
   // over-long values, while accepting every real sha AND the short fixtures the fetch-path tests use.
-  if (typeof opts.sha !== "string" || !safeSeg.test(opts.sha) || opts.sha.length > 100) {
+  if (typeof opts.sha !== "string" || !safeSeg.test(opts.sha) || opts.sha.length > MAX_SEG_LEN) {
     return { ok: false, reasons: [`INVALID-SHA:${String(opts.sha).slice(0, 12)}`], missing: [...REQUIRED_CONTEXTS], states: {} };
   }
   const url = `${base}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/commits/${encodeURIComponent(opts.sha)}/statuses`;
   const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
-  // FIXED (round-5 medium): a cleartext (http) endpoint would leak the token over the wire —
-  // `localhost` can resolve off-loopback via a misconfigured hosts/DNS. The token travels ONLY
-  // over https; an http (dev/mock) endpoint gets NO Authorization header.
-  if (opts.token && base.startsWith("https://")) headers.Authorization = `Bearer ${opts.token}`;
+  // FIXED (round-5 medium + round-6 medium): a cleartext (http) endpoint must NEVER carry the
+  // Bearer token (localhost can resolve off-loopback via a misconfigured hosts/DNS). This is NOT
+  // a silent downgrade — an http base WITH a token is a NAMED REFUSAL (a mock endpoint needs no
+  // token; a real endpoint must be https), so the caller is never left wondering why it went
+  // unauthenticated.
+  if (opts.token && !base.startsWith("https://")) {
+    return { ok: false, reasons: [`INSECURE-BASE-URL:${base.slice(0, 40)} (a token requires https; use an https endpoint or omit the token)`], missing: [...REQUIRED_CONTEXTS], states: {} };
+  }
+  if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
   // FIXED 2026-09-23 (ocr round-4 HIGH): fetchFn AND res.json() can both throw
   // (network error, AbortSignal timeout, invalid JSON). The function's contract
   // is to RETURN a RemoteEligibility — a throw breaks it and crashes any caller

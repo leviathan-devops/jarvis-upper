@@ -11,7 +11,7 @@
 // projects.json, a log, or a status file.
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, isAbsolute, posix } from "node:path";
-import { isValidTickMs, MIN_TICK_MS } from "./runtime";
+import { isValidTickMs, MIN_TICK_MS } from "./limits";
 
 export interface ProjectSpec {
   /** the stable project key — ALSO the AO project name the sync filters on. */

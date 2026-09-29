@@ -114,8 +114,11 @@ export function enroll(opts: EnrollOpts): EnrollResult {
   if (typeof opts.id !== "string" || !ID_OK.test(opts.id) || opts.id.includes("..")) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-ID:${String(opts.id)} (letters/digits/._- only, ≤64, no ..)` };
   if (typeof opts.repo !== "string" || !ID_OK.test(opts.repo) || opts.repo.includes("..")) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-REPO:${String(opts.repo)} (letters/digits/._- only, ≤64, no ..)` };
   if (typeof opts.owner !== "string" || !ID_OK.test(opts.owner)) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-OWNER:${String(opts.owner)}` };
-  if (!isAbsolute(opts.target) || !existsSync(opts.target)) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-TARGET:${opts.target} (must be an existing absolute path)` };
-  if (!isAbsolute(opts.kernel) || !existsSync(opts.kernel)) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-KERNEL:${opts.kernel}` };
+  // FIXED (round-5 low): tokenEnv was persisted unvalidated — projects.ts:checkProject (and thus
+  // loadRegistry/projectToken) requires an ENV VAR NAME. Validate with the SAME rule here.
+  const tokenEnv = opts.tokenEnv ?? "GH_TOKEN";
+  if (typeof tokenEnv !== "string" || !/^[A-Z_][A-Z0-9_]*$/.test(tokenEnv)) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-TOKEN-ENV:${String(tokenEnv)} (an ENV VAR NAME, never the bytes)` };
+  // (the target/kernel typeof+path guards are ABOVE — the duplicate unguarded checks are removed)
   // FIXED (the whole-file scan medium): `join()===join()` missed trailing-slash/`./`/`../`
   // variants AND nesting (target inside kernel, or vice versa). resolve() normalizes; a
   // contains() check rejects nesting where an in-place copy would recurse or pollute.
@@ -169,7 +172,7 @@ export function enroll(opts: EnrollOpts): EnrollResult {
   // (the registry was READ + VALIDATED at the top — before any copy)
   const spec: ProjectSpec = {
     id: opts.id, root: opts.target, owner: opts.owner, repo: opts.repo,
-    tokenEnv: opts.tokenEnv ?? "GH_TOKEN",
+    tokenEnv,
     worktreeRoot: `${process.env.HOME ?? "/home/leviathan"}/.ao/data/worktrees/${opts.repo}`,
     store: join(opts.target, "runtime", opts.id, "store.sqlite"),
   };
