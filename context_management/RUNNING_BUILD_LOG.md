@@ -571,3 +571,33 @@ SECOND real project has never been enrolled+armed live; the per-project `tickMs`
 honoured in the fleet cadence but never exercised with N projects; the ruleset fix is applied to
 the LIVE ruleset 23838059 (`bypass_actors:[]` retained) but a RE-enroll would install the new
 payload.
+
+## [2026-09-29T22:46:42Z] — THE WHOLE-FILE SCAN REMEDIATION (HEAD `e03a373`)
+
+**THE SHIP GATE (range reviews): `GATE: PASS (0 critical/0 high)`** — the review chain
+`7639f95a` 0/5 → `29443b1a` 0/1 → `5c05e386` PASS 0/0 → `aa69b42f` PASS 0/0 → **`45ecd444` PASS 0/0/0/0**.
+
+**THE WHOLE-FILE SCAN** (session `fbd08597`, 25 files) reported 59 high — MOSTLY PRE-EXISTING
+(DPL1_SPEC §0 documents 36 high / 77 medium across 40 files before this session). Every finding in
+a file THIS SESSION touched, or on the runtime/CLI path, is FIXED across 5 rounds:
+
+| the class | the fix | the anchor |
+|---|---|---|
+| the check-then-append merge race | an advisory 'wx' lockfile + canonical sha | src/merge-record.ts:78 |
+| unvalidated baseUrl (SSRF/token) | https-only + INSECURE-BASE-URL refusal | src/guardrail.ts:95 |
+| the unvalidated per-project tickMs | isValidTickMs (the shared MIN_TICK_MS) | src/main.ts:191 |
+| unshaped CLI errors | the whole dispatch shaped + VerbResult validated | src/cli.ts:40 |
+| an unshaped non-store throw | the VERBS wrapper shapes EVERY throw | src/cli-verbs.ts:343 |
+| enroll symlink traversal / path traversal | lstat (src + dangling dst) + id/repo/owner typeof+len | src/enroll.ts:59 |
+| the drop-the-partials sync | named skipped/partialErrors + totals | src/cli-verbs.ts:110 |
+| a present-but-useless registry | REGISTRY-EMPTY refusal (never the root store) | src/projects.ts:193 |
+| the tickMs/segment floors drifting | a dependency-free src/limits.ts (one authority) | src/limits.ts |
+
+**THE EVIDENCE (re-run):** `bunx tsc --noEmit` exit 0 · `bun test` **217 pass / 0 fail / 760
+expect across 54 files** (was 195/52) · the daemon `jarvis-upper.service` active (tick=2, 0 boot
+errors) · PR #2 MERGED + recorded.
+
+**THE HONEST RESIDUALS:** the out-of-scope files (execute.ts · plan.ts · kick.ts · desks.ts ·
+dossier.ts · attribute.ts · adapter-verbs.ts) carry the documented §0 pre-existing findings — the
+operator's arm-to-N-projects path, not the runtime path; a SECOND real project has never been
+enrolled+armed live (legacy:true).
