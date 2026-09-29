@@ -3,6 +3,10 @@ runtime/status.json
 runtime/ticks.log
 runtime/wire_capture.json
 runtime/watchdog-ledger.jsonl
+# MULTI-PROJECT: each project writes runtime/<id>/{status.json,ticks.log,wire_capture.json,store.sqlite}.
+# Live state is NEVER tracked — it would dirty the tree on every 15s tick and make every commit
+# carry a state churn instead of a semantic change.
+runtime/**
 store.sqlite
 store.sqlite-wal
 store.sqlite-shm
