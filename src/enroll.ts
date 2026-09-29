@@ -75,6 +75,10 @@ function copyOne(src: string, d: string, copied: string[], backedUp: string[], s
   // The backup detection runs in DRY-RUN too, so a preview sees which files WOULD be
   // overwritten (backedUp records the WOULD-BE path) — but the ACTUAL backup write is gated on
   // !dry (FIXED ship gate HIGH: dry-run littered .bak files despite "change nothing").
+  // FIXED (round-4 HIGH): the DESTINATION could be a pre-created SYMLINK — existsSync/statSync/
+  // copyFileSync all FOLLOW it, overwriting the link target (e.g. target/gates/x -> /etc/passwd).
+  // lstatSync does not; a symlinked destination is SKIPPED, named.
+  try { if (existsSync(d) && lstatSync(d).isSymbolicLink()) { skipped.push(`${d} (destination symlink — not written)`); return; } } catch (e) { console.error(`enroll-dst-lstat:${d}:${String(e).slice(0, 40)}`); }
   if (existsSync(d)) {
     try {
       if (statSync(d).isFile() && !readFileSync(src).equals(readFileSync(d))) {
@@ -97,9 +101,12 @@ export function enroll(opts: EnrollOpts): EnrollResult {
 
   // FIXED (the whole-file scan HIGH): `id`/`repo` were UNVALIDATED — `join(target,"packages",id)`
   // and `worktrees/${repo}` accepted `../`/`/`, writing OUTSIDE the target. Validated here.
-  const ID_OK = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-  if (!ID_OK.test(opts.id) || opts.id.includes("..")) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-ID:${opts.id} (letters/digits/._- only, no ..)` };
-  if (!ID_OK.test(opts.repo) || opts.repo.includes("..")) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-REPO:${opts.repo} (letters/digits/._- only, no ..)` };
+  // FIXED (round-4 medium): typeof-guard + a LENGTH cap — `RegExp.test` coerces, but
+  // `.includes("..")` THROWS on undefined/null/number, crashing enroll instead of refusing.
+  const ID_OK = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+  if (typeof opts.id !== "string" || !ID_OK.test(opts.id) || opts.id.includes("..")) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-ID:${String(opts.id)} (letters/digits/._- only, ≤64, no ..)` };
+  if (typeof opts.repo !== "string" || !ID_OK.test(opts.repo) || opts.repo.includes("..")) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-REPO:${String(opts.repo)} (letters/digits/._- only, ≤64, no ..)` };
+  if (typeof opts.owner !== "string" || !ID_OK.test(opts.owner)) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-OWNER:${String(opts.owner)}` };
   if (!isAbsolute(opts.target) || !existsSync(opts.target)) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-TARGET:${opts.target} (must be an existing absolute path)` };
   if (!isAbsolute(opts.kernel) || !existsSync(opts.kernel)) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-KERNEL:${opts.kernel}` };
   // FIXED (the whole-file scan medium): `join()===join()` missed trailing-slash/`./`/`../`
@@ -108,6 +115,20 @@ export function enroll(opts: EnrollOpts): EnrollResult {
   const K = resolve(opts.kernel), T = resolve(opts.target);
   if (K === T || `${T}/`.startsWith(`${K}/`) || `${K}/`.startsWith(`${T}/`)) {
     return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-SAME-TREE: kernel=${K} and target=${T} overlap` };
+  }
+
+  // FIXED (round-4 medium): the registry is READ + VALIDATED before ANY filesystem mutation, so
+  // a corrupt-registry refusal leaves the target UNTOUCHED (enroll is not half-applied).
+  const regPath = opts.registryFile ?? registryPath(opts.kernel);
+  let reg: Registry = { projects: [] };
+  if (existsSync(regPath)) {
+    try { const r = JSON.parse(readFileSync(regPath, "utf8")); if (Array.isArray(r?.projects)) reg = r; }
+    catch (e) {
+      // FIXED (the whole-file scan HIGH): an UNPARSEABLE registry fell through to overwrite the
+      // fleet file with a single entry. A NAMED refusal, BEFORE any copy.
+      console.error(`enroll-registry-read-failed:${regPath}:${String(e).slice(0, 80)}`);
+      return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-REGISTRY-CORRUPT:${regPath} (refusing to overwrite a fleet file that cannot be parsed)` };
+    }
   }
 
   // 1. the host gates
@@ -138,21 +159,7 @@ export function enroll(opts: EnrollOpts): EnrollResult {
   } else { skipped.push("packages/ (absent — specs/spec-diff.ts will need a vendored SPEC)"); }
 
   // 4. the registry entry (idempotent: replaces a same-id entry, keeps the others)
-  const regPath = opts.registryFile ?? registryPath(opts.kernel);
-  let reg: Registry = { projects: [] };
-  if (existsSync(regPath)) {
-    try { const r = JSON.parse(readFileSync(regPath, "utf8")); if (Array.isArray(r?.projects)) reg = r; }
-    // W-13: a catch must LOG or rethrow — an unreadable/unparseable registry would otherwise
-    // silently REPLACE the operator's fleet with a single-entry file. It is named, and the
-    // entry is still written (the caller sees the log).
-    catch (e) {
-      // FIXED (the whole-file scan HIGH): an UNPARSEABLE registry fell through to overwrite the
-      // fleet file with a single entry (fleet loss). A corrupt registry is a NAMED refusal — the
-      // operator's fleet is never silently destroyed.
-      console.error(`enroll-registry-read-failed:${regPath}:${String(e).slice(0, 80)}`);
-      return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-REGISTRY-CORRUPT:${regPath} (refusing to overwrite a fleet file that cannot be parsed)` };
-    }
-  }
+  // (the registry was READ + VALIDATED at the top — before any copy)
   const spec: ProjectSpec = {
     id: opts.id, root: opts.target, owner: opts.owner, repo: opts.repo,
     tokenEnv: opts.tokenEnv ?? "GH_TOKEN",
@@ -180,16 +187,19 @@ export function enroll(opts: EnrollOpts): EnrollResult {
       renameSync(tmp, regPath);
     } catch (e) {
       try { if (existsSync(tmp)) rmSync(tmp); } catch (err) { console.error(`enroll-tmp-cleanup-failed:${tmp}:${String(err).slice(0, 40)}`); }
-      throw e;
+      // FIXED (round-4 medium): a registry-write failure THREW instead of returning the
+      // EnrollResult contract shape. Returned now.
+      return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-REGISTRY-WRITE-FAILED:${String(e).slice(0, 80)}` };
     }
   }
-  wrote.push(regPath);
 
   // FIXED (ship gate HIGH + the whole-file scan HIGH): a COPY-FAILED entry, OR a missing REQUIRED
   // artifact (gates/.githooks/the workflows), makes the enroll NOT ok — the ORDER LAW says a
   // missing workflow leaves the ruleset un-armable, yet enroll claimed success.
   const copyFailed = skipped.some((s) => s.includes("COPY-FAILED"));
-  const missingRequired = skipped.some((s) => /^(gates|.githooks) \(absent|.github\/workflows\/(gates|drift).yml \(absent\)/.test(s));
+  // FIXED (round-4 medium): the regex missed the generic ".github/workflows (absent in the
+  // kernel tree)" skip and used an unescaped `.`. Both covered (the `\.` escapes the dot).
+  const missingRequired = skipped.some((s) => /^(gates|\\.githooks) \(absent|\.github\/workflows/.test(s));
   const reason = copyFailed ? "ENROLL-COPY-FAILED" : missingRequired ? "ENROLL-MISSING-REQUIRED" : undefined;
   return { ok: !copyFailed && !missingRequired, copied, skipped, wrote, backedUp, ...(reason ? { reason } : {}) };
 }

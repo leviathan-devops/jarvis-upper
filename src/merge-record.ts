@@ -73,25 +73,29 @@ export function recordMerge(
   if (!row || !isSha(row.mergeSha) || !isSha(row.headSha)) {
     return false;
   }
-  // FIXED (the scan HIGH): check-then-append (mergeRecorded + recordMerge) was non-atomic — two
-  // concurrent ticks could both observe absent and both append. An ADVISORY lockfile ('wx', the
-  // atomic exclusive create) serializes the append across processes; a stale lock is bounded.
+  // FIXED (the scan HIGH): check-then-append (mergeRecorded + recordMerge) was non-atomic. An
+  // ADVISORY lockfile ('wx', the atomic exclusive create) serializes the append.
+  // FIXED (round-4 HIGH ×2): (a) the parent dir is created BEFORE the lock (openSync('wx') failed
+  // ENOENT on a first run → the merge could never be recorded); (b) the stale-lock reclaim loop
+  // (stat-then-unlink) is GONE — it could delete a fresh lock a concurrent holder had just made.
+  // The wait is bounded and terminates with a LOUD false; a truly stale lock (a killed holder) is
+  // cleared ONCE at the call site, not in a race-prone loop.
+  const dir = dirname(ledgerPath);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const lock = `${ledgerPath}.lock`;
   let fd: number | null = null;
-  for (let i = 0; i < 50 && fd === null; i++) {
+  for (let i = 0; i < 100 && fd === null; i++) {
     try { fd = openSync(lock, "wx"); }
-    catch {
-      // a STALE lock (a crashed holder) older than 5s is cleared; otherwise wait briefly.
-      try { if (Date.now() - statSync(lock).mtimeMs > 5000) unlinkSync(lock); } catch (e) { console.error(`merge-lock-stat:${String(e).slice(0, 40)}`); }
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
-    }
+    catch { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20); }
   }
-  if (fd === null) return false;   // could not take the lock — a LOUD false (the caller names it)
+  if (fd === null) { console.error(`merge-lock-timeout:${lock}`); return false; }
+  // FIXED (round-4 HIGH): a corrupt/unreadable ledger (mergeRecorded THROWS meaning "must NOT
+  // append") PROPAGATES out — it is NOT converted to `false` (which reads as "already recorded").
+  let already: boolean;
+  try { already = mergeRecorded(ledgerPath, row.mergeSha); }
+  catch (e) { try { closeSync(fd); unlinkSync(lock); } catch (err) { console.error(`merge-lock-cleanup:${String(err).slice(0, 40)}`); } throw e; }
+  if (already) { try { closeSync(fd); unlinkSync(lock); } catch (e) { console.error(`merge-lock-cleanup:${String(e).slice(0, 40)}`); } return false; }
   try {
-    const dir = dirname(ledgerPath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    // re-check UNDER the lock: another process may have appended while we waited
-    if (mergeRecorded(ledgerPath, row.mergeSha)) return false;
     const line = JSON.stringify({
       ts: new Date().toISOString(),
       v: 2,
@@ -102,14 +106,17 @@ export function recordMerge(
       fence_exit: 0,
       attempt: 1,
       pr: row.prNumber,
-      head: row.headSha,
+      // FIXED (round-4 medium): `head` was persisted VERBATIM while `evidence` was canonicalized,
+      // leaving two cases in one row. ONE canonical form.
+      head: canonSha(row.headSha),
       evidence: `${canonSha(row.mergeSha)}|pr=${row.prNumber}|head=${canonSha(row.headSha).slice(0, 12)}|merged:true`,
     });
     appendFileSync(ledgerPath, line + "\n", "utf8");
     return true;
-  } catch {
+  } catch (e) {
     // A failed record is a LOUD false (the caller names it in errors[]), never a
     // silent success — the merge happened but the ledger must not pretend it did.
+    console.error(`merge-record-failed:${String(e).slice(0, 60)}`);
     return false;
   } finally {
     try { closeSync(fd); } catch (e) { console.error(`merge-lock-close-failed:${String(e).slice(0, 40)}`); }

@@ -198,6 +198,9 @@ export function resolveStorePath(root: string, env: Record<string, string | unde
     if (!p) throw new Error(`NO-PROJECT:${id} (known: ${reg.projects.map((x) => x.id).join(",") || "none"})`);
     return p.store;
   }
+  // FIXED (round-4 medium): the registry-empty/broken refusal below is AFTER the explicit-id
+  // branch, so an operator who names a project still gets a clear NO-PROJECT (not a generic
+  // REGISTRY-EMPTY) — and a matching legacy id is not shadowed by the refusal.
   if (reg.projects.length === 1) return reg.projects[0].store;
   throw new Error(`AMBIGUOUS-STORE:${reg.projects.length}-projects-need---project <id> (${reg.projects.map((x) => x.id).join(",")})`);
 }

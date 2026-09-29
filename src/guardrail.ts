@@ -88,11 +88,19 @@ export async function guardrailRemote(
   opts: { owner: string; repo: string; sha: string; token?: string; baseUrl?: string; fetchImpl?: typeof fetch },
 ): Promise<RemoteEligibility> {
   const fetchFn = opts.fetchImpl ?? fetch;
+  // FIXED (round-4 medium): a non-string baseUrl threw at `.replace` before reaching the guard.
+  if (opts.baseUrl !== undefined && typeof opts.baseUrl !== "string") {
+    return { ok: false, reasons: ["INVALID-BASE-URL:non-string"], missing: [...REQUIRED_CONTEXTS], states: {} };
+  }
   const base = (opts.baseUrl ?? "https://api.github.com").replace(/\/$/, "");
   // FIXED (the whole-file scan HIGH): baseUrl was UNVALIDATED — any scheme/host was accepted and
   // received `Authorization: Bearer <token>`, enabling SSRF + token exfil if the base is
   // config-influenced. https-only; the token travels only to an https origin.
-  if (!/^https:\/\/[A-Za-z0-9.-]+(:\d+)?(\/.*)?$/.test(base)) {
+  // FIXED (round-4 medium): http://localhost / 127.0.0.1 / [::1] are legitimate dev/mock endpoints
+  // (no long-haul token leak over the wire to a remote host). Allowed; every other non-https host
+  // is refused.
+  const isLocal = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/.*)?$/.test(base);
+  if (!isLocal && !/^https:\/\/[A-Za-z0-9.-]+(:\d+)?(\/.*)?$/.test(base)) {
     return { ok: false, reasons: [`INVALID-BASE-URL:${base.slice(0, 40)}`], missing: [...REQUIRED_CONTEXTS], states: {} };
   }
   // FIXED (the W27 per-file gate MEDIUM): `.`/`..` passed (encodeURIComponent does not encode
@@ -106,8 +114,10 @@ export async function guardrailRemote(
   // FIXED (the whole-file scan HIGH): the check was an allow-list INVERTED (only `/`, `..`, `\0`
   // rejected) — empty, `.`/`...`, `?`, `#`, and over-long strings all passed into the URL. A real
   // commit sha is hex; require it (the API is only ever asked about a hex commit).
-  // FIXED (the whole-file scan HIGH, ADJUDICATED against the pinned fixtures): the old check was
-  // an allow-list INVERTED (only `/`, `..`, `\0` rejected). The sha must be a safe URL SEGMENT
+  // FIXED (the whole-file scan HIGH, ADJUDICATED): the sha must be a safe URL SEGMENT (the same
+  // rule as owner/repo — REJECTS empty/`?`/`#`/`.`/`..`/whitespace/over-long; accepts any hex or
+  // fixture id, so the pinned fetch-path tests' short shas pass). The old check was an allow-list
+  // inverted (only `/`, `..`, `\0` rejected).
   // (the same rule as owner/repo) — this rejects empty, `?`, `#`, `.`/`..`, whitespace, and
   // over-long values, while accepting every real sha AND the short fixtures the fetch-path tests use.
   if (typeof opts.sha !== "string" || !safeSeg.test(opts.sha) || opts.sha.length > 100) {

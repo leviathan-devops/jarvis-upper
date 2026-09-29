@@ -29,7 +29,8 @@ function main(): Promise<void> | void {
   const allowance = Object.hasOwn(EXTRA_ALLOWANCE, verb) ? EXTRA_ALLOWANCE[verb] : 0;
   // FIXED (the scan): init takes ZERO args and cursor at most ONE — extras are now usage/exit-2
   // (they were silently ignored).
-  if (verb === "init" && extras.length > 0) { console.error(usage); process.exit(2); }
+  // FIXED (round-4 low): `arg` counted as a positional for init — `upper init junk` was silent.
+  if (verb === "init" && (arg !== undefined || extras.length > 0)) { console.error(usage); process.exit(2); }
   if (verb === "cursor" && extras.length > 0) { console.error(usage); process.exit(2); }
   if (verb !== "init" && verb !== "cursor" && extras.length > allowance) { console.error(usage); process.exit(2); }
 
@@ -58,10 +59,12 @@ function main(): Promise<void> | void {
   const root = fileURLToPath(new URL("..", import.meta.url));
   return (VERBS[verb] as (r: string, a?: string, ...x: string[]) => Promise<VerbResult>)(root, arg, ...extras)
     .then((r) => {
-      // FIXED (the scan HIGH): the VerbResult is VALIDATED — a null/undefined return, a missing
-      // `out`, or a code outside 0/1/2 would otherwise print `undefined` or exit undocumented.
-      if (!r || typeof r !== "object" || typeof r.out !== "object" || r.out === null || ![0, 1, 2].includes(r.code)) {
-        fail(1, { ok: false, verdict: "BAD-VERB-RESULT", got: r === null ? "null" : typeof r });
+      // FIXED (the scan HIGH + round-4 medium): the VerbResult is VALIDATED — null/undefined, a
+      // missing/NON-OBJECT/ARRAY `out` (typeof [] === "object"), or a code outside 0/1/2 would
+      // otherwise print an array/`undefined` or exit undocumented. `return fail(...)` so a
+      // stubbed fail() cannot fall through to `r.out` on a malformed result.
+      if (!r || typeof r !== "object" || r.out === null || typeof r.out !== "object" || Array.isArray(r.out) || ![0, 1, 2].includes(r.code)) {
+        return fail(1, { ok: false, verdict: "BAD-VERB-RESULT", got: r === null ? "null" : typeof r });
       }
       console.log(JSON.stringify(r.out));
       process.exit(r.code);

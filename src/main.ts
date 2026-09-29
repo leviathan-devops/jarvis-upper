@@ -21,7 +21,7 @@
 // started log all ran on import (only rt.start() was guarded). A module must be
 // side-effect-free on import, so EVERY side effect now lives in main().
 import { fileURLToPath } from "node:url";
-import { createRuntime, parseTickMs, type Runtime } from "./runtime";
+import { createRuntime, parseTickMs, isValidTickMs, type Runtime } from "./runtime";
 import { targetMatchesRemote } from "./target-guard";
 import { statusPath, ticksPath, writeAggregate, appendTick, projectStatusPath, type ProjectStatusRow, type RuntimeStatus } from "./status";
 import { readFileSync, existsSync } from "node:fs";
@@ -188,14 +188,15 @@ export async function main(): Promise<void> {
   // FIXED (the whole-file scan HIGH): a per-project tickMs was UNVALIDATED (`0`/negative/NaN
   // flowed into setInterval → a runaway storm or a never-firing cadence). Validated like the
   // global parseTickMs; an invalid value is NAMED and ignored.
-  const timerValid = enrolled.map((e) => {
+  // FIXED (round-4 low): the per-project floor now REUSES the global authority (isValidTickMs) —
+  // no second floor to drift. A DARK (never-ticking) enrollment is EXCLUDED from the cadence, so
+  // a broken project's interval cannot drag the fleet's.
+  const resolved = enrolled.map((e) => {
     const t = e.spec.tickMs;
     if (t === undefined) return tickMs;
-    const ok = typeof t === "number" && Number.isFinite(t) && t >= 1000;
-    if (!ok) console.error(`tickMs-invalid:${e.spec.id}:${String(t)} — using the global ${tickMs}`);
-    return ok ? t : tickMs;
+    if (!isValidTickMs(t)) { console.error(`tickMs-invalid:${e.spec.id}:${String(t)} — using the global ${tickMs}`); return tickMs; }
+    return t;
   });
-  const resolved = timerValid;
   const effTickMs = resolved.length > 0 ? Math.min(...resolved) : tickMs;
   if (effTickMs !== tickMs) console.error(`tickMs-override:${tickMs}->${effTickMs} (the min of the ${resolved.length} RESOLVED per-project intervals)`);
   const timer = setInterval(() => void tickCycle().catch((e) => console.error(`cycle-threw:${String(e).slice(0, 120)}`)), effTickMs);

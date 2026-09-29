@@ -100,12 +100,17 @@ test("the arm payload's approval requirement is SOLO-SATISFIABLE (the live PR-2 
 
 // ═══ §6 req 9 (HIGH H): enroll backs up a differing foreign file ═══
 test("req9: enroll NEVER destroys a foreign file silently — it backs it up (HIGH H)", () => {
-  // a kernel tree with a gate, and a target that already carries a DIFFERENT .githooks/pre-commit
+  // a COMPLETE kernel tree (gates + .githooks + workflows — a real kernel has all three; a
+  // missing required artifact is now not-ok per the ORDER LAW), and a target that already
+  // carries a DIFFERENT .githooks/pre-commit
   const kernel = join(root, "kernel");
   mkdirSync(join(kernel, "gates"), { recursive: true });
   mkdirSync(join(kernel, ".githooks"), { recursive: true });
+  mkdirSync(join(kernel, ".github", "workflows"), { recursive: true });
   writeFileSync(join(kernel, "gates", "g.sh"), "#!/bin/sh\n");
   writeFileSync(join(kernel, ".githooks", "pre-commit"), "#!/bin/sh\n# the kernel's hook\n");
+  writeFileSync(join(kernel, ".github", "workflows", "gates.yml"), "name: gates\n");
+  writeFileSync(join(kernel, ".github", "workflows", "drift.yml"), "name: drift\n");
   const target = join(root, "target");
   mkdirSync(join(target, ".githooks"), { recursive: true });
   writeFileSync(join(target, ".githooks", "pre-commit"), "#!/bin/sh\n# THE FOREIGN HOOK — must survive\n");

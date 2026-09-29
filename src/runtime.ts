@@ -27,6 +27,11 @@ import { STATUS_CONTEXTS } from "./status-contract";
 // truthy) — every rails fetch would build an invalid URL. Trim, then fall back.
 export const DAEMON = (process.env.AO_DAEMON ?? "").trim() || "http://localhost:3001";
 
+/** THE tickMs FLOOR — the SINGLE validation authority the global parse and main()'s per-project
+ *  check share (round-4 low: two floors could drift). */
+export const MIN_TICK_MS = 1000;
+export function isValidTickMs(n: unknown): n is number { return typeof n === "number" && Number.isFinite(n) && n >= MIN_TICK_MS; }
+
 /** The bounded-concurrency value for the tick's per-row GitHub calls (the merge poll AND the
  *  publish). ONE constant so the two batching sites cannot drift (ship gate low). */
 const MERGE_POLL_CONC = 4;

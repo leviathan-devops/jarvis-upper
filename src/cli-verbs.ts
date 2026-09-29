@@ -107,6 +107,10 @@ export async function verbSync(root: string, arg?: string): Promise<VerbResult> 
   // throw there skipped the db cleanup path (and the error was not shaped as a
   // VerbResult). It is inside the try now.
   const projects = await listProjects();
+  // FIXED (round-4 medium): a typo'd project silently synced nothing (ok:true, prNodes:0). Named.
+  if (arg && projects.length > 0 && !projects.some((p) => p.name === arg || (p as { id?: string }).id === arg)) {
+    return emit(2, { ok: false, refused: "SYNC-NO-SUCH-PROJECT", project: arg.slice(0, 64), known: projects.map((p) => p.name).slice(0, 20) });
+  }
   // FIXED (W26): listPrsFromAo returns { rows, partialErrors }.
   const ao = await listPrsFromAo({ project: arg });
   const { rows: n, skipped } = await syncPrs(db, async () => ao.rows);
@@ -116,8 +120,11 @@ export async function verbSync(root: string, arg?: string): Promise<VerbResult> 
   // a partial sync is NOT ok.
   const partialErrors = ao.partialErrors ?? [];
   const ok = skipped.length === 0 && partialErrors.length === 0;
+  // FIXED (round-4 low): the truncation was lossy; TOTALS are exposed and both lists bounded.
   return emit(ok ? 0 : 1, { ok, synced: arg ?? "(fleet)", prNodes: n, openPrNodes: prs.n,
-    projects: projects.length, skipped, partialErrors: partialErrors.slice(0, 20) });
+    projects: projects.length,
+    skipped: skipped.slice(0, 20), skippedCount: skipped.length,
+    partialErrors: partialErrors.slice(0, 20), partialErrorCount: partialErrors.length });
   } finally { db.close(); }
 }
 
@@ -313,7 +320,10 @@ export async function verbArm(root: string, arg?: string, ...rest: string[]): Pr
     const nCtx = (rs?.find((r) => r.type === "required_status_checks")?.parameters?.required_status_checks ?? []).length;
     return emit(0, { ok: true, armed: arg, repo: `${spec.owner}/${spec.repo}`, rulesetId: (body as { id?: number }).id, action: existing ? "updated" : "created", factoryContexts, contexts: nCtx });
   } catch (e) {
-    return emit(1, { ok: false, refused: "ARM-THREW", id: arg, error: String(e).slice(0, 160) });
+    // FIXED (round-4 low): a TIMEOUT is named distinctly from a generic throw.
+    const name = (e as { name?: string }).name;
+    const refused = name === "TimeoutError" || name === "AbortError" ? "ARM-TIMEOUT" : "ARM-THREW";
+    return emit(1, { ok: false, refused, id: arg, error: String(e).slice(0, 160) });
   }
 }
 
