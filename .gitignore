@@ -2,6 +2,7 @@
 runtime/status.json
 runtime/ticks.log
 runtime/wire_capture.json
+runtime/watchdog-ledger.jsonl
 store.sqlite
 store.sqlite-wal
 store.sqlite-shm
@@ -9,3 +10,12 @@ node_modules/
 dist/
 # the JAM/JFM desk tracker: LIVE state (jfm writes it on every verb) — never source
 .omp-waves/
+**/__pycache__/
+*.py[cod]
+
+# THE GENERATED RECORDS (a 646-file checkpoint diff is NOT reviewable code —
+# the W-9 gate's own artifact-class law: a snapshot/working-state is machine-
+# generated, exempt from the doc law, and likewise from the diff budget).
+Checkpoints/
+.trident/
+.aider.chat.history.md

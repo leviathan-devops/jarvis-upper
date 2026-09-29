@@ -1,0 +1,64 @@
+{
+  "name": "production-factory-gates",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/heads/main"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [
+          {
+            "context": "gates/anti-theatrical"
+          },
+          {
+            "context": "gates/issue-link"
+          },
+          {
+            "context": "gates/spec-gate"
+          },
+          {
+            "context": "gates/diff-budget"
+          },
+          {
+            "context": "gates/test"
+          },
+          {
+            "context": "gates/theatrical-verification"
+          },
+          {
+            "context": "factory/fence2"
+          },
+          {
+            "context": "factory/verdict"
+          }
+        ]
+      }
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "require_last_push_approval": true,
+        "required_review_thread_resolution": true,
+        "require_code_owner_review": false
+      }
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
+      "type": "deletion"
+    }
+  ],
+  "bypass_actors": []
+}

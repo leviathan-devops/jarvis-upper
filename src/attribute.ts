@@ -1,6 +1,5 @@
 // attribute.ts: deterministic bug→origin commit→session→worker.
 // Every assignment carries method+inputs (auditable); <0.6 → triage.
-import { Database } from "bun:sqlite";
 
 export interface AttributionInput {
   repo: string;
@@ -24,25 +23,37 @@ interface Proc {
   run(cmd: string[], cwd: string, timeoutMs?: number): Promise<{ code: number; stdout: string; stderr: string }>;
 }
 
-const sh = (cmd: string, cwd: string, timeoutMs = 15000): Promise<{ code: number; stdout: string; stderr: string }> =>
+const defaultRun = (cmd: string[], cwd: string, timeoutMs = 15000): Promise<{ code: number; stdout: string; stderr: string }> =>
   new Promise((resolve) => {
-    const p = Bun.spawn(["sh", "-c", cmd], { cwd, stdout: "pipe", stderr: "pipe" });
+    const p = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
     const killer = setTimeout(() => { try { p.kill(9); } catch { /* already dead */ } }, timeoutMs);
+    // FIXED 2026-09-23 (ocr round-4 HIGH): the callback had no error handling —
+    // if p.exited REJECTED (killed by signal) or reading stdout/stderr threw,
+    // `resolve` was never called and the promise hung FOREVER (the caller's
+    // await never returned). Also `code` can be null on a signal-kill while the
+    // type claims `number`. try/catch + a .catch that always resolves; the code
+    // is coerced so the type never lies.
     p.exited.then(async (code) => {
       clearTimeout(killer);
-      const [o, e] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-      resolve({ code, stdout: o, stderr: e });
+      try {
+        const [o, e] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
+        // FIXED 2026-09-23 (ocr round-4 HIGH): a null exit code = an ABNORMAL
+        // termination (signal-kill, e.g. the timeout above). Defaulting it to 0
+        // reported SUCCESS, and callers skip via `code !== 0` — so a timed-out
+        // process's partial output was parsed as if it had succeeded. Null -> 1.
+        resolve({ code: Number(code ?? 1), stdout: o, stderr: e });
+      } catch (err) {
+        resolve({ code: Number(code ?? 1), stdout: "", stderr: `READ-FAILED:${String(err).slice(0, 80)}` });
+      }
+    }).catch((err) => {
+      clearTimeout(killer);
+      resolve({ code: 1, stdout: "", stderr: `EXITED-REJECTED:${String(err).slice(0, 80)}` });
     });
   });
-
-function q(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
 export async function candidatesForFiles(
   repo: string,
   files: string[],
-  proc: Proc = { run: (c, cwd) => sh(c.join(" "), cwd) },
+  proc: Proc = { run: defaultRun },
 ): Promise<Map<string, string[]>> {
   // commit -> files it touched (bounded to the flagged set)
   const hit = new Map<string, string[]>();
@@ -62,7 +73,7 @@ export async function blameLines(
   repo: string,
   files: string[],
   lines: Record<string, number[]> | undefined,
-  proc: Proc = { run: (c, cwd) => sh(c.join(" "), cwd) },
+  proc: Proc = { run: defaultRun },
 ): Promise<Map<string, string[]>> {
   const hit = new Map<string, string[]>();
   for (const f of files) {
@@ -84,8 +95,11 @@ export interface SessionResolver {
   (commit: string): Promise<{ session: string | null; worker: string | null }>;
 }
 
+// FIXED 2026-09-23 (ocr round-4 HIGH): the `db` parameter was never referenced
+// (no persistence ever occurred), so it lied about the contract and dragged an
+// unused import. Removed — attribution is a pure function over the injected
+// `proc`.
 export async function attributeBug(
-  db: Database,
   input: AttributionInput,
   resolve: SessionResolver,
   proc?: Proc,
@@ -93,16 +107,13 @@ export async function attributeBug(
   const flagged = [...new Set(input.files)];
   const logHits = await candidatesForFiles(input.repo, flagged, proc);
   const blameHits = await blameLines(input.repo, flagged, input.lines, proc);
-  const perFile: Record<string, string[]> = {};
-  for (const f of flagged) perFile[f] = [];
-  for (const [sha, fs] of logHits) for (const f of fs) perFile[f]?.push(sha);
-  for (const [sha, fs] of blameHits) for (const f of fs) perFile[f]?.push(sha);
+  // perFile removed: scoring uses logHits/blameHits/scored directly
 
   // merge commits: only first-parent line counts, capped 0.55 (below the
   // blame floor, so a merge can never outrank an exact blame match)
   const scored: { commit: string; files: string[]; score: number }[] = [];
   for (const [sha, fs] of logHits) {
-    const r = await (proc ?? { run: (c: string[], cwd: string) => sh(c.join(" "), cwd) })
+    const r = await (proc ?? { run: defaultRun })
       .run(["git", "log", "--format=%P", "-1", sha], input.repo);
     const parents = r.code === 0 ? r.stdout.trim().split(/\s+/).filter(Boolean) : [];
     const isMerge = parents.length > 1;
@@ -120,12 +131,28 @@ export async function attributeBug(
     return { commit: "", session: null, worker: null, method: "no-candidates",
              candidates: [], confidence: 0 };
   }
-  const r = await resolve(top.commit);
+  // FIXED 2026-09-23 (qwen-code-audit re-run REAL): a throwing resolver rejected
+  // the whole attribution; the commit match is the deliverable, the session is
+  // enrichment. A resolver failure yields null session/worker, not a crash.
+  let r: { session: string | null; worker: string | null } = { session: null, worker: null };
+  try { r = await resolve(top.commit); } catch (e) {
+    // W-13: a catch must log or rethrow. The session is enrichment — the commit
+    // match is the deliverable — so the failure is NAMED and the commit kept.
+    console.error(`attribute-resolve-failed:${top.commit.slice(0, 12)}:${String(e).slice(0, 80)}`);
+  }
   return {
     commit: top.commit,
     session: r.session,
     worker: r.worker,
-    method: top.score >= 0.75 && blameHits.has(top.commit) ? "blame+log" : "log",
+    // FIXED 2026-09-23 (ocr final HIGH): a blame-ONLY candidate (in blameHits, NOT
+    // logHits) scored 0.75 and satisfied the old test, so it was mislabeled
+    // "blame+log". Branch on the ACTUAL source sets.
+    // FIXED 2026-09-23 (qwen-code-audit C2): the header promises "<0.6 → triage"
+    // but nothing enforced it — a sub-floor assignment read as final. The floor
+    // now decides the method (triage), which callers key on.
+    method: top.score < CONFIDENCE_FLOOR
+      ? "triage"
+      : blameHits.has(top.commit) ? (logHits.has(top.commit) ? "blame+log" : "blame") : "log",
     candidates: scored.slice(0, 5),
     confidence: top.score,
   };

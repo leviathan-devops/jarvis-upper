@@ -6,6 +6,10 @@ import type { RailEvent } from "../ao-client/rail";
 
 export type ReduceOutcome = "applied" | "cursor-only";
 
+// the pr_node.state vocabulary — the SAME set as the store's CHECK constraint
+// (src/store.ts:16). A state outside it would violate the CHECK and throw.
+const PR_STATES = ["open", "ready_to_merge", "merge_ordered", "merged", "rejected", "kicked"] as const;
+
 export function reduceEvent(db: Database, ev: RailEvent): ReduceOutcome {
   const d: unknown = ev.data;
   if (ev.type === "pr_state_changed" && d !== null && typeof d === "object") {
@@ -21,11 +25,22 @@ export function reduceEvent(db: Database, ev: RailEvent): ReduceOutcome {
       const project = typeof rawProject === "string" || typeof rawProject === "number" ? String(rawProject) : "";
       const rawState = pr.state ?? "open";
       const state = typeof rawState === "string" ? rawState : "open";
+      // FIXED 2026-09-23 (muse independent review HIGH): pr_node.state is
+      // CHECK-constrained. An out-of-vocabulary state THREW inside rail.attach,
+      // so the cursor never advanced — and defaultRails swallowed it to a
+      // 0-frames "success", turning ONE malformed event into head-of-line
+      // blocking behind a green status. An unknown state means the event is
+      // MALFORMED: it is NOT applied, and the cursor still advances.
+      if (!PR_STATES.includes(state as (typeof PR_STATES)[number])) return "cursor-only";
       const rawHead = pr.head_sha;
       const head = typeof rawHead === "string" ? rawHead : null;
+      // FIXED 2026-09-23 (ocr round-4 HIGH): an event WITHOUT a head_sha set
+      // `head=null`, and the conflict clause overwrote the stored head_sha with
+      // NULL — permanent data loss. COALESCE keeps the existing value when the
+      // incoming one is null.
       db.query(`INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state, minted_at)
                 VALUES (?, ?, ?, ?, ?, ?, strftime('%s','now'))
-                ON CONFLICT(id) DO UPDATE SET state=excluded.state, head_sha=excluded.head_sha`)
+                ON CONFLICT(id) DO UPDATE SET state=excluded.state, head_sha=COALESCE(excluded.head_sha, pr_node.head_sha)`)
         .run(id, project, num, sessionId, head, state);
       return "applied";
     }

@@ -1,10 +1,18 @@
 // W4 gate: fence2 PASS spec_bound:true on package manifest (real adjudicator).
 import { test, expect } from "bun:test";
 import { $ } from "bun";
+import { existsSync } from "node:fs";
 import { openStore } from "../src/store";
 import { waveA, waveB, waveC, waveD } from "../src/desks";
 
+// THE REAL ADJUDICATOR lives at a HOST-ABSOLUTE path — it is NOT in a CI
+// checkout. A test that hard-requires it passes locally and FAILS in CI (the
+// environment-dependency class the first real CI run exposed, seventh instance).
+// The honest shape: SKIP when the adjudicator is unavailable. A skip is
+// VISIBLE — it is neither a false pass nor a false fail.
 const F2 = "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/fence2.py";
+const LEDGER = "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl";
+const FENCE_AVAILABLE = existsSync(F2) && existsSync(LEDGER);
 
 async function fxRoot(): Promise<string> {
   const dir = (await $`mktemp -d`.text()).trim();
@@ -27,7 +35,7 @@ async function fxRoot(): Promise<string> {
 // (bad-sha16-value), init-after-sha (SPEC_FORGED: init MUTATES SPEC,
 // so the invariant sha must be taken AFTER init — and even then the
 // v1-form implicit step never resolves correctly).
-test("ship_manifest: wave A assembles manifest; real fence2 adjudicates PASS spec_bound:true", async () => {
+test.skipIf(!FENCE_AVAILABLE)("ship_manifest: wave A assembles manifest; real fence2 adjudicates PASS spec_bound:true", async () => {
   const fx = await fxRoot();
   const db = openStore(":memory:");
   const a = await waveA(db, { root: fx }, "w4");
@@ -46,7 +54,7 @@ test("ship_manifest: wave A assembles manifest; real fence2 adjudicates PASS spe
   const sha = (await $`python3 ${F2} invariant-sha ${job}`.text()).trim();
   const r = await $`python3 ${F2} adjudicate ${job} --expect-spec-sha ${sha}`.quiet().nothrow();
   expect(r.exitCode).toBe(0);
-  const tail = (await $`tail -n 1 /home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-CORE/b6/verdicts.jsonl`.text()).trim();
+  const tail = (await $`tail -n 1 ${LEDGER}`.text()).trim();
   const row = JSON.parse(tail) as { verdict: string; evidence: string };
   expect(row.verdict).toBe("PASS");
   expect(row.evidence.includes("spec_bound:true")).toBe(true);

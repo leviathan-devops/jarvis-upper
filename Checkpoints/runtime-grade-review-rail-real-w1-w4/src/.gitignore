@@ -1,9 +1,0 @@
-# runtime state (regenerated every tick) — never a source artifact
-runtime/status.json
-runtime/ticks.log
-runtime/wire_capture.json
-store.sqlite
-store.sqlite-wal
-store.sqlite-shm
-node_modules/
-dist/
