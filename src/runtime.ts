@@ -316,6 +316,15 @@ export async function publishVerdictForPr(opts: PublishVerdictForPrOpts): Promis
     }
     return pair.map((r) => r.state === "success" ? { ...r, state: "failure" as const, ok: false, reason: "CANNOT-RUN-MUST-NOT-POST-SUCCESS" } : r);
   }
+  // FIXED (the audit, MEASURED LIVE): a TRANSIENT produced no verdict at all — the fence was
+  // KILLED, not answered. Publishing state:"error" for it writes an infrastructure hiccup into
+  // a real PR's permanent status timeline. SKIP the publish entirely; the next tick re-runs.
+  if (v.sources.fence.reason.startsWith("FENCE-TRANSIENT")) {
+    return [
+      { context: STATUS_CONTEXTS.fence2, state: "error" as const, status: null, ok: true, reason: "TRANSIENT-SKIPPED" },
+      { context: STATUS_CONTEXTS.verdict, state: "failure" as const, status: null, ok: true, reason: "TRANSIENT-SKIPPED" },
+    ];
+  }
   const fence2Ok = v.sources.fence.reason === "FENCE-GREEN";
   const verdictOk = v.verdict === "VERIFIED";
   const cannotRun = v.sources.fence.ran === false && v.reasons.some((r) => r.startsWith("FENCE-"));
@@ -537,6 +546,8 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
             const allowPublish = (key: string) => { seenKey = key; return lastPublished.get(r.id) !== key; };
             const results = await publishVerdictForPr({ ...publishOpts, sha: headSha, headSha, sessionId: r.session_id ?? "", jobDir, allowPublish });
             const skipped = results.every((rr) => rr.reason === "ALREADY-PUBLISHED");
+            const transient = results.every((rr) => rr.reason === "TRANSIENT-SKIPPED");
+            if (transient) return `publish:${r.id}:FENCE-TRANSIENT-SKIPPED`;   // loud in errors[], no POST
             const bad = results.filter((rr) => !rr.ok && rr.reason !== "ALREADY-PUBLISHED");
             // record the published key ONLY when every context posted (a partial
             // publish must retry on the next tick, never be marked done)

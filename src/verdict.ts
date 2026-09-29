@@ -54,10 +54,24 @@ export interface VerifyOpts {
 }
 
 async function defaultRunFence(argv: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  const p = Bun.spawn(["python3", ...argv], { stdout: "pipe", stderr: "pipe" });
-  const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
-  const code = await p.exited;
-  return { code: code ?? -1, stdout: out, stderr: err };
+  // FIXED (the red-team audit, MEASURED LIVE): a kill-by-SIGNAL is a TRANSIENT, not a verdict.
+  // The unit runs KillMode=control-group / KillSignal=15, so `systemctl restart jarvis-upper`
+  // SIGTERMs the WHOLE cgroup — including this python3 child mid-adjudication. The child died
+  // with exit 143 (128+15), the caller read it as a fence failure, and the daemon POSTED
+  // `factory/fence2=error` to a REAL pull request. The fence itself takes ~100ms (3 runs:
+  // 133/102/111ms) and has NO timeout — the 6000ms belongs to the reviews fetch — so this was
+  // ALWAYS an external kill. A killed process carries NO information about the PR: retry once,
+  // and if it is killed again, name it a TRANSIENT so the caller can SKIP the publish.
+  const runOnce = async () => {
+    const p = Bun.spawn(["python3", ...argv], { stdout: "pipe", stderr: "pipe" });
+    const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
+    const code = await p.exited;
+    return { code: code ?? -1, stdout: out, stderr: err };
+  };
+  let r = await runOnce();
+  if (r.code >= 128) r = await runOnce();          // one retry on a signal death
+  if (r.code >= 128) throw new Error(`FENCE-TRANSIENT: killed by signal ${r.code - 128} (no verdict is derivable from a killed process)`);
+  return r;
 }
 
 async function defaultFetchReviews(sessionId: string): Promise<unknown> {
@@ -239,7 +253,11 @@ export async function verify(opts: VerifyOpts): Promise<VerifyResult> {
     fence.ran = true;
     fence.exitCode = r.code;
   } catch (e) {
-    fence.reason = `FENCE-NOT-RUN: ${String(e).slice(0, 120)}`;
+    // FIXED (the audit): a TRANSIENT (a killed child) is its OWN class. Labelling it
+    // "FENCE-NOT-RUN" put it in the cannot-run bucket, whose polarity law posts state:"error"
+    // to GitHub — publishing an infrastructure hiccup as a substantive red on a real PR.
+    const msg = String(e);
+    fence.reason = msg.includes("FENCE-TRANSIENT") ? msg.slice(0, 120) : `FENCE-NOT-RUN: ${msg.slice(0, 120)}`;
     reasons.push(fence.reason);
   }
   // The jobDir segment is passed through as-is (possibly undefined) and
