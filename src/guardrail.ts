@@ -122,7 +122,9 @@ export async function guardrailRemote(
   // inverted (only `/`, `..`, `\0` rejected).
   // (the same rule as owner/repo) — this rejects empty, `?`, `#`, `.`/`..`, whitespace, and
   // over-long values, while accepting every real sha AND the short fixtures the fetch-path tests use.
-  if (typeof opts.sha !== "string" || !safeSeg.test(opts.sha) || opts.sha.length > MAX_SEG_LEN) {
+  // FIXED (round-7 low): the LENGTH cap must precede the regex, or a megabyte-long sha runs
+  // safeSeg.test() first — the DoS cap bypassed (owner/repo above already order it correctly).
+  if (typeof opts.sha !== "string" || opts.sha.length > MAX_SEG_LEN || !safeSeg.test(opts.sha)) {
     return { ok: false, reasons: [`INVALID-SHA:${String(opts.sha).slice(0, 12)}`], missing: [...REQUIRED_CONTEXTS], states: {} };
   }
   const url = `${base}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/commits/${encodeURIComponent(opts.sha)}/statuses`;

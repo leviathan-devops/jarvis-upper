@@ -118,8 +118,10 @@ export async function verbSync(root: string, arg?: string): Promise<VerbResult> 
     // FIXED (round-6 medium): falling back to `match.name` reintroduced the silent-0 sync — the
     // adapter filters on `s.projectId === arg`, so a NAME never matches. Resolve to the id ONLY;
     // a row without an id is a named refusal.
-    const mid = (match as { id?: string }).id;
-    if (!mid) return emit(2, { ok: false, refused: "SYNC-PROJECT-NO-ID", project: arg.slice(0, 64) });
+    // FIXED (round-7 low): truthiness does not guarantee a STRING id — a malformed row with a
+    // numeric id would pass and never match. Require a non-empty string.
+    const mid = (match as { id?: unknown }).id;
+    if (typeof mid !== "string" || mid.length === 0) return emit(2, { ok: false, refused: "SYNC-PROJECT-NO-ID", project: arg.slice(0, 64) });
     arg = mid;
   }
   // FIXED (W26): listPrsFromAo returns { rows, partialErrors }.
