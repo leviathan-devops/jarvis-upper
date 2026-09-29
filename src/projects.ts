@@ -105,6 +105,9 @@ export interface LoadResult {
   issues: ProjectIssue[];
   /** true when the registry file was ABSENT and the legacy env project was synthesized. */
   legacy: boolean;
+  /** true when a projects.json FILE EXISTS (even if it yielded the legacy fallback). Lets the
+   *  CLI resolver distinguish "no registry deployed" from "a registry deployed but useless". */
+  registryPresent: boolean;
   /** FIXED (ship gate medium): a STRUCTURED flag for "the registry EXISTS but is unusable"
    *  (unparseable / a missing `projects` array). The resolver keys on THIS, never a regex on
    *  the human-readable issue text (renaming a message silently disabled the guard). */
@@ -116,7 +119,8 @@ export interface LoadResult {
  *  other N — that is the whole point of the multi-project requirement. */
 export function loadRegistry(root: string, env: Record<string, string | undefined> = process.env): LoadResult {
   const p = registryPath(root);
-  if (!existsSync(p)) return { projects: [legacyProject(root, env)], issues: [], legacy: true, registryBroken: false };
+  const PRESENT = { registryPresent: true } as const;   // a file EXISTS from here on
+  if (!existsSync(p)) return { projects: [legacyProject(root, env)], issues: [], legacy: true, registryBroken: false, registryPresent: false };
   let raw: unknown;
   try { raw = JSON.parse(readFileSync(p, "utf8")); }
   catch (e) {
@@ -124,11 +128,11 @@ export function loadRegistry(root: string, env: Record<string, string | undefine
     // the legacy project would look like "one project" when the operator deployed a fleet —
     // the fallback must be LOUD, not merely named in the returned issues.
     console.error(`registry-unparseable:${p}:${String(e).slice(0, 80)} — fell back to the legacy env project`);
-    return { projects: [legacyProject(root, env)], issues: [{ index: -1, id: "registry", reason: `projects.json is unparseable (${String(e).slice(0, 80)}) — fell back to the legacy env project` }], legacy: true, registryBroken: true };
+    return { projects: [legacyProject(root, env)], issues: [{ index: -1, id: "registry", reason: `projects.json is unparseable (${String(e).slice(0, 80)}) — fell back to the legacy env project` }], legacy: true, registryBroken: true, ...PRESENT };
   }
   const list = (raw && typeof raw === "object" && Array.isArray((raw as Registry).projects)) ? (raw as Registry).projects : null;
   if (list === null) {
-    return { projects: [legacyProject(root, env)], issues: [{ index: -1, id: "registry", reason: "projects.json has no `projects` array — fell back to the legacy env project" }], legacy: true, registryBroken: true };
+    return { projects: [legacyProject(root, env)], issues: [{ index: -1, id: "registry", reason: "projects.json has no `projects` array — fell back to the legacy env project" }], legacy: true, registryBroken: true, ...PRESENT };
   }
   const projects: ProjectSpec[] = [];
   const issues: ProjectIssue[] = [];
@@ -155,9 +159,9 @@ export function loadRegistry(root: string, env: Record<string, string | undefine
     projects.push(r.spec);
   }
   if (projects.length === 0) {
-    return { projects: [legacyProject(root, env)], issues: [...issues, { index: -1, id: "registry", reason: "no VALID enabled project — fell back to the legacy env project" }], legacy: true, registryBroken: false };
+    return { projects: [legacyProject(root, env)], issues: [...issues, { index: -1, id: "registry", reason: "no VALID enabled project — fell back to the legacy env project" }], legacy: true, registryBroken: false, ...PRESENT };
   }
-  return { projects, issues, legacy: false, registryBroken: false };
+  return { projects, issues, legacy: false, registryBroken: false, registryPresent: true };
 }
 
 /** Resolve the store a CLI VERB must open. FLEET-CORRECT (the audit §3-D): with a registry the
@@ -181,6 +185,13 @@ export function resolveStorePath(root: string, env: Record<string, string | unde
   // LEGITIMATE legacy fallback (the documented never-throws behavior) — not a broker error.
   if (reg.registryBroken) {
     throw new Error(`REGISTRY-BROKEN: ${reg.issues.map((i) => i.reason).join("; ").slice(0, 200)}`);
+  }
+  // FIXED (the whole-file scan HIGH): a registry FILE that EXISTS but yields the LEGACY fallback
+  // (all entries invalid/disabled) must NOT silently resolve the root store — the operator
+  // deployed a registry and the daemon ticks something else. A NAMED refusal; a genuinely ABSENT
+  // registry (registryPresent:false) still resolves the legacy store (zero regression).
+  if (reg.registryPresent && reg.legacy) {
+    throw new Error(`REGISTRY-EMPTY: projects.json exists but yields no valid project (${reg.issues.map((i) => i.reason).join("; ").slice(0, 160)}) — refusing to read the root store`);
   }
   if (id) {
     const p = reg.projects.find((x) => x.id === id);

@@ -70,6 +70,14 @@ test("HIGH 4: a CORRUPT registry is a NAMED refusal, never a silent root-store f
   expect(typeof s).toBe("string");
 });
 
+test("the whole-file scan HIGH: a PRESENT-but-useless registry refuses (never the root store)", () => {
+  // projects.json EXISTS but every entry is invalid/disabled → loadRegistry returns the legacy
+  // fallback. The CLI resolver must NOT read the root store the fleet never ticks — a named
+  // REGISTRY-EMPTY refusal. A genuinely ABSENT registry is unaffected (the test above).
+  writeFileSync(join(root, "projects.json"), JSON.stringify({ projects: [{ id: "bad!!", root: "/nope", owner: "o", repo: "r", tokenEnv: "T", worktreeRoot: "/x", store: "/x/s.sqlite" }] }));
+  expect(() => resolveStorePath(root, {})).toThrow(/REGISTRY-EMPTY|REGISTRY-BROKEN/);
+});
+
 // ═══ §6 req 8 (HIGH G): the arm payload's factoryContexts are DERIVED ═══
 test("req8: rulesetFor derives the 8 vs 6 contexts (the third-copy drift is dead)", () => {
   const eight = rulesetFor({ factoryContexts: true }) as { rules: { type: string; parameters?: { required_status_checks?: { context: string }[] } }[] };

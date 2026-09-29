@@ -10,9 +10,9 @@
 // THE ORDER LAW: the workflows must land and RUN once BEFORE the ruleset is armed, because the
 // ruleset requires the OBSERVED check-run names — arming against a guessed name (or one that
 // has never been posted) leaves the merge button dead with every check green.
-import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, lstatSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { join, isAbsolute, dirname } from "node:path";
+import { join, isAbsolute, dirname, resolve } from "node:path";
 import { registryPath, type ProjectSpec, type Registry } from "./projects";
 import { GITHUB_JOB_CONTEXTS, STATUS_CONTEXTS } from "./status-contract";
 
@@ -56,7 +56,11 @@ function copyTree(src: string, dst: string, copied: string[], backedUp: string[]
   for (const e of readdirSync(src)) {
     const s = join(src, e), d = join(dst, e);
     if (e === "__pycache__") continue;                 // a build artifact, never source
-    if (statSync(s).isDirectory()) { copyTree(s, d, copied, backedUp, skipped, dry); continue; }
+    // FIXED (the whole-file scan HIGH): `statSync` FOLLOWS symlinks — a symlinked dir recursed
+    // OUTSIDE the kernel (or looped). `lstatSync` does not; a symlink is SKIPPED, named.
+    const st = lstatSync(s);
+    if (st.isSymbolicLink()) { skipped.push(`${s} (symlink — not traversed)`); continue; }
+    if (st.isDirectory()) { copyTree(s, d, copied, backedUp, skipped, dry); continue; }
     // FIXED (the audit HIGH H): a pre-existing DIFFERING file is backed up before the write —
     // the overwrite is destructive and was silent. A byte-identical file is a no-op (no spurious
     // .bak litter on a re-enroll).
@@ -91,9 +95,20 @@ export function enroll(opts: EnrollOpts): EnrollResult {
   const dry = opts.dryRun === true;
   const copied: string[] = [], skipped: string[] = [], wrote: string[] = [], backedUp: string[] = [];
 
+  // FIXED (the whole-file scan HIGH): `id`/`repo` were UNVALIDATED — `join(target,"packages",id)`
+  // and `worktrees/${repo}` accepted `../`/`/`, writing OUTSIDE the target. Validated here.
+  const ID_OK = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+  if (!ID_OK.test(opts.id) || opts.id.includes("..")) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-ID:${opts.id} (letters/digits/._- only, no ..)` };
+  if (!ID_OK.test(opts.repo) || opts.repo.includes("..")) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-REPO:${opts.repo} (letters/digits/._- only, no ..)` };
   if (!isAbsolute(opts.target) || !existsSync(opts.target)) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-TARGET:${opts.target} (must be an existing absolute path)` };
   if (!isAbsolute(opts.kernel) || !existsSync(opts.kernel)) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-KERNEL:${opts.kernel}` };
-  if (join(opts.kernel) === join(opts.target)) return { ok: false, copied, skipped, wrote, backedUp, reason: "ENROLL-SAME-TREE: the kernel and the target are the same tree" };
+  // FIXED (the whole-file scan medium): `join()===join()` missed trailing-slash/`./`/`../`
+  // variants AND nesting (target inside kernel, or vice versa). resolve() normalizes; a
+  // contains() check rejects nesting where an in-place copy would recurse or pollute.
+  const K = resolve(opts.kernel), T = resolve(opts.target);
+  if (K === T || `${T}/`.startsWith(`${K}/`) || `${K}/`.startsWith(`${T}/`)) {
+    return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-SAME-TREE: kernel=${K} and target=${T} overlap` };
+  }
 
   // 1. the host gates
   for (const d of TOP_DIRS) {
@@ -118,8 +133,8 @@ export function enroll(opts: EnrollOpts): EnrollResult {
   const pkSrc = join(opts.kernel, "packages", "jarvis-upper-tier");
   const pkDst = join(opts.target, "packages", opts.id);
   if (existsSync(pkSrc)) {
+    // FIXED (the whole-file scan low): the trailing mkdir was dead (copyTree creates pkDst).
     copyTree(pkSrc, pkDst, copied, backedUp, skipped, dry);
-    if (!dry) mkdirSync(pkDst, { recursive: true });
   } else { skipped.push("packages/ (absent — specs/spec-diff.ts will need a vendored SPEC)"); }
 
   // 4. the registry entry (idempotent: replaces a same-id entry, keeps the others)
@@ -130,7 +145,13 @@ export function enroll(opts: EnrollOpts): EnrollResult {
     // W-13: a catch must LOG or rethrow — an unreadable/unparseable registry would otherwise
     // silently REPLACE the operator's fleet with a single-entry file. It is named, and the
     // entry is still written (the caller sees the log).
-    catch (e) { console.error(`enroll-registry-read-failed:${regPath}:${String(e).slice(0, 80)}`); }
+    catch (e) {
+      // FIXED (the whole-file scan HIGH): an UNPARSEABLE registry fell through to overwrite the
+      // fleet file with a single entry (fleet loss). A corrupt registry is a NAMED refusal — the
+      // operator's fleet is never silently destroyed.
+      console.error(`enroll-registry-read-failed:${regPath}:${String(e).slice(0, 80)}`);
+      return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-REGISTRY-CORRUPT:${regPath} (refusing to overwrite a fleet file that cannot be parsed)` };
+    }
   }
   const spec: ProjectSpec = {
     id: opts.id, root: opts.target, owner: opts.owner, repo: opts.repo,
@@ -139,6 +160,9 @@ export function enroll(opts: EnrollOpts): EnrollResult {
     store: join(opts.target, "runtime", opts.id, "store.sqlite"),
   };
   reg.projects = reg.projects.filter((p) => p.id !== opts.id).concat([spec]);
+  // FIXED (the whole-file scan medium): `wrote.push(regPath)` was UNCONDITIONAL — a dry-run
+  // claimed a registry write it never performed. Recorded ONLY when the write actually happens.
+  if (!dry) wrote.push(regPath);
   // FIXED (the audit SLOP-14): this was the ONLY non-atomic state write in the tree — a
   // destructive read-modify-write of the operator's fleet file. A crash mid-write left a
   // TRUNCATED projects.json, which loadRegistry then reads as unparseable and falls back to the
@@ -161,9 +185,13 @@ export function enroll(opts: EnrollOpts): EnrollResult {
   }
   wrote.push(regPath);
 
-  // FIXED (ship gate HIGH): a COPY-FAILED entry in `skipped` makes the enroll NOT ok.
+  // FIXED (ship gate HIGH + the whole-file scan HIGH): a COPY-FAILED entry, OR a missing REQUIRED
+  // artifact (gates/.githooks/the workflows), makes the enroll NOT ok — the ORDER LAW says a
+  // missing workflow leaves the ruleset un-armable, yet enroll claimed success.
   const copyFailed = skipped.some((s) => s.includes("COPY-FAILED"));
-  return { ok: !copyFailed, copied, skipped, wrote, backedUp, ...(copyFailed ? { reason: "ENROLL-COPY-FAILED" } : {}) };
+  const missingRequired = skipped.some((s) => /^(gates|.githooks) \(absent|.github\/workflows\/(gates|drift).yml \(absent\)/.test(s));
+  const reason = copyFailed ? "ENROLL-COPY-FAILED" : missingRequired ? "ENROLL-MISSING-REQUIRED" : undefined;
+  return { ok: !copyFailed && !missingRequired, copied, skipped, wrote, backedUp, ...(reason ? { reason } : {}) };
 }
 
 /** The ruleset payload for a project: the SAME 8 contexts as the kernel's own, with the two

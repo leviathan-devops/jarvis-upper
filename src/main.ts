@@ -185,7 +185,17 @@ export async function main(): Promise<void> {
   // for a project that left tickMs undefined — one slow override dragged the WHOLE fleet slower
   // than the default, starving the project expecting the global cadence. Each project resolves
   // to its OWN interval (spec.tickMs ?? the global); the fleet cadence is the MIN of those.
-  const resolved = enrolled.map((e) => e.spec.tickMs ?? tickMs);
+  // FIXED (the whole-file scan HIGH): a per-project tickMs was UNVALIDATED (`0`/negative/NaN
+  // flowed into setInterval → a runaway storm or a never-firing cadence). Validated like the
+  // global parseTickMs; an invalid value is NAMED and ignored.
+  const timerValid = enrolled.map((e) => {
+    const t = e.spec.tickMs;
+    if (t === undefined) return tickMs;
+    const ok = typeof t === "number" && Number.isFinite(t) && t >= 1000;
+    if (!ok) console.error(`tickMs-invalid:${e.spec.id}:${String(t)} — using the global ${tickMs}`);
+    return ok ? t : tickMs;
+  });
+  const resolved = timerValid;
   const effTickMs = resolved.length > 0 ? Math.min(...resolved) : tickMs;
   if (effTickMs !== tickMs) console.error(`tickMs-override:${tickMs}->${effTickMs} (the min of the ${resolved.length} RESOLVED per-project intervals)`);
   const timer = setInterval(() => void tickCycle().catch((e) => console.error(`cycle-threw:${String(e).slice(0, 120)}`)), effTickMs);

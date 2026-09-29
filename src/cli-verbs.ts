@@ -108,9 +108,16 @@ export async function verbSync(root: string, arg?: string): Promise<VerbResult> 
   // VerbResult). It is inside the try now.
   const projects = await listProjects();
   // FIXED (W26): listPrsFromAo returns { rows, partialErrors }.
-  const { rows: n, skipped } = await syncPrs(db, async () => (await listPrsFromAo({ project: arg })).rows);
+  const ao = await listPrsFromAo({ project: arg });
+  const { rows: n, skipped } = await syncPrs(db, async () => ao.rows);
   const prs = db.query("SELECT COUNT(*) AS n FROM pr_node WHERE state != 'merged'").get() as { n: number };
-  return emit(0, { ok: true, projects: projects.length, prNodes: n, openPrNodes: prs.n });
+  // FIXED (the whole-file scan HIGH): the verb reported ok:true while DROPPING `skipped` and the
+  // adapter's partialErrors, and misreported the fleet size for a single-project sync. All named;
+  // a partial sync is NOT ok.
+  const partialErrors = ao.partialErrors ?? [];
+  const ok = skipped.length === 0 && partialErrors.length === 0;
+  return emit(ok ? 0 : 1, { ok, synced: arg ?? "(fleet)", prNodes: n, openPrNodes: prs.n,
+    projects: projects.length, skipped, partialErrors: partialErrors.slice(0, 20) });
   } finally { db.close(); }
 }
 
@@ -284,7 +291,8 @@ export async function verbArm(root: string, arg?: string, ...rest: string[]): Pr
     let existing: { id: number; name: string } | undefined;
     while (listUrl && hops < 5 && !existing) {
       hops++;
-      const listRes = await fetch(listUrl, { headers: hdrs });
+      // FIXED (the whole-file scan medium): no timeout — a hung GET hung the CLI forever.
+      const listRes = await fetch(listUrl, { headers: hdrs, signal: AbortSignal.timeout(10000) });
       if (!listRes.ok) return emit(1, { ok: false, refused: `ARM-LIST-FAILED:${listRes.status}`, id: arg, hint: listRes.status === 403 ? "a private repo needs GitHub Pro for rulesets / the token is bad" : undefined });
       const page = await listRes.json().catch(() => null);
       if (!Array.isArray(page)) return emit(1, { ok: false, refused: "ARM-LIST-UNREADABLE", id: arg });
@@ -295,7 +303,7 @@ export async function verbArm(root: string, arg?: string, ...rest: string[]): Pr
       listUrl = cand && cand.origin === new URL(base).origin ? cand.toString() : null;
     }
     const url = existing ? `${base}/${existing.id}` : base;
-    const res = await fetch(url, { method: existing ? "PUT" : "POST", headers: hdrs, body: JSON.stringify(payload) });
+    const res = await fetch(url, { method: existing ? "PUT" : "POST", headers: hdrs, body: JSON.stringify(payload), signal: AbortSignal.timeout(15000) });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) return emit(1, { ok: false, refused: `ARM-FAILED:${res.status}`, id: arg, message: (body as { message?: string }).message?.slice(0, 200), hint: res.status === 403 ? "a private repo needs GitHub Pro for rulesets" : undefined });
     // FIXED (the ship gate medium): the reported context COUNT is now DERIVED from the installed
@@ -341,8 +349,13 @@ export const VERBS: typeof rawVerbs = Object.fromEntries(
   Object.entries(rawVerbs).map(([k, fn]) => [k, async (root: string, arg?: string, ...rest: string[]): Promise<VerbResult> => {
     try { return await fn(root, arg, ...rest); }
     catch (e) {
+      // FIXED (the whole-file scan HIGH): a StoreRefusal is a shaped exit 2; ANY OTHER throw
+      // (a guardrail/render/query/sync/fetch throw) was rethrown as a bare VERB-THREW,
+      // violating the file's own "one JSON object + exit 0/1/2" contract. All are shaped now
+      // (a VerbResult-shaped negative verdict; the CLI never sees a bare stack).
       if (e instanceof StoreRefusal) return { code: 2, out: { ok: false, refused: e.message.slice(0, 240) } };
-      throw e;
+      console.error(JSON.stringify({ verb: k, error: String(e).slice(0, 200) }));
+      return { code: 1, out: { ok: false, verdict: "VERB-THREW", verb: k, error: String(e).slice(0, 300) } };
     }
   }]),
 );

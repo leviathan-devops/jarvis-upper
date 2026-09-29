@@ -8,7 +8,7 @@
 // path. This module is that path: the factory OBSERVES the merge (it does not
 // perform it) and records the merge commit's sha into the same append-only ledger
 // the fence writes.
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, openSync, closeSync, unlinkSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 
 export interface PrMergeState {
@@ -73,9 +73,25 @@ export function recordMerge(
   if (!row || !isSha(row.mergeSha) || !isSha(row.headSha)) {
     return false;
   }
+  // FIXED (the scan HIGH): check-then-append (mergeRecorded + recordMerge) was non-atomic — two
+  // concurrent ticks could both observe absent and both append. An ADVISORY lockfile ('wx', the
+  // atomic exclusive create) serializes the append across processes; a stale lock is bounded.
+  const lock = `${ledgerPath}.lock`;
+  let fd: number | null = null;
+  for (let i = 0; i < 50 && fd === null; i++) {
+    try { fd = openSync(lock, "wx"); }
+    catch {
+      // a STALE lock (a crashed holder) older than 5s is cleared; otherwise wait briefly.
+      try { if (Date.now() - statSync(lock).mtimeMs > 5000) unlinkSync(lock); } catch (e) { console.error(`merge-lock-stat:${String(e).slice(0, 40)}`); }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    }
+  }
+  if (fd === null) return false;   // could not take the lock — a LOUD false (the caller names it)
   try {
     const dir = dirname(ledgerPath);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    // re-check UNDER the lock: another process may have appended while we waited
+    if (mergeRecorded(ledgerPath, row.mergeSha)) return false;
     const line = JSON.stringify({
       ts: new Date().toISOString(),
       v: 2,
@@ -87,7 +103,7 @@ export function recordMerge(
       attempt: 1,
       pr: row.prNumber,
       head: row.headSha,
-      evidence: `${row.mergeSha}|pr=${row.prNumber}|head=${row.headSha.slice(0, 12)}|merged:true`,
+      evidence: `${canonSha(row.mergeSha)}|pr=${row.prNumber}|head=${canonSha(row.headSha).slice(0, 12)}|merged:true`,
     });
     appendFileSync(ledgerPath, line + "\n", "utf8");
     return true;
@@ -95,6 +111,9 @@ export function recordMerge(
     // A failed record is a LOUD false (the caller names it in errors[]), never a
     // silent success — the merge happened but the ledger must not pretend it did.
     return false;
+  } finally {
+    try { closeSync(fd); } catch (e) { console.error(`merge-lock-close-failed:${String(e).slice(0, 40)}`); }
+    try { unlinkSync(lock); } catch (e) { console.error(`merge-lock-unlink-failed:${String(e).slice(0, 40)}`); }
   }
 }
 
@@ -102,6 +121,11 @@ export function recordMerge(
  *  recordMerge's guard now share it, so a rule change cannot diverge them. */
 export const SHA_RE = /^[0-9a-f]{7,40}$/i;
 export function isSha(s: string | null | undefined): s is string { return typeof s === "string" && SHA_RE.test(s); }
+/** FIXED (the whole-file scan HIGH): `isSha` accepts UPPERCASE and `recordMerge` persisted the
+ *  sha verbatim, but `mergeRecorded` compared it CASE-SENSITIVELY — the same commit in two cases
+ *  (common when tools uppercase) appended DUPLICATE terminal rows. The sha is lowercased at the
+ *  boundary, ONE canonical form persisted and compared. */
+export const canonSha = (s: string): string => s.toLowerCase();
 
 /** Has this merge sha already been recorded? (idempotence for a re-polling tick.) */
 /**
@@ -121,6 +145,7 @@ export function mergeRecorded(ledgerPath: string, mergeSha: string): boolean {
     // TRUE for an empty mergeSha (every string contains ""), so a blank sha
     // deduped every merge. The match is now an EXACT field test on a validated sha.
     if (!isSha(mergeSha)) return false;
+    mergeSha = canonSha(mergeSha);   // FIXED (scan HIGH): the same canonical form as the write
     // FIXED (the W24 ship gate MEDIUM — a REGRESSION from W11): the eager throw inside
     // `.some()` aborted the scan on the FIRST corrupt line, so a historic bad line made
     // mergeRecorded THROW even when the requested sha WAS recorded LATER. Scan ALL lines;
