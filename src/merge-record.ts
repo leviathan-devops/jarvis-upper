@@ -120,7 +120,7 @@ export function mergeRecorded(ledgerPath: string, mergeSha: string): boolean {
     // at the top. The substring match was also unsound: `includes(mergeSha)` is
     // TRUE for an empty mergeSha (every string contains ""), so a blank sha
     // deduped every merge. The match is now an EXACT field test on a validated sha.
-    if (!/^[0-9a-f]{7,40}$/i.test(mergeSha)) return false;
+    if (!isSha(mergeSha)) return false;
     // FIXED (the W24 ship gate MEDIUM — a REGRESSION from W11): the eager throw inside
     // `.some()` aborted the scan on the FIRST corrupt line, so a historic bad line made
     // mergeRecorded THROW even when the requested sha WAS recorded LATER. Scan ALL lines;

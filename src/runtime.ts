@@ -27,6 +27,10 @@ import { STATUS_CONTEXTS } from "./status-contract";
 // truthy) — every rails fetch would build an invalid URL. Trim, then fall back.
 export const DAEMON = (process.env.AO_DAEMON ?? "").trim() || "http://localhost:3001";
 
+/** The bounded-concurrency value for the tick's per-row GitHub calls (the merge poll AND the
+ *  publish). ONE constant so the two batching sites cannot drift (ship gate low). */
+const MERGE_POLL_CONC = 4;
+
 /** The SSE capture ceiling. A buffer that hits it is TRUNCATED — a named failure,
  *  never a clean read (red-team audit W-12). */
 // FIXED (ship-gate round HIGH): this repeated the validated-parse bug fixed for tickMs
@@ -522,9 +526,10 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
         { id: string; pr_number: number; head_sha: string | null; session_id: string | null }[];
       // FIXED (the ship gate medium ×2): the loop was per-row sequential (slow); unbounded
       // Promise.allSettled then fired N concurrent GETs (a rate-limit/socket burst). BOUNDED
-      // batches — the SAME pattern the publisher uses (PUB_CONC).
-      for (let i = 0; i < orderedRows.length; i += 4) {
-      await Promise.allSettled(orderedRows.slice(i, i + 4).map(async (r) => {
+      // batches — a named constant (the FIXED (ship gate low): the literal `4` was duplicated
+      // while the publisher names PUB_CONC; both now share a value).
+      for (let i = 0; i < orderedRows.length; i += MERGE_POLL_CONC) {
+        await Promise.allSettled(orderedRows.slice(i, i + MERGE_POLL_CONC).map(async (r) => {
         try {
           const m = await fetchPrMerge({ owner: publishOpts.owner, repo: publishOpts.repo, prNumber: r.pr_number, token: publishOpts.token ?? "", baseUrl: publishOpts.baseUrl, fetchImpl: publishOpts.fetchImpl });
           if (m.merged && m.mergeCommitSha && !mergeRecorded(ledgerPath, m.mergeCommitSha)) {
@@ -564,7 +569,7 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       // state. The head filter is removed; the verdict-state dedup below decides.
       const publishable = readyRows.filter((r) => isEligible(r.id) && r.head_sha);
       // F23: bounded parallel publish (max 4 concurrent)
-      const PUB_CONC = 4;
+      const PUB_CONC = MERGE_POLL_CONC;
       for (let i = 0; i < publishable.length; i += PUB_CONC) {
         const batch = publishable.slice(i, i + PUB_CONC);
         const batchResults = await Promise.allSettled(batch.map(async (r) => {
