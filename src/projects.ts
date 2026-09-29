@@ -10,7 +10,7 @@
 // The credential resolves at call time from the environment. No secret is ever written to
 // projects.json, a log, or a status file.
 import { readFileSync, existsSync, statSync } from "node:fs";
-import { join, isAbsolute } from "node:path";
+import { join, isAbsolute, posix } from "node:path";
 
 export interface ProjectSpec {
   /** the stable project key — ALSO the AO project name the sync filters on. */
@@ -43,7 +43,11 @@ export interface Registry { projects: ProjectSpec[]; }
  *  resolve `./` — so two spellings of ONE file cannot defeat `one store per project`. A realpath
  *  would resolve symlinks too, but the file need not exist yet (an enroll target). */
 function normalizePath(p: string): string {
-  return p.replace(/\/{2,}/g, "/").replace(/\/\.\//g, "/").replace(/\/+$/, "");
+  // FIXED (ship gate medium): the hand-rolled collapse missed `..`, so `/a/b` and `/a/b/../b`
+  // differed — defeating the one-store-per-project check. posix.normalize resolves `.`/`..`
+  // WITHOUT requiring existence (unlike realpath), then a trailing slash is dropped.
+  const n = posix.normalize(p).replace(/\/+$/, "");
+  return n === "" ? "/" : n;
 }
 
 const ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
@@ -168,7 +172,10 @@ export function resolveStorePath(root: string, env: Record<string, string | unde
   // a fleet misconfiguration as a healthy single-project read/write to the WRONG file. A
   // registry that EXISTS but cannot be read is a NAMED REFUSAL, never a silent fallback.
   // (legacy:true with NO issues is the legitimate "no registry file at all" case.)
-  if (reg.legacy && reg.issues.length > 0) {
+  // NARROWED (ship gate medium): only an UNPARSEABLE file / a MISSING array is BREAKING. A
+  // registry that is valid-but-empty, or whose entries are all invalid/disabled, is a
+  // LEGITIMATE legacy fallback (the documented never-throws behavior) — not a broker error.
+  if (reg.legacy && reg.issues.some((i) => /unparseable|no `projects` array/.test(i.reason))) {
     throw new Error(`REGISTRY-BROKEN: ${reg.issues.map((i) => i.reason).join("; ").slice(0, 200)}`);
   }
   if (id) {

@@ -104,7 +104,10 @@ export function makeCycle(enrolled: Enrolled[], root: string, next: () => number
           // coexist with a red fleet row, hiding the disarm from a health check. Counted now.
           failed += 1;
           errors.push(`${e.spec.id}:${e.reason}`);
-          rows[e.spec.id] = { ...r.value, ok: false, error: e.reason, errors: [...(r.value.errors ?? []), `enrolled:${e.reason}`] };
+          // FIXED (ship gate medium): a disarmed row preserved r.value.daemonOk (often true) while
+          // the rejected branch forces false — two failed paths disagreeing, so the aggregate's
+          // `every(daemonOk)` could stay true with failed>0. Both failed paths agree now.
+          rows[e.spec.id] = { ...r.value, daemonOk: false, ok: false, error: e.reason, errors: [...(r.value.errors ?? []), `enrolled:${e.reason}`] };
         } else {
           rows[e.spec.id] = { ...r.value, ok: true };
         }
@@ -178,11 +181,13 @@ export async function main(): Promise<void> {
   // partial override. The cadence is now the MIN of the DEFINED per-project intervals (a faster
   // project is honoured; a slower one still gets the global cadence — no project is starved, and
   // the ignoring of partial overrides is NAMED).
-  const projectTickMs = enrolled
-    .map((e) => e.spec.tickMs)
-    .filter((t): t is number => typeof t === "number" && Number.isFinite(t));
-  const effTickMs = projectTickMs.length > 0 ? Math.min(...projectTickMs) : tickMs;
-  if (effTickMs !== tickMs) console.error(`tickMs-override:${tickMs}->${effTickMs} (the min of ${projectTickMs.length}/${enrolled.length} per-project intervals)`);
+  // FIXED (the ship gate HIGH): taking the min of ONLY the DEFINED overrides IGNORED the global
+  // for a project that left tickMs undefined — one slow override dragged the WHOLE fleet slower
+  // than the default, starving the project expecting the global cadence. Each project resolves
+  // to its OWN interval (spec.tickMs ?? the global); the fleet cadence is the MIN of those.
+  const resolved = enrolled.map((e) => e.spec.tickMs ?? tickMs);
+  const effTickMs = resolved.length > 0 ? Math.min(...resolved) : tickMs;
+  if (effTickMs !== tickMs) console.error(`tickMs-override:${tickMs}->${effTickMs} (the min of the ${resolved.length} RESOLVED per-project intervals)`);
   const timer = setInterval(() => void tickCycle().catch((e) => console.error(`cycle-threw:${String(e).slice(0, 120)}`)), effTickMs);
 
   const armed = enrolled.filter((e) => e.ok && !e.reason).length;

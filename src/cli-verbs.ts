@@ -25,10 +25,14 @@ const emit = (code: number, out: Record<string, unknown>): VerbResult => ({ code
  *  REGISTRY-BROKEN). Evaluated inline it escaped the verb's try/finally and surfaced as a bare
  *  VERB-THREW stack. This wrapper converts the refusal into the verb CONTRACT's shape — a
  *  VerbResult-shaped NamedRefusal carried on a sentinel Database-free path. */
-class StoreRefusal extends Error {}
+// FIXED (the ship gate HIGH): a subclass that sets no `name` stringifies as "Error: ...", so
+// cli.ts's `startsWith("StoreRefusal:")` was DEAD. The name is set explicitly.
+export class StoreRefusal extends Error {
+  override readonly name = "StoreRefusal";
+}
 function storeFor(root: string): Database {
   try { return openStore(resolveStorePath(root)); }
-  catch (e) { throw new StoreRefusal(String(e).slice(0, 200)); }
+  catch (e) { throw new StoreRefusal((e as Error).message ?? String(e)); }
 }
 
 export async function verbStatus(root: string, _arg?: string): Promise<VerbResult> {
@@ -225,7 +229,10 @@ export async function verbEnroll(root: string, arg?: string, ...rest: string[]):
   const tokenEnv = rest[3] && !rest[3].startsWith("--") ? rest[3] : "GH_TOKEN";
   const dryRun = rest.includes("--dry-run");
   const r = enroll({ kernel: root, target: arg, id, owner, repo, tokenEnv, dryRun });
-  return emit(r.ok ? 0 : 2, { ...r, dryRun, next: r.ok ? [`upper arm ${id}   # AFTER the workflows have run once`, `git -C ${arg} config core.hooksPath .githooks`] : undefined });
+  // FIXED (ship gate high): a COPY-FAILED path is in `r.skipped` — surfaced distinctly so a
+  // caller sees the failures, and r.ok is false (enroll.ts computes it).
+  const copyFailed = r.skipped.filter((s) => s.includes("COPY-FAILED"));
+  return emit(r.ok ? 0 : 2, { ...r, dryRun, copyFailed, next: r.ok ? [`upper arm ${id}   # AFTER the workflows have run once`, `git -C ${arg} config core.hooksPath .githooks`] : undefined });
 }
 
 /**
@@ -238,6 +245,10 @@ export async function verbArm(root: string, arg?: string, ...rest: string[]): Pr
   if (!arg) return emit(2, { ok: false, refused: "ARM-NEEDS-ID", hint: "upper arm <project-id> [--no-factory]" });
   const { loadRegistry, projectToken } = await import("./projects");
   const { rulesetFor } = await import("./enroll");
+  // FIXED (the ship gate low): validate the FLAGS before any registry I/O / credential work.
+  const known = new Set(["--no-factory"]);
+  const unknown = rest.filter((x) => !known.has(x));
+  if (unknown.length > 0) return emit(2, { ok: false, refused: "ARM-UNKNOWN-FLAG", id: arg, unknown: unknown.map((u) => u.slice(0, 40)), known: [...known] });
   const reg = loadRegistry(root, process.env);
   const spec = reg.projects.find((p) => p.id === arg);
   if (!spec) return emit(2, { ok: false, refused: "ARM-NO-SUCH-PROJECT", id: arg, known: reg.projects.map((p) => p.id) });
@@ -250,12 +261,8 @@ export async function verbArm(root: string, arg?: string, ...rest: string[]): Pr
   //      "the merge button dead with every check green". The flag is derived from whether the
   //      daemon can actually publish (does the project's token resolve — the `token` above).
   //  (c) the documented `[--no-factory]` was unreachable.
-  // FIXED (the ship gate medium): an UNKNOWN flag is now REFUSED (a typo like --no-factry was
-  // silently accepted and installed the 8-context payload the operator meant to omit).
-  const known = new Set(["--no-factory"]);
-  const unknown = rest.filter((x) => !known.has(x));
-  if (unknown.length > 0) return emit(2, { ok: false, refused: "ARM-UNKNOWN-FLAG", id: arg, unknown, known: [...known] });
-  const factoryContexts = rest.includes("--no-factory") ? false : token !== "";
+  // (the unknown-flag refusal now runs BEFORE the I/O above)
+  const factoryContexts = !rest.includes("--no-factory");
   const payload = rulesetFor({ factoryContexts });
   const base = `https://api.github.com/repos/${encodeURIComponent(spec.owner)}/${encodeURIComponent(spec.repo)}/rulesets`;
   const hdrs = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" };
@@ -265,19 +272,32 @@ export async function verbArm(root: string, arg?: string, ...rest: string[]): Pr
     // FIXED (the ship gate HIGH): a 401/403/404 GET was swallowed by `.catch(()=>[])`, so an
     // AUTH FAILURE fell through to a write attempt, and a ruleset beyond the first page could be
     // missed → a DUPLICATE create. The GET is checked and paginated-safely handled.
-    const listRes = await fetch(`${base}?per_page=100`, { headers: hdrs });
-    if (!listRes.ok) return emit(1, { ok: false, refused: `ARM-LIST-FAILED:${listRes.status}`, id: arg, hint: listRes.status === 403 ? "a private repo needs GitHub Pro for rulesets / the token is bad" : undefined });
-    const list = await listRes.json().catch(() => null);
-    if (!Array.isArray(list)) return emit(1, { ok: false, refused: "ARM-LIST-UNREADABLE", id: arg });
-    const existing = (list as { id: number; name: string }[]).find((r) => r.name === (payload as { name?: string }).name);
+    // FIXED (the ship gate medium): follow Link rel=next (bounded), so a matching ruleset beyond
+    // the first page is found — never a duplicate create.
+    let listUrl: string | null = `${base}?per_page=100`;
+    let hops = 0;
+    let existing: { id: number; name: string } | undefined;
+    while (listUrl && hops < 5 && !existing) {
+      hops++;
+      const listRes = await fetch(listUrl, { headers: hdrs });
+      if (!listRes.ok) return emit(1, { ok: false, refused: `ARM-LIST-FAILED:${listRes.status}`, id: arg, hint: listRes.status === 403 ? "a private repo needs GitHub Pro for rulesets / the token is bad" : undefined });
+      const page = await listRes.json().catch(() => null);
+      if (!Array.isArray(page)) return emit(1, { ok: false, refused: "ARM-LIST-UNREADABLE", id: arg });
+      existing = (page as { id: number; name: string }[]).find((r) => r.name === (payload as { name?: string }).name);
+      const link = listRes.headers?.get?.("link") ?? "";
+      const nx = /<([^>]+)>;\s*rel="next"/.exec(link);
+      const cand: URL | null = nx ? new URL(nx[1], listUrl) : null;
+      listUrl = cand && cand.origin === new URL(base).origin ? cand.toString() : null;
+    }
     const url = existing ? `${base}/${existing.id}` : base;
     const res = await fetch(url, { method: existing ? "PUT" : "POST", headers: hdrs, body: JSON.stringify(payload) });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) return emit(1, { ok: false, refused: `ARM-FAILED:${res.status}`, id: arg, message: (body as { message?: string }).message?.slice(0, 200), hint: res.status === 403 ? "a private repo needs GitHub Pro for rulesets" : undefined });
     // FIXED (the ship gate medium): the reported context COUNT is now DERIVED from the installed
     // payload — the hardcoded `8 : 6` would lie if a job is added/removed.
-    const nCtx = ((payload as { rules: { type: string; parameters?: { required_status_checks?: unknown[] } }[] }).rules
-      .find((r) => r.type === "required_status_checks")?.parameters?.required_status_checks ?? []).length;
+    // FIXED (ship gate medium): optional chaining — a missing `rules` cannot throw inside try.
+    const rs = (payload as { rules?: { type: string; parameters?: { required_status_checks?: unknown[] } }[] }).rules;
+    const nCtx = (rs?.find((r) => r.type === "required_status_checks")?.parameters?.required_status_checks ?? []).length;
     return emit(0, { ok: true, armed: arg, repo: `${spec.owner}/${spec.repo}`, rulesetId: (body as { id?: number }).id, action: existing ? "updated" : "created", factoryContexts, contexts: nCtx });
   } catch (e) {
     return emit(1, { ok: false, refused: "ARM-THREW", id: arg, error: String(e).slice(0, 160) });
@@ -304,9 +324,20 @@ export async function verbProjects(root: string): Promise<VerbResult> {
 
 // MULTI-PROJECT: the verbs are VARIADIC (enroll takes 4-5 positionals), so the dispatcher
 // type is the general form — a single optional `mode` could not express it.
-export const VERBS: Record<string, (root: string, arg?: string, ...rest: string[]) => Promise<VerbResult>> = {
+// FIXED (the ship gate medium): a store-resolution refusal must be a SHAPED VerbResult for EVERY
+// caller (a direct verb call, a test), not only the CLI. The map wraps each verb.
+const rawVerbs: Record<string, (root: string, arg?: string, ...rest: string[]) => Promise<VerbResult>> = {
   status: verbStatus, plan: verbPlan, order: verbOrder, graph: verbGraph,
   gates: verbGates, sync: verbSync, bug: verbBug, desks: verbDesks, kick: verbKick,
   promote: verbPromote,
   enroll: verbEnroll, arm: verbArm, projects: verbProjects,
 };
+export const VERBS: typeof rawVerbs = Object.fromEntries(
+  Object.entries(rawVerbs).map(([k, fn]) => [k, async (root: string, arg?: string, ...rest: string[]): Promise<VerbResult> => {
+    try { return await fn(root, arg, ...rest); }
+    catch (e) {
+      if (e instanceof StoreRefusal) return { code: 2, out: { ok: false, refused: e.message.slice(0, 240) } };
+      throw e;
+    }
+  }]),
+);

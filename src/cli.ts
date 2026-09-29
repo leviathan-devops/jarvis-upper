@@ -17,7 +17,9 @@ const [verb, arg, ...extras] = Bun.argv.slice(2);
 // FIXED (the ship gate low): a LOOKUP MAP, not a growing nested ternary (the no-nested-ternary
 // rule; and it scales as verbs gain extra positionals).
 const EXTRA_ALLOWANCE: Record<string, number> = { kick: 1, enroll: 5, arm: 1 };
-const extraAllowance = EXTRA_ALLOWANCE[verb] ?? 0;
+// FIXED (ship gate low): a bare index hits the prototype chain (`upper __proto__ ...`); the
+// own-property guard returns undefined for anything not a defined verb.
+const extraAllowance = Object.hasOwn(EXTRA_ALLOWANCE, verb ?? "") ? EXTRA_ALLOWANCE[verb] : 0;
 if (extras.length > extraAllowance && verb !== "init" && verb !== "cursor") {
   console.error(usage);
   process.exit(2);
@@ -52,7 +54,7 @@ if (verb === "init") {
     .then((r) => { console.log(JSON.stringify(r.out)); process.exit(r.code); })
     .catch((e) => {
       // FIXED (the ship gate medium): a store-resolution refusal is a SHAPED exit 2, not a stack.
-      if (String(e).startsWith("StoreRefusal:") || String(e).includes("AMBIGUOUS-STORE") || String(e).includes("NO-PROJECT") || String(e).includes("REGISTRY-BROKEN")) {
+      if (String(e).startsWith("StoreRefusal:")) {
         console.log(JSON.stringify({ ok: false, refused: String(e).replace(/^StoreRefusal:\s*/, "").slice(0, 240) }));
         process.exit(2);
       }

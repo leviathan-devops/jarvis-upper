@@ -111,7 +111,12 @@ export function appendTick(root: string, s: RuntimeStatus, projectId?: string): 
       const keys = [...lastRotateLogAt.keys()];
       for (const k of keys.slice(0, 50)) lastRotateLogAt.delete(k);
     }
-    if (now - (lastRotateLogAt.get(logPath) ?? 0) > 60_000) { lastRotateLogAt.set(logPath, now); console.error(`status-rotate-failed:${logPath}:${String(e).slice(0, 60)}`); }
+    // FIXED (ship gate low): eviction by INSERTION order is not LRU — refresh recency on update,
+    // so a frequently-throttled path is not evicted first (losing its 60s throttle).
+    if (now - (lastRotateLogAt.get(logPath) ?? 0) > 60_000) {
+      lastRotateLogAt.delete(logPath); lastRotateLogAt.set(logPath, now);
+      console.error(`status-rotate-failed:${logPath}:${String(e).slice(0, 60)}`);
+    }
   }
 }
 

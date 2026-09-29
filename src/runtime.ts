@@ -520,16 +520,23 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       // is terminal). This is the honest reading of "EVERY pre-merge state".
       const orderedRows = db.query("SELECT id, pr_number, head_sha, session_id FROM pr_node WHERE state IN ('open','ready_to_merge','merge_ordered')").all() as
         { id: string; pr_number: number; head_sha: string | null; session_id: string | null }[];
-      for (const r of orderedRows) {
+      // FIXED (the ship gate medium): the loop awaited ONE GitHub GET per row SEQUENTIALLY —
+      // with many open PRs that inflated tick latency (risking interval overrun). settle-all now.
+      await Promise.allSettled(orderedRows.map(async (r) => {
         try {
           const m = await fetchPrMerge({ owner: publishOpts.owner, repo: publishOpts.repo, prNumber: r.pr_number, token: publishOpts.token ?? "", baseUrl: publishOpts.baseUrl, fetchImpl: publishOpts.fetchImpl });
           if (m.merged && m.mergeCommitSha && !mergeRecorded(ledgerPath, m.mergeCommitSha)) {
-            const recorded = recordMerge(ledgerPath, { prId: r.id, prNumber: r.pr_number, mergeSha: m.mergeCommitSha, headSha: r.head_sha ?? "", session: r.session_id ?? "" });
+            // FIXED (the ship gate HIGH): `recordMerge` rejects a non-hex headSha — but an
+            // `open` row can carry a NULL/mismatched head_sha, so the merge was never recorded
+            // and the row stayed pre-merge, re-polled forever. The merge COMMIT sha is the
+            // evidence that matters; fall back to it when the row's head is absent/malformed.
+            const headForRow = /^[0-9a-f]{7,40}$/i.test(r.head_sha ?? "") ? r.head_sha! : m.mergeCommitSha;
+            const recorded = recordMerge(ledgerPath, { prId: r.id, prNumber: r.pr_number, mergeSha: m.mergeCommitSha, headSha: headForRow, session: r.session_id ?? "" });
             if (recorded) db.query("UPDATE pr_node SET state='merged' WHERE id = ?").run(r.id);
             else errors.push(`merge-record:${r.id}`);
           }
         } catch (e) { errors.push(`merge-poll:${String(e).slice(0, 60)}`); }
-      }
+      }));
     }
 
     // W5 — publish the verdict for every ELIGIBLE PR. The two `factory/*`

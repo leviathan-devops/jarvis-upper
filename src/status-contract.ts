@@ -63,7 +63,6 @@ export const GATE_TO_CONTEXT = {
 // A gate whose contexts are ALL GitHub-Actions jobs is EXTERNAL: the factory READS it.
 // A gate whose contexts include a factory/* STATUS is OWN: the factory PRODUCES it.
 // The distinction is mechanical (derived from GATE_TO_CONTEXT, never hand-listed).
-const GITHUB_JOBS: ReadonlySet<string> = new Set(GITHUB_JOB_CONTEXTS);
 /** OWN = a gate whose contexts include a `factory/*` STATUS (the factory PRODUCES it). The
  *  predicate is the DOCUMENTED law (`factory/` prefix), not the broader "not a GitHub job" —
  *  a future third-prefix context cannot be mis-classified (the ship gate lows). */
