@@ -11,7 +11,9 @@ import { listPrsFromAo } from "./adapter-verbs";
 import { orderMerges } from "./plan";
 import { guardrail, guardrailRemote, recordGatePass } from "./guardrail";
 import { fetchPrMerge, recordMerge, mergeRecorded } from "./merge-record";
-import { appendTick, writeStatus, type RuntimeStatus } from "./status";
+import { appendTick, writeStatus, writeProjectStatus, type RuntimeStatus } from "./status";
+import type { ProjectSpec } from "./projects";
+import { projectToken } from "./projects";
 import { EventRail, parseSse } from "../ao-client/rail";
 import { reduceEvent } from "./reducers";
 import { health } from "../ao-client/client";
@@ -355,15 +357,23 @@ export async function publishVerdictForPr(opts: PublishVerdictForPrOpts): Promis
   });
 }
 
-export function createRuntime(opts: { root: string; db?: Database; deps?: RuntimeDeps }): Runtime {
+export function createRuntime(opts: { root: string; db?: Database; deps?: RuntimeDeps; project?: ProjectSpec }): Runtime {
   // FIXED (ocr audit high): the publish dedup map is PER-RUNTIME. A module-scoped
   // map leaked across instances (tests, multiple roots) — a second instance skipped
   // a (prId, head) it never published. Keyed on "<head>:<fence2Ok>:<verdictOk>".
   const lastPublished = new Map<string, string>();
   const root = opts.root;
-  const db = opts.db ?? openStore();
+  // THE MULTI-PROJECT SCOPE: when a project is supplied, every root-relative path (the store,
+  // the status, the wire capture, the tick log) resolves into `runtime/<id>/`, so N runtimes
+  // never share a file. With NO project the paths are the legacy top-level ones — the
+  // single-project behavior is byte-identical to before (zero regression).
+  const project = opts.project;
+  // the WIRE-CAPTURE dir (wireCapturePath appends "runtime/<file>" itself, so this is the
+  // BASE): the project's own dir, or the legacy root.
+  const WIRE_DIR = project ? `${root}/runtime/${project.id}` : root;
+  const db = opts.db ?? openStore(project ? project.store : undefined);
   const deps = opts.deps ?? {};
-  const tickMs = deps.tickMs ?? parseTickMs(process.env.UPPER_TICK_MS);
+  const tickMs = deps.tickMs ?? project?.tickMs ?? parseTickMs(process.env.UPPER_TICK_MS);
   const probe = deps.probe ?? defaultProbe;
   // EN-010: the default is the REAL adapter. A daemon tick that silently syncs
   // zero PRs is a wrong answer wearing a green light — so the default pulls AO.
@@ -377,7 +387,26 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
   const now = deps.now ?? (() => new Date());
   // W5 — the publish target (absent by default: the tick publishes only when
   // a caller supplies it, so a bare runtime tick never POSTs to GitHub).
-  const publishOpts = deps.publishOpts;
+  // FIXED (multi-project): the publish target derives from the PROJECT (owner/repo/token from
+  // the registry + the env-var NAME), so ONE daemon publishes to N repos with N credentials.
+  // An explicit deps.publishOpts still wins (the test seam, and the legacy path).
+  const projectPublishOpts = project ? ((): typeof deps.publishOpts => {
+    const token = projectToken(project);
+    if (!token) {
+      console.error(`project-disarmed:${project.id}:no ${project.tokenEnv} — this project reads AO but will NEVER POST`);
+      return undefined;
+    }
+    return {
+      owner: project.owner, repo: project.repo, token,
+      jobDir: "",
+      jobDirFor: (prId: string) => {
+        const session = prId.split(":")[1] ?? "";
+        return session ? `${project.worktreeRoot}/${session}` : "";
+      },
+      ledgerPath: process.env.FENCE2_LEDGER,
+    };
+  })() : undefined;
+  const publishOpts = deps.publishOpts ?? projectPublishOpts;
   const ledgerPath = (publishOpts as { ledgerPath?: string } | undefined)?.ledgerPath ?? LEDGER_DEFAULT;
 
   const state = { running: false, tick: 0, inFlight: false };
@@ -410,7 +439,9 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
         prNodes = rows;
       } catch (e) { errors.push(`sync:${String(e).slice(0, 60)}`); }
       try {
-        const cap = await rails(db, root);
+        // MULTI-PROJECT: the rails writer receives the project's wire dir, so the capture
+        // artifact lands in runtime/<id>/ (never in another project's evidence).
+        const cap = await rails(db, project ? `${root}/runtime/${project.id}` : `${root}/runtime`);
         // FIXED 2026-09-23 (muse HIGH): a NAMED failure is reported EVERY tick —
         // a dead rail can no longer hide as an idle stream behind daemonOk.
         if (cap.failed) errors.push(`rail-failed:${cap.failed}`);
@@ -530,8 +561,10 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       ts: now().toISOString(), tick: state.tick, daemonOk, cursor,
       prNodes, ready, eligible, planHash, planKind, kicks: 0, errors,
     };
-    writeStatus(root, s);
-    appendTick(root, s);
+    // THE MULTI-PROJECT STATUS: an id routes the write into runtime/<id>/; with no project it
+    // is the legacy top-level file (byte-identical to before).
+    writeStatus(root, s, project?.id);
+    appendTick(root, s, project?.id);
     last = s;
     return s;
     } catch (e) {

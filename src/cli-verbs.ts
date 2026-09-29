@@ -198,8 +198,75 @@ export async function verbPromote(root: string, arg?: string): Promise<VerbResul
   } finally { db.close(); }
 }
 
-export const VERBS: Record<string, (root: string, arg?: string, mode?: string) => Promise<VerbResult>> = {
+/**
+ * verbEnroll — PUT THE KERNEL ON A PROJECT.
+ * Usage: upper enroll <target-path> <project-id> <owner> <repo>
+ * Copies gates/ + .githooks/ + the workflows + the vendored package, and writes the registry
+ * entry. It does NOT arm the ruleset (that is verbArm) because the ruleset must be armed
+ * against the OBSERVED check-run names — the workflows must run once first.
+ */
+export async function verbEnroll(root: string, arg?: string, ...rest: string[]): Promise<VerbResult> {
+  const [id, owner, repo] = rest;
+  if (!arg || !id || !owner || !repo) {
+    return emit(2, { ok: false, refused: "ENROLL-NEEDS-ARGS", hint: "upper enroll <target-path> <project-id> <owner> <repo> [tokenEnv] [--dry-run]" });
+  }
+  const { enroll } = await import("./enroll");
+  const tokenEnv = rest[3] && !rest[3].startsWith("--") ? rest[3] : "GH_TOKEN";
+  const dryRun = rest.includes("--dry-run");
+  const r = enroll({ kernel: root, target: arg, id, owner, repo, tokenEnv, dryRun });
+  return emit(r.ok ? 0 : 2, { ...r, dryRun, next: r.ok ? [`upper arm ${id}   # AFTER the workflows have run once`, `git -C ${arg} config core.hooksPath .githooks`] : undefined });
+}
+
+/**
+ * verbArm — ARM THE RULESET ON A PROJECT.
+ * Usage: upper arm <project-id> [--no-factory]
+ * POSTs the 8-context ruleset (bypass_actors: []) to the project's repo. This is the step that
+ * makes every gate UNBYPASSABLE — the local hooks are advisory, THIS is the anchor.
+ */
+export async function verbArm(root: string, arg?: string): Promise<VerbResult> {
+  if (!arg) return emit(2, { ok: false, refused: "ARM-NEEDS-ID", hint: "upper arm <project-id> [--no-factory]" });
+  const { loadRegistry, projectToken } = await import("./projects");
+  const { rulesetFor } = await import("./enroll");
+  const reg = loadRegistry(root, process.env);
+  const spec = reg.projects.find((p) => p.id === arg);
+  if (!spec) return emit(2, { ok: false, refused: "ARM-NO-SUCH-PROJECT", id: arg, known: reg.projects.map((p) => p.id) });
+  const token = projectToken(spec);
+  if (!token) return emit(1, { ok: false, refused: `ARM-DISARMED:no ${spec.tokenEnv}`, id: arg });
+  const payload = rulesetFor({ factoryContexts: true });
+  const url = `https://api.github.com/repos/${encodeURIComponent(spec.owner)}/${encodeURIComponent(spec.repo)}/rulesets`;
+  try {
+    const res = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return emit(1, { ok: false, refused: `ARM-FAILED:${res.status}`, id: arg, message: (body as { message?: string }).message?.slice(0, 200), hint: res.status === 403 ? "a private repo needs GitHub Pro for rulesets" : undefined });
+    return emit(0, { ok: true, armed: arg, repo: `${spec.owner}/${spec.repo}`, rulesetId: (body as { id?: number }).id, contexts: 8 });
+  } catch (e) {
+    return emit(1, { ok: false, refused: "ARM-THREW", id: arg, error: String(e).slice(0, 160) });
+  }
+}
+
+/**
+ * verbProjects — THE FLEET VIEW.
+ * Usage: upper projects
+ * The registry's projects + each one's live status row (from the aggregate).
+ */
+export async function verbProjects(root: string): Promise<VerbResult> {
+  const { loadRegistry, projectToken } = await import("./projects");
+  const { readStatus } = await import("./status");
+  const reg = loadRegistry(root, process.env);
+  const agg = readStatus(root) as { projects?: Record<string, unknown> } | null;
+  const rows = reg.projects.map((p) => ({
+    id: p.id, repo: `${p.owner}/${p.repo}`, root: p.root,
+    armed: projectToken(p) ? "ARMED" : `DISARMED:no ${p.tokenEnv}`,
+    status: agg?.projects?.[p.id] ?? null,
+  }));
+  return emit(0, { ok: true, legacy: reg.legacy, enrolled: rows.length, issues: reg.issues, projects: rows });
+}
+
+// MULTI-PROJECT: the verbs are VARIADIC (enroll takes 4-5 positionals), so the dispatcher
+// type is the general form — a single optional `mode` could not express it.
+export const VERBS: Record<string, (root: string, arg?: string, ...rest: string[]) => Promise<VerbResult>> = {
   status: verbStatus, plan: verbPlan, order: verbOrder, graph: verbGraph,
   gates: verbGates, sync: verbSync, bug: verbBug, desks: verbDesks, kick: verbKick,
   promote: verbPromote,
+  enroll: verbEnroll, arm: verbArm, projects: verbProjects,
 };

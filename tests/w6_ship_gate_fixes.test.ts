@@ -90,8 +90,10 @@ test("test_branch_kick_is_idempotent", async () => {
 test("test_main_import_is_side_effect_free", async () => {
   const src = await Bun.file(new URL("../src/main.ts", import.meta.url)).text();
   // every side effect sits behind the import.meta.main guard
-  expect(src).toContain("if (import.meta.main) main();");
-  expect(src).toContain("export function main()");
-  // a bare `rt.start()` at module scope is gone (it lives inside main())
-  expect(src.split("if (import.meta.main) main();")[0]).not.toMatch(/^rt\.start\(\);$/m);
+  // UPDATED (the multi-project layer): main() is ASYNC now (it awaits the first fleet cycle),
+  // so the guard voids the promise rather than returning it.
+  expect(src).toContain("if (import.meta.main) void main();");
+  expect(src).toContain("export async function main(");
+  // a bare `rt.start()` at module scope is gone (the orchestrator owns the cycle)
+  expect(src.split("if (import.meta.main)")[0]).not.toMatch(/^\s*rt\.start\(\);$/m);
 });

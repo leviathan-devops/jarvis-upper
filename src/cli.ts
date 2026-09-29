@@ -1,7 +1,7 @@
 // upper CLI: one JSON object on stdout, human text on stderr, exit 0/1/2.
 import { fileURLToPath } from "node:url";
 import { openStore, tableNames, STORE_PATH } from "./store";
-import { VERBS } from "./cli-verbs";
+import { VERBS, type VerbResult } from "./cli-verbs";
 
 const usage = `usage: upper <init|cursor|status|plan|order|graph|gates|sync|bug|desks|kick> [args]
   init             create/open the store, print tables
@@ -11,7 +11,8 @@ const [verb, arg, ...extras] = Bun.argv.slice(2);
 // FIXED (ship-gate MEDIUM): `kick` accepts ONE extra (its mode). Without this the
 // documented `upper kick <id> live` was rejected by the dispatcher, so verbKick's
 // mode param was unreachable.
-const extraAllowance = verb === "kick" ? 1 : 0;
+// MULTI-PROJECT: `enroll` takes 4-5 positionals (path id owner repo [tokenEnv] [--dry-run]).
+const extraAllowance = verb === "kick" ? 1 : verb === "enroll" ? 5 : 0;
 if (extras.length > extraAllowance && verb !== "init" && verb !== "cursor") {
   console.error(usage);
   process.exit(2);
@@ -42,7 +43,7 @@ if (verb === "init") {
   // as a VerbResult-shaped error on stderr with exit 1 (a NEGATIVE verdict), so
   // a caller always gets the documented shape, never a bare stack.
   Promise.resolve()
-    .then(() => VERBS[verb](root, arg, extras[0]))
+    .then(() => (VERBS[verb] as (r: string, a?: string, ...x: string[]) => Promise<VerbResult>)(root, arg, ...extras))
     .then((r) => { console.log(JSON.stringify(r.out)); process.exit(r.code); })
     .catch((e) => {
       console.error(JSON.stringify({ ok: false, verdict: "VERB-THREW", error: String(e).slice(0, 300) }));

@@ -8,10 +8,18 @@ import { createRuntime } from "../src/runtime";
 import { openStore } from "../src/store";
 import { REQUIRED_CONTEXTS } from "../src/status-contract";
 
-test("publisher_wired: main.ts arms publishOpts (the entry point is wired)", () => {
+test("publisher_wired: main.ts ENROLS projects and names the arm state (the entry point is wired)", () => {
+  // UPDATED (the multi-project layer): the publish target is no longer a module-level env const
+  // in main.ts — it DERIVES PER PROJECT inside createRuntime (owner/repo/token from the
+  // registry + the token's env-var NAME). The pin's INTENT is unchanged: the production entry
+  // point must ARM the publisher and SAY SO. That is now expressed as: it enrolls projects
+  // (which build the per-project publishOpts) and its boot line names ARMED|DISARMED.
   const src = readFileSync(join(import.meta.dir, "..", "src", "main.ts"), "utf8");
-  expect(src).toContain("publishOpts");
-  expect(src).toContain("publisher");          // the boot line names ARMED|DISARMED
+  expect(src).toContain("createRuntime");      // the entry point builds the runtimes
+  expect(src).toContain("project");            // ...with a PROJECT (which arms the publisher)
+  expect(src).toContain("publisher");          // the boot line names the arm state
+  expect(src).toContain("ARMED");              // ...and the armed form is spelled out
+  expect(src).toContain("DISARMED");           // ...and a disarmed project is NAMED, never silent
 });
 
 test("publisher_wired: an eligible PR POSTs factory/fence2 + factory/verdict", async () => {

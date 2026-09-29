@@ -1,14 +1,30 @@
-// main.ts — THE ENTRY POINT: boot the runtime, tick on a clock, stop on signals.
-// Run:  UPPER_TICK_MS=2000 bun src/main.ts
+// main.ts — THE ENTRY POINT: the MULTI-PROJECT async orchestrator.
+//
+// Run:  UPPER_TICK_MS=15000 bun src/main.ts
+//
+// THE SHAPE: the daemon loads a REGISTRY of projects (src/projects.ts) and drives their
+// ticks CONCURRENTLY through ONE cadence. Each project owns its store, its status file, its
+// worktree root, and its credential — so N projects are N isolated units of work, not N
+// serialized passes over shared state.
+//
+// THE ISOLATION LAW (what makes it safe to run a fleet):
+//   1. SETTLE-ALL PER CYCLE — `Promise.allSettled` over the projects. One project throwing
+//      never blocks or cancels the others; its failure lands in ITS row of the aggregate.
+//   2. PER-PROJECT STORES — SQLite has ONE writer. N projects on one file = SQLITE_BUSY
+//      storms and a shared crash domain. Each project gets its own store (src/projects.ts).
+//   3. PER-PROJECT CREDENTIALS — a project names its token's ENV VAR; the bytes never touch
+//      the registry. A project with no token is DISARMED BY NAME, not silently.
+//   4. A DISABLED PROJECT IS NAMED EVERY CYCLE — never a silent skip.
 //
 // FIXED (ship-gate LOW): the module had IMPORT side effects — the target check's
 // process.exit(1), the DISARMED log, createRuntime(), the signal handlers, and the
 // started log all ran on import (only rt.start() was guarded). A module must be
 // side-effect-free on import, so EVERY side effect now lives in main().
 import { fileURLToPath } from "node:url";
-import { createRuntime, parseTickMs } from "./runtime";
+import { createRuntime, parseTickMs, type Runtime } from "./runtime";
 import { targetMatchesRemote } from "./target-guard";
-import { statusPath, ticksPath } from "./status";
+import { statusPath, ticksPath, writeAggregate, appendTick, readStatus, type ProjectStatusRow } from "./status";
+import { loadRegistry, projectToken, type ProjectSpec, type ProjectIssue } from "./projects";
 
 // FIXED 2026-09-23 (ocr round-4 HIGH): new URL().pathname is not a filesystem
 // path (wrong on Windows, and URL-encoded elsewhere) — fileURLToPath is the
@@ -21,58 +37,96 @@ const root = process.env.UPPER_ROOT || fileURLToPath(new URL("..", import.meta.u
 // FIXED (the W24 ship gate MEDIUM): this was a SECOND authority for the same env parse
 // (runtime.ts owns parseTickMs). One implementation.
 const tickMs = parseTickMs(process.env.UPPER_TICK_MS);
-// FIXED 2026-09-23 (the built-but-not-wired defect): main.ts NEVER passed
-// publishOpts, so the PRODUCTION daemon could never POST the two factory/*
-// contexts the ruleset waits on — the whole publisher (runtime.ts + verdict.ts
-// + publish.ts) was unreachable from the entry point. It is wired here from env.
-//
-//   UPPER_OWNER / UPPER_REPO   the GitHub target (default leviathan-devops/jarvis-upper)
-//   GH_TOKEN | GITHUB_TOKEN    the credential (OUT-OF-BAND; absent -> NO publish)
-//   UPPER_WORKTREE_ROOT        where the per-session git worktrees live
-//   FENCE2_LEDGER              the fence adjudication ledger path
-// FIXED (red-team audit F-23, the operator's exact fear): the defaults were
-// PRODUCTION values, so a second project with no env override silently POSTed
-// statuses to leviathan-devops/jarvis-upper. The target is now verified against
-// the git remote of the tree this daemon runs in: a MISMATCH is a loud refusal
-// (a wrong-target POST is unrecoverable — it writes to someone else's repo).
-const OWNER = process.env.UPPER_OWNER || "leviathan-devops";
-const REPO = process.env.UPPER_REPO || "jarvis-upper";
-const TOKEN = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
-const WORKTREE_ROOT = process.env.UPPER_WORKTREE_ROOT
-  || `${process.env.HOME ?? "/home/leviathan"}/.ao/data/worktrees/${REPO}`;
 
-/** the pr_node id is `pr:<session>:<num>` — the session names the worktree dir. */
-const jobDirFor = (prId: string): string => {
-  const session = prId.split(":")[1] ?? "";
-  return session ? `${WORKTREE_ROOT}/${session}` : "";
-};
+/** One enrolled project: its spec, its runtime, and why it is (or is not) armed. */
+interface Enrolled { spec: ProjectSpec; rt: Runtime; ok: boolean; reason?: string; }
 
 let signalsWired = false;   // FIXED: our OWN registration flag, not the global listener count
+let orchestratorStarted = false;
 
-export function main(): void {
-  // THE TARGET ASSERTION (extracted to src/target-guard.ts so it is TESTABLE).
-  // FIXED (the W17 ship gate LOW): a blank UPPER_HOST is truthy under `||`.
-  const tgt = targetMatchesRemote({ root, owner: OWNER, repo: REPO, host: (process.env.UPPER_HOST ?? "").trim() || "github.com" });
+/** THE ENROLLMENT: validate each project's TARGET against ITS OWN tree's origin and build its
+ *  runtime. A failed project is KEPT with `ok:false` + its reason — never dropped silently, so
+ *  the aggregate shows exactly which project is dark and why. */
+function enroll(root: string, spec: ProjectSpec, host: string): Enrolled {
+  const tgt = targetMatchesRemote({ root: spec.root, owner: spec.owner, repo: spec.repo, host });
   if (!tgt.ok) {
-    console.error(`FATAL: ${tgt.reason ?? "TARGET-MISMATCH"} — this tree's origin is ${tgt.remote || "(unreadable)"} but UPPER_OWNER/UPPER_REPO name ${OWNER}/${REPO}. Refusing to arm the publisher (a wrong-target POST is unrecoverable). Set UPPER_OWNER + UPPER_REPO explicitly.`);
-    process.exit(1);
+    return { spec, rt: createRuntime({ root, project: spec }), ok: false,
+      reason: `TARGET:${tgt.reason ?? "MISMATCH"} (this tree's origin is ${tgt.remote || "(unreadable)"}, the registry names ${spec.owner}/${spec.repo})` };
   }
-  if (!TOKEN) {
-    // FIXED (red-team audit W-03): an absent token silently disarmed publish AND
-    // the merge poll, while the tick kept reporting errors=0 — a silent no-work.
-    console.error("DISARMED:no-token — the publisher and the merge recorder are OFF (no GH_TOKEN/GITHUB_TOKEN). The daemon will read AO but NEVER POST a status.");
+  if (!projectToken(spec)) {
+    // the runtime handles the disarm (it logs project-disarmed); the enrollment records it
+    // so the AGGREGATE carries the state rather than an empty error list.
+    return { spec, rt: createRuntime({ root, project: spec }), ok: true, reason: `DISARMED:no ${spec.tokenEnv}` };
   }
-  const publishOpts = TOKEN ? {
-    owner: OWNER, repo: REPO, token: TOKEN, jobDir: "",
-    jobDirFor,
-    ledgerPath: process.env.FENCE2_LEDGER,
-  } : undefined;
+  return { spec, rt: createRuntime({ root, project: spec }), ok: true };
+}
 
-  const rt = createRuntime({ root, deps: { tickMs, publishOpts } });
+export async function main(): Promise<void> {
+  const reg = loadRegistry(root, process.env);
+  const host = (process.env.UPPER_HOST ?? "").trim() || "github.com";
 
-  // FIXED 2026-09-23 (ocr round-4 HIGH): SIGTERM and SIGINT can both arrive before
-  // stop() completes — a re-entrancy guard prevents two concurrent rt.stop() calls
-  // racing to process.exit().
+  // an ISSUE is a named, skipped entry — never fatal, never silent.
+  for (const i of reg.issues as ProjectIssue[]) console.error(`project-issue:${i.id}:${i.reason}`);
+
+  const enrolled: Enrolled[] = reg.projects.map((spec) => enroll(root, spec, host));
+
+  // THE CONCURRENT CYCLE. ONE cadence drives N projects; settle-all isolates them.
+  let cycle = 0;
+  const tickCycle = async (): Promise<void> => {
+    cycle += 1;
+    const settled = await Promise.allSettled(enrolled.map(async (e) => {
+      if (!e.ok) throw new Error(e.reason ?? "NOT-ENROLLED");
+      return await e.rt.tick();
+    }));
+    const rows: Record<string, ProjectStatusRow> = {};
+    let failed = 0;
+    const errors: string[] = [];
+    for (let i = 0; i < settled.length; i++) {
+      const e = enrolled[i];
+      const r = settled[i];
+      if (r.status === "fulfilled") {
+        rows[e.spec.id] = { ...r.value, ok: e.ok };
+      } else {
+        // A REJECTED project is LOUD and CONTAINED: its row carries the error, the count
+        // rises, and the other projects are untouched.
+        failed += 1;
+        errors.push(`${e.spec.id}:${String(r.reason).slice(0, 120)}`);
+        const last = readStatus(`${root}/runtime/${e.spec.id}`) ?? null;
+        rows[e.spec.id] = {
+          ts: new Date().toISOString(), tick: last?.tick ?? 0, daemonOk: false, cursor: last?.cursor ?? 0,
+          prNodes: last?.prNodes ?? 0, ready: last?.ready ?? 0, eligible: last?.eligible ?? 0,
+          planHash: last?.planHash ?? null, planKind: last?.planKind ?? "none", kicks: 0,
+          errors: [`tick-threw:${String(r.reason).slice(0, 100)}`], ok: false, error: String(r.reason).slice(0, 200),
+        };
+      }
+    }
+    // the top-level numbers are the FLEET SUM — the old shape keeps working.
+    const all = Object.values(rows);
+    const sum = (f: (r: ProjectStatusRow) => number) => all.reduce((a, r) => a + f(r), 0);
+    writeAggregate(root, {
+      ts: new Date().toISOString(), tick: cycle,
+      daemonOk: all.length > 0 && all.every((r) => r.daemonOk),
+      cursor: Math.max(0, ...all.map((r) => r.cursor)),
+      prNodes: sum((r) => r.prNodes), ready: sum((r) => r.ready), eligible: sum((r) => r.eligible),
+      planHash: all.length === 1 ? all[0].planHash : null,
+      planKind: all.length > 0 && all.every((r) => r.planKind === "ok") ? "ok" : "none",
+      kicks: sum((r) => r.kicks), errors,
+      projects: rows, failed,
+    });
+    // THE FLEET TICK LOG: the per-project logs are authoritative; this top-level row keeps the
+    // legacy reader (tickRowCount/ticksPath) and the drift sweep working on the fleet as a whole.
+    appendTick(root, { ts: new Date().toISOString(), tick: cycle,
+      daemonOk: all.length > 0 && all.every((r) => r.daemonOk), cursor: Math.max(0, ...all.map((r) => r.cursor)),
+      prNodes: sum((r) => r.prNodes), ready: sum((r) => r.ready), eligible: sum((r) => r.eligible),
+      planHash: null, planKind: "ok", kicks: sum((r) => r.kicks), errors });
+  };
+
+  const timer = setInterval(() => void tickCycle().catch((e) => console.error(`cycle-threw:${String(e).slice(0, 120)}`)), tickMs);
+
+  const armed = enrolled.filter((e) => e.ok && !e.reason).length;
+  const disarmed = enrolled.filter((e) => e.ok && e.reason).length;
+  const dark = enrolled.filter((e) => !e.ok).length;
+
   let stopping = false;
   async function stop(): Promise<void> {
     // FIXED 2026-09-23 (ocr final HIGH): the guard made a SECOND signal a silent
@@ -80,12 +134,12 @@ export function main(): void {
     // by signals. A second signal now ESCALATES to a forced exit.
     if (stopping) { console.error(JSON.stringify({ forced: true, reason: "second-signal" })); process.exit(1); }
     stopping = true;
-    const s = await rt.stop();
-    console.log(JSON.stringify({ stopped: true, ticks: s.tick, daemonOk: s.daemonOk, status: statusPath(root), log: ticksPath(root) }));
+    clearInterval(timer);
+    const results = await Promise.allSettled(enrolled.map((e) => e.rt.stop()));
+    const ticks = results.map((r, i) => ({ id: enrolled[i].spec.id, ticks: r.status === "fulfilled" ? r.value.tick : -1 }));
+    console.log(JSON.stringify({ stopped: true, projects: ticks.map((t) => t.id), ticks, status: statusPath(root), log: ticksPath(root) }));
     process.exit(0);
   }
-  // FIXED (the W20 ship gate LOW): main() is exported + test-callable, so a second call
-  // ACCUMULATED listeners (a double stop()/exit + a MaxListeners warning). Register once.
   // FIXED (the W24 ship gate LOW): `listenerCount` was a FRAGILE guard — any other library's
   // SIGTERM listener made the daemon's stop() never wire (unkillable by signals). A
   // module-scoped flag keys on OUR registration, not the global count.
@@ -95,9 +149,19 @@ export function main(): void {
     process.on("SIGINT", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
   }
 
-  rt.start();
-  console.log(JSON.stringify({ started: true, root, tickMs, publisher: TOKEN ? `ARMED:${OWNER}/${REPO}` : "DISARMED:no-token", status: statusPath(root), log: ticksPath(root) }));
+  orchestratorStarted = true;
+  await tickCycle();   // the first cycle runs NOW, not after one interval
+  console.log(JSON.stringify({
+    started: true, root, tickMs,
+    projects: enrolled.map((e) => ({ id: e.spec.id, publisher: e.ok && !e.reason ? `ARMED:${e.spec.owner}/${e.spec.repo}` : (e.reason?.startsWith("DISARMED") ? e.reason : `NOT-ARMED:${e.reason ?? "?"}`) })),
+    publisher: armed > 0 ? `ARMED:${enrolled.filter((e) => e.ok && !e.reason).map((e) => `${e.spec.owner}/${e.spec.repo}`).join(",")}` : "DISARMED:no-token",
+    counts: { armed, disarmed, dark, enrolled: enrolled.length, legacy: reg.legacy },
+    status: statusPath(root), log: ticksPath(root),
+  }));
 }
 
+/** Test/`import`-safety probe: has the orchestrator booted in THIS process? */
+export function isStarted(): boolean { return orchestratorStarted; }
+
 // a module must not boot a daemon on IMPORT (the test-hazard rule)
-if (import.meta.main) main();
+if (import.meta.main) void main();

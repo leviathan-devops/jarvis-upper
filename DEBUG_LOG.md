@@ -1846,3 +1846,189 @@ still tolerated as a tamper signal).
 clean.
 
 **ANCHORS:** src/kick.ts:88,122,142,144.
+
+## EN-MP - THE MULTI-PROJECT LAYER: async, isolated, enrollable (2026-09-29T15:36:52Z)
+
+**THE REQUIREMENT:** production-ready for async multi-project use. The kernel was single-target
+by construction: `main.ts` read ONE UPPER_OWNER/UPPER_REPO/UPPER_WORKTREE_ROOT at module load.
+
+### THE FOUR PROPERTIES BUILT (each mechanically proven)
+
+**1 · CONCURRENCY.** ONE cadence drives N projects through `Promise.allSettled`. Proof:
+`test_multi_project_ticks_run_concurrently` — 3 projects with a 120ms probe settle in
+`< 300ms` (serial would be >= 360ms).
+
+**2 · ISOLATION.** A project that THROWS never stops or cancels the others; its failure lands in
+ITS row of the aggregate with the error named. Proof:
+`test_one_project_failing_never_stops_the_others` — alpha/bravo/charlie, bravo's probe throws,
+alpha and charlie still complete with their own status files on disk.
+
+**3 · SCOPING.** ONE STORE PER PROJECT. SQLite has exactly one writer, so N projects on one file
+would contend (SQLITE_BUSY storms) and share a crash domain; per-project stores give write
+isolation, failure isolation, and make the `pr:<session>:<num>` id collision impossible.
+Proof: `test_each_project_writes_its_own_status_and_nothing_else`.
+
+**4 · VALIDATION.** A malformed registry entry is NAMED and SKIPPED — never fatal, never silent.
+Proof: `test_registry_rejects_a_bad_entry_without_killing_the_good_ones` (5 entries in: 1 good
+loads, 4 issues named, incl. the SECRET LAW — `tokenEnv` must be an ENV VAR NAME, never bytes).
+
+### THE SURFACE
+
+| the thing | the anchor |
+|---|---|
+| the registry (load + validate + the legacy fallback) | src/projects.ts |
+| the per-project scope (store, status, wire, tick log) | src/runtime.ts:358-380 |
+| the concurrent orchestrator + the aggregate | src/main.ts |
+| the per-project + aggregate status writers | src/status.ts |
+| the enrollment engine | src/enroll.ts |
+| `upper enroll <path> <id> <owner> <repo> [TOKEN_ENV] [--dry-run]` | src/cli-verbs.ts |
+| `upper arm <id>` (POST the 8-context ruleset, bypass_actors: []) | src/cli-verbs.ts |
+| `upper projects` (the fleet view) | src/cli-verbs.ts |
+| the fleet template | projects.json.example |
+
+### THE BACKWARD COMPATIBILITY (zero regression, measured)
+With NO `projects.json` the registry SYNTHESIZES the legacy env project (`legacy: true`) and the
+daemon behaves exactly as before. Measured live on restart:
+`{"started":true,"counts":{"armed":1,"disarmed":0,"dark":0,"enrolled":1,"legacy":true}}` and the
+aggregate carries BOTH the legacy top-level fields AND the `projects` map.
+
+### THE ENROLLMENT PROOF (3 more tests)
+`test_enroll_drops_the_full_enforcement_surface` (gates + .githooks + both workflows, and
+`__pycache__` is never copied) · `test_enroll_writes_a_valid_registry_entry_the_daemon_can_load`
+· `test_enroll_dry_run_changes_nothing` · `test_ruleset_factory_contexts_are_optional` (8 or 6
+contexts, `bypass_actors: []` in BOTH).
+
+**THE TEST SEAM (a defect I introduced and then closed):** the first enroll test wrote a REAL
+`projects.json` into the kernel tree — a test polluting the production registry. FIXED with an
+explicit `registryFile` override; the test now asserts the kernel's own registry is UNTOUCHED.
+
+**THE VERIFICATION:** tsc exit 0 · **191 pass / 0 fail** (674 expect, 51 files) · the P5 corpus
+12/0 · the daemon restarted in multi-project mode · `upper projects` and `upper enroll --dry-run`
+both measured working.
+
+**ANCHORS:** src/projects.ts, src/runtime.ts:358, src/main.ts, src/status.ts, src/enroll.ts,
+src/cli-verbs.ts, projects.json.example, tests/multi_project.test.ts, tests/enroll.test.ts.
+
+## EN-MP - THE MULTI-PROJECT LAYER: async, isolated, enrollable (2026-09-29T15:42:34Z)
+
+**THE REQUIREMENT:** production-ready for async multi-project use. The kernel was single-target
+by construction: `main.ts` read ONE UPPER_OWNER/UPPER_REPO/UPPER_WORKTREE_ROOT at module load.
+
+### THE FOUR PROPERTIES BUILT (each mechanically proven)
+
+**1 · CONCURRENCY.** ONE cadence drives N projects through `Promise.allSettled`. Proof:
+`test_multi_project_ticks_run_concurrently` — 3 projects with a 120ms probe settle in
+`< 300ms` (serial would be >= 360ms).
+
+**2 · ISOLATION.** A project that THROWS never stops or cancels the others; its failure lands in
+ITS row of the aggregate with the error named. Proof:
+`test_one_project_failing_never_stops_the_others` — alpha/bravo/charlie, bravo's probe throws,
+alpha and charlie still complete with their own status files on disk.
+
+**3 · SCOPING.** ONE STORE PER PROJECT. SQLite has exactly one writer, so N projects on one file
+would contend (SQLITE_BUSY storms) and share a crash domain; per-project stores give write
+isolation, failure isolation, and make the `pr:<session>:<num>` id collision impossible.
+Proof: `test_each_project_writes_its_own_status_and_nothing_else`.
+
+**4 · VALIDATION.** A malformed registry entry is NAMED and SKIPPED — never fatal, never silent.
+Proof: `test_registry_rejects_a_bad_entry_without_killing_the_good_ones` (5 entries in: 1 good
+loads, 4 issues named, incl. the SECRET LAW — `tokenEnv` must be an ENV VAR NAME, never bytes).
+
+### THE SURFACE
+
+| the thing | the anchor |
+|---|---|
+| the registry (load + validate + the legacy fallback) | src/projects.ts |
+| the per-project scope (store, status, wire, tick log) | src/runtime.ts:358-380 |
+| the concurrent orchestrator + the aggregate | src/main.ts |
+| the per-project + aggregate status writers | src/status.ts |
+| the enrollment engine | src/enroll.ts |
+| `upper enroll <path> <id> <owner> <repo> [TOKEN_ENV] [--dry-run]` | src/cli-verbs.ts |
+| `upper arm <id>` (POST the 8-context ruleset, bypass_actors: []) | src/cli-verbs.ts |
+| `upper projects` (the fleet view) | src/cli-verbs.ts |
+| the fleet template | projects.json.example |
+
+### THE BACKWARD COMPATIBILITY (zero regression, measured)
+With NO `projects.json` the registry SYNTHESIZES the legacy env project (`legacy: true`) and the
+daemon behaves exactly as before. Measured live on restart:
+`{"started":true,"counts":{"armed":1,"disarmed":0,"dark":0,"enrolled":1,"legacy":true}}` and the
+aggregate carries BOTH the legacy top-level fields AND the `projects` map.
+
+### THE ENROLLMENT PROOF (3 more tests)
+`test_enroll_drops_the_full_enforcement_surface` (gates + .githooks + both workflows, and
+`__pycache__` is never copied) · `test_enroll_writes_a_valid_registry_entry_the_daemon_can_load`
+· `test_enroll_dry_run_changes_nothing` · `test_ruleset_factory_contexts_are_optional` (8 or 6
+contexts, `bypass_actors: []` in BOTH).
+
+**THE TEST SEAM (a defect I introduced and then closed):** the first enroll test wrote a REAL
+`projects.json` into the kernel tree — a test polluting the production registry. FIXED with an
+explicit `registryFile` override; the test now asserts the kernel's own registry is UNTOUCHED.
+
+**THE VERIFICATION:** tsc exit 0 · **191 pass / 0 fail** (674 expect, 51 files) · the P5 corpus
+12/0 · the daemon restarted in multi-project mode · `upper projects` and `upper enroll --dry-run`
+both measured working.
+
+**ANCHORS:** src/projects.ts, src/runtime.ts:358, src/main.ts, src/status.ts, src/enroll.ts,
+src/cli-verbs.ts, projects.json.example, tests/multi_project.test.ts, tests/enroll.test.ts.
+
+## EN-MP - THE MULTI-PROJECT LAYER: async, isolated, enrollable (2026-09-29T15:48:51Z)
+
+**THE REQUIREMENT:** production-ready for async multi-project use. The kernel was single-target
+by construction: `main.ts` read ONE UPPER_OWNER/UPPER_REPO/UPPER_WORKTREE_ROOT at module load.
+
+### THE FOUR PROPERTIES BUILT (each mechanically proven)
+
+**1 · CONCURRENCY.** ONE cadence drives N projects through `Promise.allSettled`. Proof:
+`test_multi_project_ticks_run_concurrently` — 3 projects with a 120ms probe settle in
+`< 300ms` (serial would be >= 360ms).
+
+**2 · ISOLATION.** A project that THROWS never stops or cancels the others; its failure lands in
+ITS row of the aggregate with the error named. Proof:
+`test_one_project_failing_never_stops_the_others` — alpha/bravo/charlie, bravo's probe throws,
+alpha and charlie still complete with their own status files on disk.
+
+**3 · SCOPING.** ONE STORE PER PROJECT. SQLite has exactly one writer, so N projects on one file
+would contend (SQLITE_BUSY storms) and share a crash domain; per-project stores give write
+isolation, failure isolation, and make the `pr:<session>:<num>` id collision impossible.
+Proof: `test_each_project_writes_its_own_status_and_nothing_else`.
+
+**4 · VALIDATION.** A malformed registry entry is NAMED and SKIPPED — never fatal, never silent.
+Proof: `test_registry_rejects_a_bad_entry_without_killing_the_good_ones` (5 entries in: 1 good
+loads, 4 issues named, incl. the SECRET LAW — `tokenEnv` must be an ENV VAR NAME, never bytes).
+
+### THE SURFACE
+
+| the thing | the anchor |
+|---|---|
+| the registry (load + validate + the legacy fallback) | src/projects.ts |
+| the per-project scope (store, status, wire, tick log) | src/runtime.ts:358-380 |
+| the concurrent orchestrator + the aggregate | src/main.ts |
+| the per-project + aggregate status writers | src/status.ts |
+| the enrollment engine | src/enroll.ts |
+| `upper enroll <path> <id> <owner> <repo> [TOKEN_ENV] [--dry-run]` | src/cli-verbs.ts |
+| `upper arm <id>` (POST the 8-context ruleset, bypass_actors: []) | src/cli-verbs.ts |
+| `upper projects` (the fleet view) | src/cli-verbs.ts |
+| the fleet template | projects.json.example |
+
+### THE BACKWARD COMPATIBILITY (zero regression, measured)
+With NO `projects.json` the registry SYNTHESIZES the legacy env project (`legacy: true`) and the
+daemon behaves exactly as before. Measured live on restart:
+`{"started":true,"counts":{"armed":1,"disarmed":0,"dark":0,"enrolled":1,"legacy":true}}` and the
+aggregate carries BOTH the legacy top-level fields AND the `projects` map.
+
+### THE ENROLLMENT PROOF (3 more tests)
+`test_enroll_drops_the_full_enforcement_surface` (gates + .githooks + both workflows, and
+`__pycache__` is never copied) · `test_enroll_writes_a_valid_registry_entry_the_daemon_can_load`
+· `test_enroll_dry_run_changes_nothing` · `test_ruleset_factory_contexts_are_optional` (8 or 6
+contexts, `bypass_actors: []` in BOTH).
+
+**THE TEST SEAM (a defect I introduced and then closed):** the first enroll test wrote a REAL
+`projects.json` into the kernel tree — a test polluting the production registry. FIXED with an
+explicit `registryFile` override; the test now asserts the kernel's own registry is UNTOUCHED.
+
+**THE VERIFICATION:** tsc exit 0 · **191 pass / 0 fail** (674 expect, 51 files) · the P5 corpus
+12/0 · the daemon restarted in multi-project mode · `upper projects` and `upper enroll --dry-run`
+both measured working.
+
+**ANCHORS:** src/projects.ts, src/runtime.ts:358, src/main.ts, src/status.ts, src/enroll.ts,
+src/cli-verbs.ts, projects.json.example, tests/multi_project.test.ts, tests/enroll.test.ts.
