@@ -23,7 +23,8 @@
 import { fileURLToPath } from "node:url";
 import { createRuntime, parseTickMs, type Runtime } from "./runtime";
 import { targetMatchesRemote } from "./target-guard";
-import { statusPath, ticksPath, writeAggregate, appendTick, readStatus, type ProjectStatusRow } from "./status";
+import { statusPath, ticksPath, writeAggregate, appendTick, projectStatusPath, type ProjectStatusRow, type RuntimeStatus } from "./status";
+import { readFileSync, existsSync } from "node:fs";
 import { loadRegistry, projectToken, type ProjectSpec, type ProjectIssue } from "./projects";
 
 // FIXED 2026-09-23 (ocr round-4 HIGH): new URL().pathname is not a filesystem
@@ -68,7 +69,17 @@ export async function main(): Promise<void> {
   // an ISSUE is a named, skipped entry — never fatal, never silent.
   for (const i of reg.issues as ProjectIssue[]) console.error(`project-issue:${i.id}:${i.reason}`);
 
-  const enrolled: Enrolled[] = reg.projects.map((spec) => enroll(root, spec, host));
+  // FIXED (the audit SLOP-01): a CONSTRUCTION failure (an unopenable store, an unreadable
+  // tree) must be a DARK ROW, never a dead daemon. The registry promises "it never takes the
+  // daemon down" — this is where that promise is kept. The runtime is built LAZILY so a throw
+  // is caught here rather than escaping the map.
+  const enrolled: Enrolled[] = reg.projects.map((spec) => {
+    try { return enroll(root, spec, host); }
+    catch (e) {
+      console.error(`project-enroll-failed:${spec.id}:${String(e).slice(0, 120)}`);
+      return { spec, rt: null as unknown as Runtime, ok: false, reason: `ENROLL-FAILED:${String(e).slice(0, 140)}` };
+    }
+  });
 
   // THE CONCURRENT CYCLE. ONE cadence drives N projects; settle-all isolates them.
   let cycle = 0;
@@ -76,6 +87,7 @@ export async function main(): Promise<void> {
     cycle += 1;
     const settled = await Promise.allSettled(enrolled.map(async (e) => {
       if (!e.ok) throw new Error(e.reason ?? "NOT-ENROLLED");
+      if (!e.rt) throw new Error("ENROLL-FAILED:no runtime");
       return await e.rt.tick();
     }));
     const rows: Record<string, ProjectStatusRow> = {};
@@ -91,7 +103,14 @@ export async function main(): Promise<void> {
         // rises, and the other projects are untouched.
         failed += 1;
         errors.push(`${e.spec.id}:${String(r.reason).slice(0, 120)}`);
-        const last = readStatus(`${root}/runtime/${e.spec.id}`) ?? null;
+        // FIXED (the audit SLOP-03): readStatus(root) joins `runtime/status.json` onto its
+        // argument, so `${root}/runtime/${id}` resolved to `<root>/runtime/<id>/runtime/status.json`
+        // which NEVER exists — every rejection row reported tick=0/cursor=0. Read the project's
+        // own status file directly.
+        const last = ((): RuntimeStatus | null => {
+          try { const q = projectStatusPath(root, e.spec.id); return existsSync(q) ? (JSON.parse(readFileSync(q, "utf8")) as RuntimeStatus) : null; }
+          catch { return null; }
+        })();
         rows[e.spec.id] = {
           ts: new Date().toISOString(), tick: last?.tick ?? 0, daemonOk: false, cursor: last?.cursor ?? 0,
           prNodes: last?.prNodes ?? 0, ready: last?.ready ?? 0, eligible: last?.eligible ?? 0,
@@ -118,7 +137,12 @@ export async function main(): Promise<void> {
     appendTick(root, { ts: new Date().toISOString(), tick: cycle,
       daemonOk: all.length > 0 && all.every((r) => r.daemonOk), cursor: Math.max(0, ...all.map((r) => r.cursor)),
       prNodes: sum((r) => r.prNodes), ready: sum((r) => r.ready), eligible: sum((r) => r.eligible),
-      planHash: null, planKind: "ok", kicks: sum((r) => r.kicks), errors });
+      // FIXED (the audit SLOP-04): hardcoded planKind:"ok" made the log the legacy reader,
+      // the drift sweep and the host heartbeat read report a GREEN PLAN in the very cycle the
+      // only project was DARK and failed (daemonOk=false + planKind=ok in ONE row). Derived.
+      planHash: null,
+      planKind: all.length > 0 && all.every((r) => r.planKind === "ok") ? "ok" : "none",
+      kicks: sum((r) => r.kicks), errors });
   };
 
   const timer = setInterval(() => void tickCycle().catch((e) => console.error(`cycle-threw:${String(e).slice(0, 120)}`)), tickMs);
@@ -135,7 +159,7 @@ export async function main(): Promise<void> {
     if (stopping) { console.error(JSON.stringify({ forced: true, reason: "second-signal" })); process.exit(1); }
     stopping = true;
     clearInterval(timer);
-    const results = await Promise.allSettled(enrolled.map((e) => e.rt.stop()));
+    const results = await Promise.allSettled(enrolled.map((e) => e.rt ? e.rt.stop() : Promise.resolve({ tick: -1 } as never)));
     const ticks = results.map((r, i) => ({ id: enrolled[i].spec.id, ticks: r.status === "fulfilled" ? r.value.tick : -1 }));
     console.log(JSON.stringify({ stopped: true, projects: ticks.map((t) => t.id), ticks, status: statusPath(root), log: ticksPath(root) }));
     process.exit(0);

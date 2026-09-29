@@ -495,3 +495,68 @@ publish — `tsc exit 0`, `191 pass / 0 fail`).
 **THE IMMEDIATE NEXT ACTION (the highest-value, in order):** break the latch (so the daemon can
 re-publish the *correct* verdict and the PR's statuses go green again), then fix §3-D (the CLI
 store) since it is the operator's own interface, then §3-E/F (the fleet invariants).
+
+---
+
+## §8b — THE AUDITORS' RETURNS (both landed; the corrections to §7 and §11)
+
+### Bravo (the slop lens) — RETURNED, and it found THE SHOWSTOPPER
+
+**Its verdict, verbatim:** *"BLOCKED at the first-use path: the shipped enroll→projects.json→boot
+chain crashes the entire daemon (SQLiteError, un-isolated) … 4 HIGH findings across the layer
+that the green suite (5 pass) does not touch."*
+
+| id | sev | the finding | the disposition |
+|---|---|---|---|
+| **SLOP-01** | **HIGH** | **`upper enroll` → `projects.json` → boot CRASHES THE WHOLE DAEMON.** The registry's store path is `<target>/runtime/<id>/store.sqlite`; NOTHING creates that dir. `new Database()` throws `SQLiteError: unable to open database file` AT CONSTRUCTION — inside the enrollment map, **OUTSIDE the settle-all** — so one freshly enrolled project killed the daemon. `projects.json.example` promises *"it never takes the daemon down"*. | **FIXED**: `openStore` is the chokepoint — it mkdirs the parent (guarded, `:memory:` exempt); AND the enrollment is now try/caught into a DARK row. **VERIFIED**: the probe shows `openStore: OK (no throw)` + the store file created |
+| **SLOP-02** | HIGH | the thrown-tick catch wrote `writeStatus(root, s)` **without the project id** → a project-scoped runtime wrote the AGGREGATE and never its own `runtime/<id>/status.json` — the exact defect the S16 comment claims fixed | **FIXED**: every write carries `project?.id` |
+| **SLOP-05** | HIGH | **a PATH REGRESSION from my refactor**: the legacy rails arg became `${root}/runtime`, but `wireCapturePath(base)` joins `runtime/wire_capture.json` → `<root>/runtime/runtime/wire_capture.json`, while `does_anything_run.sh` reads `<root>/runtime/wire_capture.json`. My comment said *"byte-identical to before (zero regression)"* — **FALSE**. | **FIXED**: the legacy branch passes `root` |
+| **SLOP-04** | HIGH | the fleet tick-log row **hardcoded `planKind: "ok"`** → the log the gate/heartbeat reads reported a GREEN PLAN in a cycle where the only project was DARK (`daemonOk=false + planKind=ok` in ONE row) | **FIXED**: derived |
+| SLOP-03 | MED-HIGH | the rejection row read `<root>/runtime/<id>`; `readStatus` appends `runtime/status.json` → a path that never exists → every rejection row reported tick=0 | **FIXED**: reads the project path directly |
+| SLOP-06 | MED | `AO_DAEMON` has TWO authorities that disagree (runtime.ts trims; `client.ts:5` still `??`) — my "fixed" claim covers one site of the class | OPEN |
+| SLOP-07 | MED | the 8 context strings are hardcoded a **third** time in `rulesetFor()` — the LIVE arm payload — while `interface-check.ts` guards only contract↔ruleset.json, and the test asserts COUNTS not names | OPEN |
+| SLOP-08 | MED | `lastRotateLogAt` is MODULE-LEVEL — the one mutable shared by concurrent ticks; A's failure suppresses B's log for 60s | OPEN |
+| SLOP-09 | MED | the orchestrator has **no cycle-level re-entrancy guard**; an overrunning cycle's synthetic `TICK-IN-FLIGHT` row is recorded `ok: e.ok = true` and not counted in `failed` | OPEN |
+| SLOP-10 | MED | **the orchestrator has ZERO functional test coverage** — no test imports `main.ts`; the only "test" asserts on SOURCE TEXT (the W-6 fake-wiring anti-pattern this build's own MASTER_PROMPT bans) | OPEN |
+| SLOP-11 | MED | `ProjectSpec.tickMs` is documented and validated but **INERT** — consumed only by `start()`, which has **0 call sites** | OPEN |
+| SLOP-12 | LOW | dead code: `isStarted`, `projectRuntimeDir`, `writeProjectStatus` (imported, never called), `WIRE_DIR` | OPEN |
+| SLOP-13..16 | LOW | the rotation's three disagreeing numbers (1 MiB fires at ~11,439 lines vs the "10,000" the comment names) · the non-atomic registry write (the ONLY non-atomic state write in the tree, and a destructive read-modify-write) · `guardrail.ts:200` the one truly empty catch · the boot line's `DISARMED:no-token` printed for a DARK project | OPEN |
+
+**BRAVO'S OWN INSTRUMENT FAILURES (published per §6) — and one is about MY TOOLING:**
+- **"The built-in grep tool's LINE NUMBERS are wrong (drift up to 11 lines deep)."** Bravo
+  cross-checked grep against an fs census: grep said `runtime.ts:373` for `WIRE_DIR`, the fs says
+  **382**; grep said `:585` for a `writeStatus`, the fs says **596**. **Every grep-anchored
+  citation in this session's ledger could be off by up to 11 lines.** All of Bravo's citations use
+  the fs-verified numbers.
+- The shell firewall (`&&`, `;`, `|`) means a `grep … | wc -l` census returns **REFUSED, not 0** —
+  "an empty-vs-refused ambiguity that can silently read as 'no hits'."
+- 4 discarded false positives (a best-effort kill; the import-purity claim, which HOLDS; a
+  workflow-list hypothesis; the hooksPath hint).
+
+### THE CORRECTED SEVERITY LEDGER (§11 superseded)
+
+| severity | count | the ids |
+|---|---|---|
+| **critical** | **3** | A (the self-latching false-failure — **FIXED**) · B (the mutually-blind authorities — **OPEN**) · C (the live DoD not met — **OPEN**) |
+| **high** | **5 + 4** | D (the CLI wrong store) · E (one-store-per-project false LIVE) · F (the disarm not surfaced) · G (`arm` non-idempotent) · H (`enroll` overwrites) **+ SLOP-01/02/04/05 (all FIXED)** |
+| **medium** | **4 + 4** | I, J, K, IF-2 **+ SLOP-06/07/08/09/10/11 (OPEN)** |
+| **low** | **3 + 5** | L, M, IF-5 **+ SLOP-12/13/14/15/16 (OPEN)** |
+
+### THE CORRECTED ANSWER
+
+**§7's survive list HOLDS** — Bravo independently confirmed 11 of the author's claims (the suite is
+behavioural, the validation is strong, the polarity laws are real, the dedup is genuinely fixed,
+the rails hardening matches its comments, the writers are atomic, the interface contract is
+cross-checked) — **and it falsified three**: *"the multi-project layer works"* (the first-use path
+crashed the daemon), *"zero regression"* (the wire path regressed), and *"the aggregate is
+honest"* (the fleet log fabricated a green plan).
+
+**THE MISSION REMAINS NOT DONE.** Clause 7 of the live authority — *a real PR MERGED through the
+kernel's own gates* — is unmet, and there is a live false red on the PR from §3-A.
+
+**THE RANKED NEXT ACTIONS:**
+1. **Break the latch** (§3-A/§6-req-2): eligibility must not consume the contexts the factory
+   itself posts — otherwise the daemon can never clear the false red it published.
+2. **SLOP-10**: a test that drives `main()` — four HIGH defects lived in the untested file.
+3. **§3-D**: the CLI store resolution — it is the operator's own interface.
+4. **§3-E/F**: the fleet invariants (a shared store; a disarm invisible in the status artifact).

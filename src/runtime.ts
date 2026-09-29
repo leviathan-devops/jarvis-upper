@@ -450,7 +450,13 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       try {
         // MULTI-PROJECT: the rails writer receives the project's wire dir, so the capture
         // artifact lands in runtime/<id>/ (never in another project's evidence).
-        const cap = await rails(db, project ? `${root}/runtime/${project.id}` : `${root}/runtime`);
+        // FIXED (the audit SLOP-05 — a PATH REGRESSION from the multi-project refactor):
+        // wireCapturePath(base) joins `runtime/wire_capture.json` onto its argument, so the
+        // legacy branch's `<root>/runtime` produced `<root>/runtime/runtime/wire_capture.json`
+        // while gates/does_anything_run.sh and the frozen evidence read
+        // `<root>/runtime/wire_capture.json`. The WIRE_DIR constant was declared with the
+        // CORRECT base and a comment saying so, and never used.
+        const cap = await rails(db, project ? `${root}/runtime/${project.id}` : root);
         // FIXED 2026-09-23 (muse HIGH): a NAMED failure is reported EVERY tick —
         // a dead rail can no longer hide as an idle stream behind daemonOk.
         if (cap.failed) errors.push(`rail-failed:${cap.failed}`);
@@ -593,7 +599,7 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       // left status.json holding the PREVIOUS tick while the in-memory caller got an
       // error status — every FILE reader (verbStatus, a watchdog) saw a healthy-
       // looking stale tick during an outage. Surfaced IN the returned status now.
-      try { writeStatus(root, s); appendTick(root, s); }
+      try { writeStatus(root, s, project?.id); appendTick(root, s, project?.id); }
       catch (we) { s.errors.push(`status-write-failed:${String(we).slice(0, 60)}`); }
       last = s;
       return s;

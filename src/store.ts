@@ -1,6 +1,8 @@
 // Upper store: SQLite WAL, forward-only migrations, append-only ledgers.
 import { Database } from "bun:sqlite";
 import { fileURLToPath } from "node:url";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 
 // FIXED 2026-09-23 (ocr round-4 HIGH): a file:// URL's `.pathname` is not a
 // filesystem path (leading slash before a Windows drive; URL-encoded
@@ -138,6 +140,17 @@ const FK_REBUILDS: { table: string; sql: string }[] = [
 
 export function openStore(path?: string): Database {
   const resolved = path ?? (process.env.UPPER_STORE ?? fileURLToPath(new URL("../store.sqlite", import.meta.url)));
+  // FIXED (the red-team audit SLOP-01 — THE FIRST-USE SHOWSTOPPER): `upper enroll` writes a
+  // registry entry whose store path is `<target>/runtime/<id>/store.sqlite` and NOTHING creates
+  // that directory. `new Database()` then throws a raw `SQLiteError: unable to open database
+  // file` AT CONSTRUCTION — inside the enrollment map, OUTSIDE the orchestrator's settle-all —
+  // so ONE freshly enrolled project killed the WHOLE daemon at boot. That contradicts the
+  // registry's own promise ("a bad entry is NAMED and SKIPPED -- it never takes the daemon
+  // down"). openStore is the single chokepoint every store path passes through.
+  if (resolved !== ":memory:") {
+    try { mkdirSync(dirname(resolved), { recursive: true }); }
+    catch (e) { console.error(`store-dir-create-failed:${dirname(resolved)}:${String(e).slice(0, 80)}`); }
+  }
   const db = new Database(resolved, { create: true });
   db.exec("PRAGMA journal_mode=WAL;");
   db.exec("PRAGMA foreign_keys=ON;");
