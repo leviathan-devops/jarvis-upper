@@ -2,7 +2,10 @@
 // AoClient: HTTP calls only; the daemon owns all state.
 import { routeById } from "./gen/routes";
 
-export const DAEMON = process.env.AO_DAEMON ?? "http://localhost:3001";
+// FIXED (the audit SLOP-06): TWO authorities disagreed on blank input — runtime.ts trims and
+// falls back, this one kept "". `health()` and the kick transport use THIS module, so a blank
+// AO_DAEMON made health() fetch "/healthz" (probe false) while the rail used the default.
+export const DAEMON = (process.env.AO_DAEMON ?? "").trim() || "http://localhost:3001";
 
 export class ApiError extends Error {
   code: string;

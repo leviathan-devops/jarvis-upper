@@ -24,11 +24,22 @@ const readyDb = (head: string | null) => {
 };
 
 // ---- POSITIVE: the attacks the guardrail exists to catch ----
-test("RT-P1: a PR whose gates are MISSING blocks", () => {
+test("RT-P1: a PR whose gates are FAILED blocks (with the precise reason)", () => {
+  // FIXED (the audit MEDIUM K): `recordGatePass(db, "p", "abc", {})` records the four gates
+  // with verdict='fail' (an empty states-map means every gate fails) — so this is the
+  // present-but-FAILED case, and the reason is now GATE-FAILED:...:fail, not GATE-MISSING.
   const db = readyDb("abc"); recordGatePass(db, "p", "abc", {} as never);
   const e = guardrail(db, "p");
   expect(e.ok).toBe(false);
+  expect(e.reasons.filter((r) => r.startsWith("GATE-FAILED:")).length).toBeGreaterThan(0);
+});
+test("RT-P1b: a PR whose gates are ABSENT blocks (GATE-MISSING, distinct from FAILED)", () => {
+  // the twin the conflation erased: NO gate_pass rows → GATE-MISSING (never GATE-FAILED).
+  const db = readyDb("abc");
+  const e = guardrail(db, "p");
+  expect(e.ok).toBe(false);
   expect(e.reasons.filter((r) => r.startsWith("GATE-MISSING:")).length).toBeGreaterThan(0);
+  expect(e.reasons.some((r) => r.startsWith("GATE-FAILED:"))).toBe(false);
 });
 test("RT-P2: a RED gate blocks", () => {
   const db = readyDb("abc");

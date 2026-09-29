@@ -13,6 +13,7 @@ import { parseTickMs } from "./runtime";
 import { executePlan, type MergeAdapter } from "./execute";
 import { waveA, waveB, waveC, waveD } from "./desks";
 import { readStatus } from "./status";
+import { resolveStorePath } from "./projects";
 import { syncPrs } from "./sync";
 import { listProjects, listPrsFromAo } from "./adapter-verbs";
 
@@ -38,7 +39,7 @@ export async function verbStatus(root: string, _arg?: string): Promise<VerbResul
 }
 
 export async function verbPlan(root: string, _arg?: string): Promise<VerbResult> {
-  const db = openStore();
+  const db = openStore(resolveStorePath(root));
   try {
   const v = orderMerges(db);
   if (v.kind === "cycle") return emit(1, { ok: false, kind: "cycle", nodes: v.nodes });
@@ -51,7 +52,7 @@ export async function verbOrder(root: string, arg?: string): Promise<VerbResult>
   if (arg !== "--confirm") {
     return emit(2, { ok: false, refused: "UNCONFIRMED-PLAN", hint: "capabilities execute in-process with {confirm:true}; no CLI merge path" });
   }
-  const db = openStore();
+  const db = openStore(resolveStorePath(root));
   try {
   const adapter: MergeAdapter = { publish: async () => ({ ok: false }) };
   const r = await executePlan(db, adapter, { confirm: true });
@@ -64,7 +65,7 @@ export async function verbOrder(root: string, arg?: string): Promise<VerbResult>
 }
 
 export async function verbGraph(root: string, _arg?: string): Promise<VerbResult> {
-  const db = openStore();
+  const db = openStore(resolveStorePath(root));
   try {
   const g = renderGraph(db, { bugs: true });
   return emit(0, { ok: true, graph: g });
@@ -72,7 +73,7 @@ export async function verbGraph(root: string, _arg?: string): Promise<VerbResult
 }
 
 export async function verbGates(root: string, _arg?: string): Promise<VerbResult> {
-  const db = openStore();
+  const db = openStore(resolveStorePath(root));
   try {
   const ready = db.query("SELECT id FROM pr_node WHERE state='ready_to_merge'").all() as { id: string }[];
   const checks = ready.map((r) => ({ pr: r.id, ...guardrail(db, r.id) }));
@@ -81,7 +82,7 @@ export async function verbGates(root: string, _arg?: string): Promise<VerbResult
 }
 
 export async function verbSync(root: string, arg?: string): Promise<VerbResult> {
-  const db = openStore();
+  const db = openStore(resolveStorePath(root));
   try {
   // FIXED 2026-09-23 (ocr confirm HIGH): listProjects() ran BEFORE the try, so a
   // throw there skipped the db cleanup path (and the error was not shaped as a
@@ -95,7 +96,7 @@ export async function verbSync(root: string, arg?: string): Promise<VerbResult> 
 }
 
 export async function verbBug(root: string, arg?: string): Promise<VerbResult> {
-  const db = openStore();
+  const db = openStore(resolveStorePath(root));
   try {
   if (!arg) {
     const bugs = db.query("SELECT id, status, origin_commit FROM bug_record ORDER BY created_at DESC LIMIT 20").all();
@@ -116,7 +117,7 @@ export async function verbBug(root: string, arg?: string): Promise<VerbResult> {
 
 export async function verbDesks(root: string, arg?: string): Promise<VerbResult> {
   const fx = { root: `${root}/runtime/fixtures/w4` };
-  const db = openStore();
+  const db = openStore(resolveStorePath(root));
   try {
   if (arg === "run") {
     const a = await waveA(db, fx, "w4");
@@ -148,7 +149,7 @@ export async function verbKick(root: string, arg?: string, mode?: string): Promi
     // FIXED (the W17 ship gate LOW): `arg` is arbitrary-length here — bound the echo.
     return emit(2, { ok: false, refused: "KICK-BAD-BUG-ID", bugId: String(arg).slice(0, 64), hint: "an id matching /^[A-Za-z0-9._-]{1,64}$/" });
   }
-  const db = openStore();
+  const db = openStore(resolveStorePath(root));
   try {
     const bug = db.query("SELECT id, dossier_path, origin_commit, origin_session FROM bug_record WHERE id = ?").get(arg) as
       { id: string; dossier_path: string | null; origin_commit: string | null; origin_session: string | null } | null;
@@ -184,7 +185,7 @@ export async function verbKick(root: string, arg?: string, mode?: string): Promi
  */
 export async function verbPromote(root: string, arg?: string): Promise<VerbResult> {
   if (!arg) return { code: 2, out: { ok: false, refused: "PROMOTE-NEEDS-ID", hint: "promote <pr_node id>" } };
-  const db = openStore();
+  const db = openStore(resolveStorePath(root));
   try {
     const row = db.query("SELECT id, state, head_sha FROM pr_node WHERE id = ?").get(arg) as
       { id: string; state: string; head_sha: string | null } | null;
@@ -223,7 +224,7 @@ export async function verbEnroll(root: string, arg?: string, ...rest: string[]):
  * POSTs the 8-context ruleset (bypass_actors: []) to the project's repo. This is the step that
  * makes every gate UNBYPASSABLE — the local hooks are advisory, THIS is the anchor.
  */
-export async function verbArm(root: string, arg?: string): Promise<VerbResult> {
+export async function verbArm(root: string, arg?: string, ...rest: string[]): Promise<VerbResult> {
   if (!arg) return emit(2, { ok: false, refused: "ARM-NEEDS-ID", hint: "upper arm <project-id> [--no-factory]" });
   const { loadRegistry, projectToken } = await import("./projects");
   const { rulesetFor } = await import("./enroll");
@@ -232,13 +233,28 @@ export async function verbArm(root: string, arg?: string): Promise<VerbResult> {
   if (!spec) return emit(2, { ok: false, refused: "ARM-NO-SUCH-PROJECT", id: arg, known: reg.projects.map((p) => p.id) });
   const token = projectToken(spec);
   if (!token) return emit(1, { ok: false, refused: `ARM-DISARMED:no ${spec.tokenEnv}`, id: arg });
-  const payload = rulesetFor({ factoryContexts: true });
-  const url = `https://api.github.com/repos/${encodeURIComponent(spec.owner)}/${encodeURIComponent(spec.repo)}/rulesets`;
+  // FIXED (the audit HIGH G — `arm` was NON-IDEMPOTENT and violated its own ORDER LAW):
+  //  (a) it POSTed unconditionally (a second `arm` created a DUPLICATE ruleset), and
+  //  (b) it hardcoded `factoryContexts: true` while enroll.ts documents that arming a DISARMED
+  //      project installs a ruleset requiring two contexts its daemon will NEVER post —
+  //      "the merge button dead with every check green". The flag is derived from whether the
+  //      daemon can actually publish (does the project's token resolve).
+  //  (c) the documented `[--no-factory]` was unreachable.
+  const factoryContexts = rest.includes("--no-factory") ? false : projectToken(spec) !== "";
+  const payload = rulesetFor({ factoryContexts });
+  const base = `https://api.github.com/repos/${encodeURIComponent(spec.owner)}/${encodeURIComponent(spec.repo)}/rulesets`;
+  const hdrs = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" };
   try {
-    const res = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    // GET → RECONCILE: list the existing rulesets; if ours is present, PUT (idempotent update),
+    // else POST. A repeated `arm` now converges instead of duplicating.
+    const listRes = await fetch(base, { headers: hdrs });
+    const list = await listRes.json().catch(() => []);
+    const existing = Array.isArray(list) ? (list as { id: number; name: string }[]).find((r) => r.name === (payload as { name?: string }).name) : undefined;
+    const url = existing ? `${base}/${existing.id}` : base;
+    const res = await fetch(url, { method: existing ? "PUT" : "POST", headers: hdrs, body: JSON.stringify(payload) });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) return emit(1, { ok: false, refused: `ARM-FAILED:${res.status}`, id: arg, message: (body as { message?: string }).message?.slice(0, 200), hint: res.status === 403 ? "a private repo needs GitHub Pro for rulesets" : undefined });
-    return emit(0, { ok: true, armed: arg, repo: `${spec.owner}/${spec.repo}`, rulesetId: (body as { id?: number }).id, contexts: 8 });
+    return emit(0, { ok: true, armed: arg, repo: `${spec.owner}/${spec.repo}`, rulesetId: (body as { id?: number }).id, action: existing ? "updated" : "created", factoryContexts, contexts: factoryContexts ? 8 : 6 });
   } catch (e) {
     return emit(1, { ok: false, refused: "ARM-THREW", id: arg, error: String(e).slice(0, 160) });
   }

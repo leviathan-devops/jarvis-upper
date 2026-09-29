@@ -6,7 +6,7 @@
 // below stays as a local mirror, but the authoritative read is guardrailRemote()
 // against REQUIRED_CONTEXTS from the frozen contract.
 import { Database } from "bun:sqlite";
-import { GATE_TO_CONTEXT, REQUIRED_CONTEXTS, GITHUB_JOB_CONTEXTS } from "./status-contract";
+import { GATE_TO_CONTEXT, REQUIRED_CONTEXTS, GITHUB_JOB_CONTEXTS, EXTERNAL_GATES, OWN_GATES } from "./status-contract";
 
 export interface Eligibility {
   ok: boolean;
@@ -14,6 +14,45 @@ export interface Eligibility {
 }
 
 const REQUIRED_GATES = Object.keys(GATE_TO_CONTEXT) as (keyof typeof GATE_TO_CONTEXT)[];
+
+/** FIXED (the red-team audit — CRITICAL A, THE SELF-LATCH):
+ *  The publisher was gated on `guardrail().ok`, which includes the gates the factory ITSELF
+ *  produces (audit/hardened/fence2 → the two `factory/*` statuses). The tick MIRRORS those
+ *  statuses back into `gate_pass` before reading eligibility — so the factory's own published
+ *  failure fed back as an input, dropped `eligible` to 0, and the publisher (gated on
+ *  eligibility) could NEVER re-publish the correction. MEASURED LIVE: a systemd restart
+ *  SIGTERMed the in-flight fence (exit 143), the polarity law published `error`/`failure` to a
+ *  real PR, and the daemon has been unable to clear it since.
+ *
+ *  THE PRINCIPLE: a publisher gates on its INPUTS, never on its OUTPUTS. `publishEligible`
+ *  checks the EXTERNAL gates (the GitHub Actions jobs the factory reads) + the readiness + the
+ *  sha binding — and NOT the factory's own contexts. `guardrail` (the full set) still governs
+ *  the MERGE ORDER, where the factory's verdict is a legitimate requirement.
+ *
+ *  POSITIVE CONTROL (a regression test must prove BOTH): a PR with green EXTERNAL gates and a
+ *  FAILED `factory/fence2` must be publish-eligible (so the correction can go out) while
+ *  remaining merge-INeligible (so it cannot merge on a failed verdict). */
+export function publishEligible(db: Database, prId: string): Eligibility {
+  const reasons: string[] = [];
+  const pr = db.query("SELECT id, state, head_sha FROM pr_node WHERE id = ?").get(prId) as
+    | { id: string; state: string; head_sha: string | null }
+    | null;
+  if (!pr) return { ok: false, reasons: ["PR-MISSING"] };
+  if (pr.state !== "ready_to_merge") reasons.push(`NOT-READY:${pr.state}`);
+  for (const g of EXTERNAL_GATES) {
+    const row = db.query("SELECT verdict, head_sha FROM gate_pass WHERE pr_node = ? AND gate = ? ORDER BY at DESC, rowid DESC LIMIT 1")
+      .get(prId, g) as { verdict: string; head_sha: string | null } | null;
+    // FIXED (the audit MEDIUM K): one branch covered both "the row is ABSENT" and "the row
+    // exists and FAILED", always naming GATE-MISSING — so a live `fence2=fail` read as
+    // "missing", hiding a substantive red behind an absent-gate label. The two are distinct.
+    if (!row) { reasons.push(`GATE-MISSING:${g}`); continue; }
+    if (row.verdict !== "pass") { reasons.push(`GATE-FAILED:${g}:${row.verdict}`); continue; }
+    const gateHead = row.head_sha;
+    const prHead = pr.head_sha;
+    if (gateHead === null || prHead === null || gateHead !== prHead) reasons.push(`STALE-GATE:${g}`);
+  }
+  return { ok: reasons.length === 0, reasons };
+}
 
 export function guardrail(db: Database, prId: string): Eligibility {
   const reasons: string[] = [];
@@ -32,7 +71,10 @@ export function guardrail(db: Database, prId: string): Eligibility {
     // now wins deterministically (NULL `at` sorts last under DESC).
     const row = db.query("SELECT verdict, head_sha FROM gate_pass WHERE pr_node = ? AND gate = ? ORDER BY at DESC, rowid DESC LIMIT 1")
       .get(prId, g) as { verdict: string; head_sha: string | null } | null;
-    if (!row || row.verdict !== "pass") { reasons.push(`GATE-MISSING:${g}`); continue; }
+    // FIXED (the audit MEDIUM K): DISTINCT from GATE-MISSING — a present-but-failed gate is
+    // GATE-FAILED (see publishEligible's twin).
+    if (!row) { reasons.push(`GATE-MISSING:${g}`); continue; }
+    if (row.verdict !== "pass") { reasons.push(`GATE-FAILED:${g}:${row.verdict}`); continue; }
     // FIXED 2026-09-23 (ocr round-4 CRITICAL): this compared gate_pass.sha16 (the
     // SPEC INVARIANT hash, per verdict.ts) against pr_node.head_sha (a git commit
     // sha) — CROSS-DOMAIN, so it was always unequal and STALE-GATE fired on every
@@ -197,7 +239,11 @@ export async function guardrailRemote(
         latest[name] = c === "neutral" || c === "skipped" ? "success" : c;
       }
     }
-  } catch { /* best-effort: a failed check-runs read leaves the statuses-only map (fail-closed) */ }
+  } catch (e) {
+    // W-13: LOG, never swallow. Best-effort the read is — the statuses-only map is kept — but a
+    // failed read is NAMED so a persistently broken remote is not indistinguishable from an idle one.
+    console.error(`guardrail-remote-read-failed:${String(e).slice(0, 60)}`);
+  }
   const reasons: string[] = [];
   const missing: string[] = [];
   for (const ctx of REQUIRED_CONTEXTS) {

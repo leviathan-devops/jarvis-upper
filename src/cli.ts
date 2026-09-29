@@ -12,7 +12,9 @@ const [verb, arg, ...extras] = Bun.argv.slice(2);
 // documented `upper kick <id> live` was rejected by the dispatcher, so verbKick's
 // mode param was unreachable.
 // MULTI-PROJECT: `enroll` takes 4-5 positionals (path id owner repo [tokenEnv] [--dry-run]).
-const extraAllowance = verb === "kick" ? 1 : verb === "enroll" ? 5 : 0;
+// FIXED (the audit HIGH G-c): `arm` accepts ONE extra (its `[--no-factory]` flag) — without
+// this the documented flag was rejected by the dispatcher and verbArm's param was unreachable.
+const extraAllowance = verb === "kick" ? 1 : verb === "enroll" ? 5 : verb === "arm" ? 1 : 0;
 if (extras.length > extraAllowance && verb !== "init" && verb !== "cursor") {
   console.error(usage);
   process.exit(2);

@@ -46,8 +46,6 @@ export function registryPath(root: string): string { return join(root, "projects
 
 export interface ProjectIssue { index: number; id: string; reason: string; }
 
-/** The per-project state dir (status + ticks + the per-project evidence). */
-export function projectRuntimeDir(root: string, id: string): string { return join(root, "runtime", id); }
 export function projectStorePath(root: string, id: string): string {
   return join(root, "runtime", id, "store.sqlite");
 }
@@ -120,11 +118,20 @@ export function loadRegistry(root: string, env: Record<string, string | undefine
   const projects: ProjectSpec[] = [];
   const issues: ProjectIssue[] = [];
   const seen = new Set<string>();
+  const seenStores = new Set<string>();
   for (let i = 0; i < list.length; i++) {
     const r = checkProject(list[i], i);
     if (!r.ok) { issues.push(r.issue); continue; }
     if (seen.has(r.spec.id)) { issues.push({ index: i, id: r.spec.id, reason: "DUPLICATE id — the later entry is skipped" }); continue; }
-    seen.add(r.spec.id);
+    // FIXED (the audit HIGH E — "one store per project" was a CONVENTION, not an invariant):
+    // the live store held TWO projects' rows. The isolation the layer's own doc comment claims
+    // is now ENFORCED: two entries may not point at one store (SQLite has one writer; a shared
+    // file is a shared crash domain and a shared write lock).
+    if (seenStores.has(r.spec.store)) {
+      issues.push({ index: i, id: r.spec.id, reason: `DUPLICATE store — ${r.spec.store} is already claimed by another project (one store per project)` });
+      continue;
+    }
+    seen.add(r.spec.id); seenStores.add(r.spec.store);
     if (r.spec.enabled === false) { issues.push({ index: i, id: r.spec.id, reason: "disabled (enabled:false) — skipped" }); continue; }
     projects.push(r.spec);
   }
@@ -132,6 +139,26 @@ export function loadRegistry(root: string, env: Record<string, string | undefine
     return { projects: [legacyProject(root, env)], issues: [...issues, { index: -1, id: "registry", reason: "no VALID enabled project — fell back to the legacy env project" }], legacy: true };
   }
   return { projects, issues, legacy: false };
+}
+
+/** Resolve the store a CLI VERB must open. FLEET-CORRECT (the audit §3-D): with a registry the
+ *  verb opens the PROJECT's own store — never the root's. Before this, every verb called
+ *  `openStore()` with no argument, so `upper gates` read an empty store and `upper kick` /
+ *  `upper promote` WROTE a store the daemon never read (the operator's readiness decision
+ *  landed nowhere). A `--project <id>` names one explicitly; with exactly ONE project the id is
+ *  optional (the legacy/one-project case — zero regression); with MANY it is REQUIRED, because
+ *  an unnamed fleet read is AMBIGUOUS and ambiguity is a NAMED REFUSAL, never a silent
+ *  root-store fallback. */
+export function resolveStorePath(root: string, env: Record<string, string | undefined> = process.env, projectId?: string): string {
+  const id = projectId ?? env.UPPER_PROJECT;
+  const reg = loadRegistry(root, env);
+  if (id) {
+    const p = reg.projects.find((x) => x.id === id);
+    if (!p) throw new Error(`NO-PROJECT:${id} (known: ${reg.projects.map((x) => x.id).join(",") || "none"})`);
+    return p.store;
+  }
+  if (reg.projects.length === 1) return reg.projects[0].store;
+  throw new Error(`AMBIGUOUS-STORE:${reg.projects.length}-projects-need---project <id> (${reg.projects.map((x) => x.id).join(",")})`);
 }
 
 /** Resolve a project's credential from its tokenEnv NAME. Never logs the bytes. */

@@ -31,7 +31,8 @@ test("test_guardrail_reads_latest_verdict", () => {
   db.run("INSERT INTO gate_pass(id,pr_node,gate,verdict,head_sha,at) VALUES('[\"p\",\"ci_green\"]','p','ci_green','fail','sha1',200)");
   const g = guardrail(db, "p");
   expect(g.ok).toBe(false);                       // the LATEST verdict (fail) wins
-  expect(g.reasons).toContain("GATE-MISSING:ci_green");
+  // FIXED (the audit MEDIUM K): a present-but-failed gate reads GATE-FAILED (not GATE-MISSING).
+  expect(g.reasons).toContain("GATE-FAILED:ci_green:fail");
 });
 
 test("test_gate_pass_dedupe_migration", async () => {

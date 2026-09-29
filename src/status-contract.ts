@@ -59,6 +59,16 @@ export const GATE_TO_CONTEXT = {
   fence2: [STATUS_CONTEXTS.fence2],
 } as const;
 
+// ── THE LATCH BREAK (the red-team audit, CRITICAL A) ────────────────────────────
+// A gate whose contexts are ALL GitHub-Actions jobs is EXTERNAL: the factory READS it.
+// A gate whose contexts include a factory/* STATUS is OWN: the factory PRODUCES it.
+// The distinction is mechanical (derived from GATE_TO_CONTEXT, never hand-listed).
+const GITHUB_JOBS: ReadonlySet<string> = new Set(GITHUB_JOB_CONTEXTS);
+export const OWN_GATES = (Object.keys(GATE_TO_CONTEXT) as (keyof typeof GATE_TO_CONTEXT)[])
+  .filter((g) => (GATE_TO_CONTEXT[g] as readonly string[]).some((c) => !GITHUB_JOBS.has(c)));
+export const EXTERNAL_GATES = (Object.keys(GATE_TO_CONTEXT) as (keyof typeof GATE_TO_CONTEXT)[])
+  .filter((g) => !OWN_GATES.includes(g));
+
 export type StatusContext = (typeof REQUIRED_CONTEXTS)[number];
 export type PublishState = "success" | "failure" | "error";
 

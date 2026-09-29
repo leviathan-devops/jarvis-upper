@@ -1,3 +1,7 @@
+> **Status:** ACTIVE — the gate wiring under the goal pin
+> **Governed by:** GOAL_PIN_RUNTIME_OPERATIONAL.md
+> **Scope:** which gate binds which context.
+
 # THE BUILD LIFECYCLE THROUGH THE GATES — AND THE INCREMENTAL WIRING PLAN
 
 **Measured from the live system · every gate names its wiring point · each wires in minutes.**

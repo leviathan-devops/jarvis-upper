@@ -40,10 +40,9 @@ const root = process.env.UPPER_ROOT || fileURLToPath(new URL("..", import.meta.u
 const tickMs = parseTickMs(process.env.UPPER_TICK_MS);
 
 /** One enrolled project: its spec, its runtime, and why it is (or is not) armed. */
-interface Enrolled { spec: ProjectSpec; rt: Runtime; ok: boolean; reason?: string; }
+export interface Enrolled { spec: ProjectSpec; rt: Runtime; ok: boolean; reason?: string; }
 
 let signalsWired = false;   // FIXED: our OWN registration flag, not the global listener count
-let orchestratorStarted = false;
 
 /** THE ENROLLMENT: validate each project's TARGET against ITS OWN tree's origin and build its
  *  runtime. A failed project is KEPT with `ok:false` + its reason — never dropped silently, so
@@ -60,6 +59,85 @@ function enroll(root: string, spec: ProjectSpec, host: string): Enrolled {
     return { spec, rt: createRuntime({ root, project: spec }), ok: true, reason: `DISARMED:no ${spec.tokenEnv}` };
   }
   return { spec, rt: createRuntime({ root, project: spec }), ok: true };
+}
+
+/** THE CYCLE FACTORY (exported for the test — SLOP-10). ONE cadence over N projects,
+ *  settle-all: a project that THROWS lands in ITS row with the error named, the count rises,
+ *  and every other project is untouched. The aggregate carries the legacy top-level fields
+ *  (so pre-existing readers keep working) PLUS the per-project rows. */
+export function makeCycle(enrolled: Enrolled[], root: string, next: () => number): () => Promise<void> {
+  // FIXED (the audit SLOP-09): the orchestrator had NO cycle-level re-entrancy guard. A cycle
+  // whose remote reads overran the interval overlapped the next one, so two cycles ran
+  // `next()` (two tick numbers for one interval) and interleaved the status write. Worse, the
+  // OLD synthetic row for an overrun was recorded `ok: e.ok` (true!) and NOT counted in
+  // `failed` — an overrunning cycle read GREEN. A concurrent call is now SKIPPED with a LOUD,
+  // honest row (`ok:false`, `CYCLE-IN-FLIGHT`, counted in `failed`), never a silent overlap.
+  let inFlight = false;
+  return async (): Promise<void> => {
+    if (inFlight) {
+      const rows: Record<string, ProjectStatusRow> = {};
+      for (const e of enrolled) {
+        rows[e.spec.id] = { ts: new Date().toISOString(), tick: 0, daemonOk: false, cursor: 0,
+          prNodes: 0, ready: 0, eligible: 0, planHash: null, planKind: "none", kicks: 0,
+          errors: ["CYCLE-IN-FLIGHT"], ok: false, error: "CYCLE-IN-FLIGHT: a previous cycle is still running" };
+      }
+      writeAggregate(root, { ts: new Date().toISOString(), tick: 0, daemonOk: false, cursor: 0,
+        prNodes: 0, ready: 0, eligible: 0, planHash: null, planKind: "none", kicks: 0,
+        errors: ["CYCLE-IN-FLIGHT"], projects: rows, failed: enrolled.length } as never);
+      console.error("cycle-skipped:CYCLE-IN-FLIGHT");
+      return;
+    }
+    inFlight = true;
+    try {
+    const n = next();
+    const settled = await Promise.allSettled(enrolled.map(async (e) => {
+      if (!e.ok) throw new Error(e.reason ?? "NOT-ENROLLED");
+      if (!e.rt) throw new Error("ENROLL-FAILED:no runtime");
+      return await e.rt.tick();
+    }));
+    const rows: Record<string, ProjectStatusRow> = {};
+    let failed = 0;
+    const errors: string[] = [];
+    for (let i = 0; i < settled.length; i++) {
+      const e = enrolled[i];
+      const r = settled[i];
+      if (r.status === "fulfilled") {
+        rows[e.spec.id] = e.reason
+          ? { ...r.value, ok: false, error: e.reason, errors: [...r.value.errors, `enrolled:${e.reason}`] }
+          : { ...r.value, ok: true };
+      } else {
+        failed += 1;
+        errors.push(`${e.spec.id}:${String(r.reason).slice(0, 120)}`);
+        const last = ((): RuntimeStatus | null => {
+          try { const q = projectStatusPath(root, e.spec.id); return existsSync(q) ? (JSON.parse(readFileSync(q, "utf8")) as RuntimeStatus) : null; }
+          catch { return null; }
+        })();
+        rows[e.spec.id] = {
+          ts: new Date().toISOString(), tick: last?.tick ?? 0, daemonOk: false, cursor: last?.cursor ?? 0,
+          prNodes: last?.prNodes ?? 0, ready: last?.ready ?? 0, eligible: last?.eligible ?? 0,
+          planHash: last?.planHash ?? null, planKind: last?.planKind ?? "none", kicks: 0,
+          errors: [`tick-threw:${String(r.reason).slice(0, 100)}`], ok: false, error: String(r.reason).slice(0, 200),
+        };
+      }
+    }
+    const all = Object.values(rows);
+    const sum = (f: (r: ProjectStatusRow) => number) => all.reduce((a, r) => a + f(r), 0);
+    const agg = {
+      ts: new Date().toISOString(), tick: n,
+      daemonOk: all.length > 0 && all.every((r) => r.daemonOk),
+      cursor: Math.max(0, ...all.map((r) => r.cursor)),
+      prNodes: sum((r) => r.prNodes), ready: sum((r) => r.ready), eligible: sum((r) => r.eligible),
+      planHash: all.length === 1 ? all[0].planHash : null,
+      planKind: (all.length > 0 && all.every((r) => r.planKind === "ok") ? "ok" : "none") as RuntimeStatus["planKind"],
+      kicks: sum((r) => r.kicks), errors,
+      projects: rows, failed,
+    };
+    writeAggregate(root, agg as never);
+    appendTick(root, { ts: agg.ts, tick: n, daemonOk: agg.daemonOk, cursor: agg.cursor,
+      prNodes: agg.prNodes, ready: agg.ready, eligible: agg.eligible,
+      planHash: null, planKind: agg.planKind, kicks: agg.kicks, errors });
+    } finally { inFlight = false; }
+  };
 }
 
 export async function main(): Promise<void> {
@@ -82,70 +160,25 @@ export async function main(): Promise<void> {
   });
 
   // THE CONCURRENT CYCLE. ONE cadence drives N projects; settle-all isolates them.
+  // FIXED (the audit SLOP-10): the orchestrator had ZERO functional coverage — no test could
+  // reach this cycle, and FOUR HIGH defects lived in this file. The cycle is now a NAMED,
+  // EXPORTED factory the tests drive directly.
   let cycle = 0;
-  const tickCycle = async (): Promise<void> => {
-    cycle += 1;
-    const settled = await Promise.allSettled(enrolled.map(async (e) => {
-      if (!e.ok) throw new Error(e.reason ?? "NOT-ENROLLED");
-      if (!e.rt) throw new Error("ENROLL-FAILED:no runtime");
-      return await e.rt.tick();
-    }));
-    const rows: Record<string, ProjectStatusRow> = {};
-    let failed = 0;
-    const errors: string[] = [];
-    for (let i = 0; i < settled.length; i++) {
-      const e = enrolled[i];
-      const r = settled[i];
-      if (r.status === "fulfilled") {
-        rows[e.spec.id] = { ...r.value, ok: e.ok };
-      } else {
-        // A REJECTED project is LOUD and CONTAINED: its row carries the error, the count
-        // rises, and the other projects are untouched.
-        failed += 1;
-        errors.push(`${e.spec.id}:${String(r.reason).slice(0, 120)}`);
-        // FIXED (the audit SLOP-03): readStatus(root) joins `runtime/status.json` onto its
-        // argument, so `${root}/runtime/${id}` resolved to `<root>/runtime/<id>/runtime/status.json`
-        // which NEVER exists — every rejection row reported tick=0/cursor=0. Read the project's
-        // own status file directly.
-        const last = ((): RuntimeStatus | null => {
-          try { const q = projectStatusPath(root, e.spec.id); return existsSync(q) ? (JSON.parse(readFileSync(q, "utf8")) as RuntimeStatus) : null; }
-          catch { return null; }
-        })();
-        rows[e.spec.id] = {
-          ts: new Date().toISOString(), tick: last?.tick ?? 0, daemonOk: false, cursor: last?.cursor ?? 0,
-          prNodes: last?.prNodes ?? 0, ready: last?.ready ?? 0, eligible: last?.eligible ?? 0,
-          planHash: last?.planHash ?? null, planKind: last?.planKind ?? "none", kicks: 0,
-          errors: [`tick-threw:${String(r.reason).slice(0, 100)}`], ok: false, error: String(r.reason).slice(0, 200),
-        };
-      }
-    }
-    // the top-level numbers are the FLEET SUM — the old shape keeps working.
-    const all = Object.values(rows);
-    const sum = (f: (r: ProjectStatusRow) => number) => all.reduce((a, r) => a + f(r), 0);
-    writeAggregate(root, {
-      ts: new Date().toISOString(), tick: cycle,
-      daemonOk: all.length > 0 && all.every((r) => r.daemonOk),
-      cursor: Math.max(0, ...all.map((r) => r.cursor)),
-      prNodes: sum((r) => r.prNodes), ready: sum((r) => r.ready), eligible: sum((r) => r.eligible),
-      planHash: all.length === 1 ? all[0].planHash : null,
-      planKind: all.length > 0 && all.every((r) => r.planKind === "ok") ? "ok" : "none",
-      kicks: sum((r) => r.kicks), errors,
-      projects: rows, failed,
-    });
-    // THE FLEET TICK LOG: the per-project logs are authoritative; this top-level row keeps the
-    // legacy reader (tickRowCount/ticksPath) and the drift sweep working on the fleet as a whole.
-    appendTick(root, { ts: new Date().toISOString(), tick: cycle,
-      daemonOk: all.length > 0 && all.every((r) => r.daemonOk), cursor: Math.max(0, ...all.map((r) => r.cursor)),
-      prNodes: sum((r) => r.prNodes), ready: sum((r) => r.ready), eligible: sum((r) => r.eligible),
-      // FIXED (the audit SLOP-04): hardcoded planKind:"ok" made the log the legacy reader,
-      // the drift sweep and the host heartbeat read report a GREEN PLAN in the very cycle the
-      // only project was DARK and failed (daemonOk=false + planKind=ok in ONE row). Derived.
-      planHash: null,
-      planKind: all.length > 0 && all.every((r) => r.planKind === "ok") ? "ok" : "none",
-      kicks: sum((r) => r.kicks), errors });
-  };
+  const tickCycle = makeCycle(enrolled, root, () => ++cycle);
 
-  const timer = setInterval(() => void tickCycle().catch((e) => console.error(`cycle-threw:${String(e).slice(0, 120)}`)), tickMs);
+  // FIXED (the audit SLOP-11): `tickMs` was documented and validated but INERT — consumed only
+  // by Runtime.start(), which main() never calls (main drives its OWN cycle). The fleet
+  // cadence now honours UPPER_TICK_MS; a per-project override applies only when EVERY project
+  // agrees on a value (a single cadence cannot honour N disagreeing intervals — the min wins,
+  // so no project is starved).
+  const projectTickMs = enrolled
+    .map((e) => e.spec.tickMs)
+    .filter((t): t is number => typeof t === "number" && Number.isFinite(t));
+  const effTickMs = projectTickMs.length === enrolled.length && enrolled.length > 0
+    ? Math.min(...projectTickMs)
+    : tickMs;
+  if (effTickMs !== tickMs) console.error(`tickMs-override:${tickMs}->${effTickMs} (the registry's per-project intervals)`);
+  const timer = setInterval(() => void tickCycle().catch((e) => console.error(`cycle-threw:${String(e).slice(0, 120)}`)), effTickMs);
 
   const armed = enrolled.filter((e) => e.ok && !e.reason).length;
   const disarmed = enrolled.filter((e) => e.ok && e.reason).length;
@@ -173,7 +206,6 @@ export async function main(): Promise<void> {
     process.on("SIGINT", () => void stop().catch((e) => { console.error(JSON.stringify({ error: String(e) })); process.exit(1); }));
   }
 
-  orchestratorStarted = true;
   await tickCycle();   // the first cycle runs NOW, not after one interval
   console.log(JSON.stringify({
     started: true, root, tickMs,
@@ -183,9 +215,6 @@ export async function main(): Promise<void> {
     status: statusPath(root), log: ticksPath(root),
   }));
 }
-
-/** Test/`import`-safety probe: has the orchestrator booted in THIS process? */
-export function isStarted(): boolean { return orchestratorStarted; }
 
 // a module must not boot a daemon on IMPORT (the test-hazard rule)
 if (import.meta.main) void main();

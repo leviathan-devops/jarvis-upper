@@ -1,3 +1,7 @@
+> **Status:** LIVE STANDARD — the mission contract for this branch
+> **Governed by:** itself (the branch's own package)
+> **Scope:** the DEFINITION OF DONE (the 8 clauses). UNIT TESTS ARE SLOP — the runtime IS the test.
+
 /goal JARVIS-UPPER KERNEL — FULL RUNTIME OPERATIONAL: THE GREEN MERGE
 
 ## MISSION

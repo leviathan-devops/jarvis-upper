@@ -48,15 +48,6 @@ export function writeAggregate(root: string, agg: AggregateStatus): void {
   renameSync(tmp, p);
 }
 
-/** Write a project's own status (atomic, in its own dir). */
-export function writeProjectStatus(root: string, id: string, s: RuntimeStatus): void {
-  const dir = join(root, "runtime", id);
-  mkdirSync(dir, { recursive: true });
-  const p = projectStatusPath(root, id);
-  const tmp = `${p}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, JSON.stringify(s, null, 2) + "\n", "utf8");
-  renameSync(tmp, p);
-}
 export function wireCapturePath(root: string): string { return join(root, "runtime/wire_capture.json"); }
 
 export function writeStatus(root: string, s: RuntimeStatus, projectId?: string): void {
@@ -72,7 +63,10 @@ export function writeStatus(root: string, s: RuntimeStatus, projectId?: string):
 
 // FIXED (the W24 ship gate LOW): declared ABOVE its only user (it was below — a TDZ hazard
 // on any module-init call).
-let lastRotateLogAt = 0;
+// FIXED (the audit SLOP-08): a single MODULE-LEVEL timestamp was shared by every project's
+// appendTick, so project A's rotation failure suppressed project B's for up to 60 s — the one
+// mutable state two concurrent ticks could touch. Throttled PER LOG now.
+const lastRotateLogAt = new Map<string, number>();
 
 export function appendTick(root: string, s: RuntimeStatus, projectId?: string): void {
   const dir = projectId ? join(root, "runtime", projectId) : join(root, "runtime");
@@ -80,13 +74,17 @@ export function appendTick(root: string, s: RuntimeStatus, projectId?: string): 
   const line = `${s.ts} tick=${s.tick} daemonOk=${s.daemonOk} cursor=${s.cursor} prNodes=${s.prNodes} planKind=${s.planKind} errors=${s.errors.length}`;
   const logPath = projectId ? projectTicksPath(root, projectId) : ticksPath(root);
   appendFileSync(logPath, line + "\n", "utf8");
-  // F54: rotation — truncate if log exceeds 10000 lines.
+  // F54: rotation — truncate when the log exceeds its byte CAP (below). The comment previously
+  // named "10000 lines"; the enforced bound is 1 MiB (≈11,439 short rows) — the two numbers
+  // disagreed (the audit SLOP-13). The bound is the BYTE cap, named once, below.
   // FIXED 2026-09-23 (ocr round-4 HIGH): the rotation read the ENTIRE file
   // synchronously on EVERY tick — O(n) per append, O(n^2) over the daemon's
   // life. A cheap statSync size check now gates the expensive read, so the full
   // read happens ONLY when the file is genuinely over the cap.
+  // FIXED (the audit SLOP-08): the throttle keys on the LOG PATH, so `tp` must be visible to
+  // the catch (it was declared INSIDE the try — a scope error the moment the key changed).
+  const tp = projectId ? projectTicksPath(root, projectId) : ticksPath(root);
   try {
-    const tp = projectId ? projectTicksPath(root, projectId) : ticksPath(root);
     const CAP_BYTES = 1024 * 1024; // ~1 MiB, well under 10000 short lines
     if (statSync(tp).size > CAP_BYTES) {
       // FIXED 2026-09-23 (qwen-code-audit high): split('\n') on a trailing-newline
@@ -105,7 +103,7 @@ export function appendTick(root: string, s: RuntimeStatus, projectId?: string): 
     // dir, full disk) retried each tick and NEVER surfaced. FIXED (the W15 ship gate LOW):
     // it then logged EVERY tick — throttle to once a minute.
     const now = Date.now();
-    if (now - lastRotateLogAt > 60_000) { lastRotateLogAt = now; console.error(`status-rotate-failed:${String(e).slice(0, 60)}`); }
+    if (now - (lastRotateLogAt.get(tp) ?? 0) > 60_000) { lastRotateLogAt.set(tp, now); console.error(`status-rotate-failed:${tp}:${String(e).slice(0, 60)}`); }
   }
 }
 

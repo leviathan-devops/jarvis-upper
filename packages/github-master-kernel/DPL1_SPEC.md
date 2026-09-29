@@ -1,3 +1,7 @@
+> **Status:** ACTIVE — the build spec under the goal pin
+> **Governed by:** GOAL_PIN_RUNTIME_OPERATIONAL.md
+> **Scope:** the component spec the goal pin's DoD is measured against.
+
 # DPL1 SPEC — THE GITHUB MASTER KERNEL: INDUSTRIAL-GRADE HARDENING + RUNTIME CAMPAIGN
 
 **TARGET (verbatim):** *"12 HOURS AUTONOMOUS FORWARD MOVEMENT ON THIS FULL FUCKING KERNEL BUILD
@@ -126,6 +130,19 @@ W1-W4 are DISJOINT and fire CONCURRENTLY; W5/W6 serialize behind them.
 Read, in order: `packages/github-master-kernel/DPL1_SPEC.md` (this) → `WAVE_PLAN.md` →
 `.trident/OCR_FINDINGS_DIGEST.md` → `.trident/ZERO_TRUST_AUDIT.md` → `context_management/`.
 The tracker: `.trident/wave-audit/`. The runtime ledger: `.trident/runtime-ledger.md`.
+
+## §8.5 THE MULTI-PROJECT REMEDIATION (the audit of 2026-09-29, anchored)
+
+The multi-project layer (N projects, one daemon) is specified in `packages/github-master-kernel/`
+and audited in `forensic/FAILURE_LEDGER_MULTIPROJECT.md`. The findings and their FIX SITES:
+
+| the finding | the fix | the anchor |
+|---|---|---|
+| HIGH D — the CLI read/wrote the ROOT store in fleet mode | every verb resolves via `resolveStorePath` | `src/projects.ts:152` |
+| the self-latch (CRITICAL A) — the publisher gated on its OWN outputs | `publishEligible` gates on the EXTERNAL gates only | `src/guardrail.ts:35` |
+| SLOP-10 — the orchestrator had ZERO functional coverage | the cycle is an exported factory the tests drive | `src/main.ts:68` |
+| HIGH H — enroll destroyed a foreign file silently | a differing target is backed up | `src/enroll.ts:56` |
+| the merge-path check (MERGE) | `guardrail` keeps the full gate set | `src/guardrail.ts:57` |
 
 ## §8 OPEN QUESTIONS (with the ruling)
 - **Q1: is W-1 deleted or generalized?** → RULING: GENERALIZE to the repo's real dist path if one

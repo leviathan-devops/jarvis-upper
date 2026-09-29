@@ -9,9 +9,9 @@ import { openStore } from "./store";
 import { syncPrs, type PrRow } from "./sync";
 import { listPrsFromAo } from "./adapter-verbs";
 import { orderMerges } from "./plan";
-import { guardrail, guardrailRemote, recordGatePass } from "./guardrail";
+import { guardrail, guardrailRemote, recordGatePass, publishEligible } from "./guardrail";
 import { fetchPrMerge, recordMerge, mergeRecorded } from "./merge-record";
-import { appendTick, writeStatus, writeProjectStatus, type RuntimeStatus } from "./status";
+import { appendTick, writeStatus, type RuntimeStatus } from "./status";
 import type { ProjectSpec } from "./projects";
 import { projectToken } from "./projects";
 import { EventRail, parseSse } from "../ao-client/rail";
@@ -456,7 +456,10 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
         // while gates/does_anything_run.sh and the frozen evidence read
         // `<root>/runtime/wire_capture.json`. The WIRE_DIR constant was declared with the
         // CORRECT base and a comment saying so, and never used.
-        const cap = await rails(db, project ? `${root}/runtime/${project.id}` : root);
+        // FIXED (the audit SLOP-12): WIRE_DIR was declared with the correct base and a comment
+        // saying so, and NEVER used — the inline literal below it was a second copy. The
+        // constant is now the single authority for "where this project's wire capture lives".
+        const cap = await rails(db, WIRE_DIR);
         // FIXED 2026-09-23 (muse HIGH): a NAMED failure is reported EVERY tick —
         // a dead rail can no longer hide as an idle stream behind daemonOk.
         if (cap.failed) errors.push(`rail-failed:${cap.failed}`);
@@ -506,7 +509,12 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
     // reports as merged lands a ledger row and advances to 'merged'. Idempotent: a
     // re-polling tick never double-records the same merge sha.
     if (publishOpts) {
-      const orderedRows = db.query("SELECT id, pr_number, head_sha, session_id FROM pr_node WHERE state='merge_ordered'").all() as
+      // FIXED (the audit, DoD clause 8 — MEASURED LIVE): this polled ONLY `merge_ordered`, but
+      // the sync's sticky-state CASE never advances a `ready_to_merge` row — so a PR that
+      // merged while locally ready (the exact live case: PR #2 merged at 2026-09-29T18:01:45Z
+      // as `ready_to_merge`) was INVISIBLE to the observer and its merge sha was never recorded.
+      // The observer now polls EVERY pre-merge state and advances to `merged`.
+      const orderedRows = db.query("SELECT id, pr_number, head_sha, session_id FROM pr_node WHERE state IN ('ready_to_merge','merge_ordered')").all() as
         { id: string; pr_number: number; head_sha: string | null; session_id: string | null }[];
       for (const r of orderedRows) {
         try {
@@ -525,8 +533,13 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
     // NEVER crash the tick: it is logged into errors[] and the tick continues.
     // Only eligible PRs publish (an ineligible PR has nothing to certify yet).
     if (publishOpts) {
+      // FIXED (the audit — CRITICAL A, THE SELF-LATCH): this used the FULL guardrail, which
+      // includes the gates THIS PROCESS publishes. The mirror writes those back before the
+      // read, so one transient failure (a SIGTERMed fence → exit 143) permanently disabled the
+      // publisher — the daemon could never clear the red it had published. The publisher gates
+      // on its INPUTS (the GitHub Actions jobs) only. `guardrail` still governs the merge order.
       const guardrailCache = new Map<string, boolean>();
-      const isEligible = (id: string) => { if (!guardrailCache.has(id)) guardrailCache.set(id, guardrail(db, id).ok); return guardrailCache.get(id)!; };
+      const isEligible = (id: string) => { if (!guardrailCache.has(id)) guardrailCache.set(id, publishEligible(db, id).ok); return guardrailCache.get(id)!; };
       // FIXED (ao-review-4 round 2 finding): the tick posted EVERY eligible PR on
       // EVERY tick (a 15s POST storm per PR). A (pr, head) is published ONCE: the
       // dedup is keyed on the head sha, so a NEW head publishes again but an

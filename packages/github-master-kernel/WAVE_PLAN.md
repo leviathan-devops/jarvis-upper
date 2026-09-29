@@ -1,3 +1,7 @@
+> **Status:** ACTIVE — the wave order under the goal pin
+> **Governed by:** GOAL_PIN_RUNTIME_OPERATIONAL.md
+> **Scope:** the execution waves.
+
 # WAVE PLAN — github-master-kernel (the industrial-grade hardening + runtime campaign)
 
 WAVES: 6

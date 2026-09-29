@@ -1,3 +1,7 @@
+> **Status:** ACTIVE — the design under the goal pin
+> **Governed by:** GOAL_PIN_RUNTIME_OPERATIONAL.md
+> **Scope:** the architecture the spec realizes.
+
 # BLUEPRINT — THE GITHUB MASTER KERNEL (jarvis-upper)
 
 ## §1 THE PURPOSE
