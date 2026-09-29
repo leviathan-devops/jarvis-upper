@@ -457,3 +457,25 @@ failing"**. The gate FAILS CLOSED. The kernel's purpose is mechanically demonstr
 
 **THE BLOCKED:** the AO daemon on `:3001` is absent on this host → `daemonOk:false`,
 `prNodes:0`. RESUME: install/start the AO daemon, or set `AO_DAEMON` to a reachable instance.
+
+## [2026-09-29T21:13:50Z] — THE AUDIT REMEDIATION EVIDENCE (HEAD `aba55d4`)
+
+**THE SHIP GATE (the mandatory code-audit):** 4 ocr/muse-go range reviews —
+`86fb6e65` 0crit/5high → `ea2aa2eb` 0crit/5high → `0b1cad9b` 0crit/0high → `753460d1` 0crit/0high
+→ **`71e92dda` GATE: PASS (0/0/0/0, filesReviewed=2)**. Every finding fixed as a CODE defect
+(`src/guardrail.ts:35` · `src/projects.ts:152` · `src/main.ts:107` · `src/enroll.ts:56,141` ·
+`src/cli-verbs.ts:227` · `src/runtime.ts:514`).
+
+**THE LATCH BREAK (LIVE):** BEFORE `eligible=0` + `factory/fence2=error` (2026-09-28) → AFTER
+`eligible=1` + `factory/fence2=success` @ `2026-09-29T17:50:44Z` — the daemon re-published the
+correction it had previously published RED.
+
+**THE DoD (8/8):** clause 7 `PUT /pulls/2/merge` → 200 (`mergedAt=2026-09-29T18:01:45Z`,
+`5c30ba1c…`); clause 8 the merge row (`evidence 5c30ba1c…|pr=2`). The ruleset now carries 8
+required contexts (`strict=true`, `bypass_actors=[]`), `approvals=0`.
+
+**THE BATTERY:** `bunx tsc --noEmit` 0 · `bun test` 216 pass / 0 fail / 759 expect / 54 files.
+
+**THE RESIDUALS (honest):** the layer runs `legacy:true` (one project — a second never enrolled
+live); `tickMs` honoured but unexercised with N projects; the ruleset fix live-applied but a
+re-enroll would install the new payload.

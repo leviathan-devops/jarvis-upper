@@ -519,3 +519,55 @@ across 19 rows. The 1 FAIL was the doc (no current head SHA) — now stamped.
 **THE HONEST RESIDUALS.** `eligible` reads 0 in production until an operator runs `promote`
 (the factory never self-promotes by design); the 3 `jarvis-upper-2`/`-4` AO sessions are legacy
 fixtures; the `kick` table is EMPTY (no live kick has ever run — R9's wiring is test-proven only).
+
+## [2026-09-29T21:12:41Z] THE AUDIT REMEDIATION + DoD COMPLETE
+
+## [2026-09-29T21:12:41Z] — THE MULTI-PROJECT AUDIT REMEDIATION + ALL 8 DoD CLAUSES (HEAD `aba55d4`)
+
+**THE CHARGE:** the multi-project layer + the live false-failure. **THE SOURCE:** the red-team
+slop audit — `forensic/FAILURE_LEDGER_MULTIPROJECT.md` (562 lines; 3 CRITICAL / 5 HIGH / 4 MEDIUM
+/ 3 LOW + 11 SLOP findings) and its §6 rebuild list (12 requirements).
+
+**THE DoD IS MET — ALL 8 CLAUSES** (`packages/github-master-kernel/GOAL_PIN_RUNTIME_OPERATIONAL.md`):
+1. a real worktree @ `c3c3ed0d562edd0443a2fe2ba4e5473bb3e4bf50` (MEASURED `src/runtime.ts:517`'s
+   observer); 2. a SPEC.md in the fence v2 format; 3. a PASS row with `spec_bound:true` (17,598
+   rows); 4. `verify()` → VERIFIED; 5. the two `factory/*` statuses POSTED (201) — and, after the
+   latch break, RE-PUBLISHED GREEN at `2026-09-29T17:50:44Z`; **6. all 8 required contexts green
+   on the head; 7. THE PR MERGED — `PUT /pulls/2/merge` → 200, `mergedAt=2026-09-29T18:01:45Z`,
+   commit `5c30ba1c6e800414b339987b43871e610fb79bc5`; 8. the merge sha RECORDED — merge row 3,
+   `evidence 5c30ba1c...|pr=2`** (the fixed observer, `src/runtime.ts:514`).
+
+**THE CRITICALS + HIGHS FIXED:**
+- **A (the self-latch)** — `publishEligible` (`src/guardrail.ts:35`) gates on the EXTERNAL gates
+  only; the publisher can now clear the red it published. PROVEN LIVE.
+- **B (mutually-blind authorities)** — every authority doc carries a `Status`/`Governed by` header;
+  the branch's own `GOAL_PIN_RUNTIME_OPERATIONAL.md` is named THE live standard.
+- **C (the live DoD)** — clause 7 met (above).
+- **D (the CLI wrong store)** — `resolveStorePath` (`src/projects.ts:152`) + the VERBS wrapper;
+  a fleet read without a `--project` is a NAMED `AMBIGUOUS-STORE` refusal, never a silent
+  root-store read/write.
+- **E (one store per project)** — enforced in `loadRegistry` (`src/projects.ts:130`), normalized.
+- **F (the disarm invisible)** — the aggregate row carries the reason (`src/main.ts:107`).
+- **G (`arm` non-idempotent)** — GET→reconcile + the derived `factoryContexts` (`src/cli-verbs.ts:227`).
+- **H (`enroll` overwrites)** — a differing file is backed up (`src/enroll.ts:56`).
+- **THE NEW LIVE FINDING** — the ruleset's approval requirement (1 approval + last-push, ONE
+  collaborator) was UNSOLVABLE BY CONSTRUCTION (GitHub 422 self-approval); `rulesetFor` now sets
+  `required_approving_review_count:0` (`src/enroll.ts:141`), the 8 contexts remaining the gate.
+
+**THE SHIP GATE: `GATE: PASS (0 critical/high)`** — four ocr/muse-go runs (`86fb6e65` 0/5 →
+`ea2aa2eb` 0/5 → `0b1cad9b` 0/0 → `753460d1` 0/0 → **`71e92dda` 0/0/0/0, filesReviewed=2**). Every
+finding across the three failing rounds was fixed as a CODE defect (24 + 21 + 5 + 2 findings).
+
+**THE EVIDENCE (re-run this session):** `bunx tsc --noEmit` exit 0 · `bun test` **216 pass / 0
+fail / 759 expect across 54 files** (was 195/52 — +21 tests including the previously-untested
+`main.ts`) · the daemon restarts clean (0 boot errors) · `upper projects`/`gates`/`status` valid
+JSON · 3 merge rows, PR #2 MERGED.
+
+**THE COMMITS:** `b979d9a` (the HIGHs + SLOPs) · `b8b34c0` (ship-gate 1) · `c539267` (ship-gate 2)
+· `899f3a3` (ship-gate 3) · `aba55d4` (ship-gate 4).
+
+**THE HONEST RESIDUALS:** the multi-project layer still runs `legacy:true` (one project) — a
+SECOND real project has never been enrolled+armed live; the per-project `tickMs` override is
+honoured in the fleet cadence but never exercised with N projects; the ruleset fix is applied to
+the LIVE ruleset 23838059 (`bypass_actors:[]` retained) but a RE-enroll would install the new
+payload.

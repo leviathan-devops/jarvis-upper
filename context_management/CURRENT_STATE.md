@@ -376,3 +376,12 @@ ledger) · `tests/w8_ship_gate_sweep.test.ts` · `tests/w9_runtime_seat.test.ts`
 
 **THE HONEST GAPS (unchanged in kind):** `eligible` reads 0 until an operator `promote` (by
 design); the `kick` rail has never run live; PR #2's non-pusher approval is operator-owned.
+
+## [2026-09-29T21:13:50Z] — THE CURRENT STATE (HEAD `aba55d4`, post-remediation)
+
+The kernel is **OPERATIONAL** and the **DoD is MET (8/8 clauses)**: `bun test` 216/0, `tsc` 0,
+the daemon `jarvis-upper.service` active + clean, the live PR #2 MERGED + recorded. THE SHIP
+GATE is `PASS (0/0/0/0)`. The multi-project layer is FIXED for the audit's 3C/5H/4M/3L + 11
+SLOPs; it remains `legacy:true` (a SECOND real project has never been enrolled+armed live —
+the one honest residual). NEXT: enroll+arm a second project to exercise the multi-project path,
+and run the ocr `scan` (whole-file) as a belt to the range review's braces.
