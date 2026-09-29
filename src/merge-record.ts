@@ -80,13 +80,20 @@ export function recordMerge(
   // (stat-then-unlink) is GONE — it could delete a fresh lock a concurrent holder had just made.
   // The wait is bounded and terminates with a LOUD false; a truly stale lock (a killed holder) is
   // cleared ONCE at the call site, not in a race-prone loop.
-  const dir = dirname(ledgerPath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  // FIXED (round-5 medium): mkdir is inside a try — an unwritable dir is a LOUD false, not a throw
+  // (only a corrupt-ledger throw propagates, per the contract).
+  try { const dir = dirname(ledgerPath); if (!existsSync(dir)) mkdirSync(dir, { recursive: true }); }
+  catch (e) { console.error(`merge-dir-failed:${String(e).slice(0, 60)}`); return false; }
   const lock = `${ledgerPath}.lock`;
   let fd: number | null = null;
   for (let i = 0; i < 100 && fd === null; i++) {
     try { fd = openSync(lock, "wx"); }
-    catch { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20); }
+    catch (e) {
+      // FIXED (round-5 low): EEXIST = a held lock (retry); ANY OTHER (EACCES/ENOTDIR) = permanent
+      // (fail fast — no ~2s Atomics.wait stall of the tick).
+      if ((e as { code?: string }).code !== "EEXIST") { console.error(`merge-lock-failed:${lock}:${String(e).slice(0, 40)}`); return false; }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    }
   }
   if (fd === null) { console.error(`merge-lock-timeout:${lock}`); return false; }
   // FIXED (round-4 HIGH): a corrupt/unreadable ledger (mergeRecorded THROWS meaning "must NOT

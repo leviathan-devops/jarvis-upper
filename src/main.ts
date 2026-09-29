@@ -191,7 +191,10 @@ export async function main(): Promise<void> {
   // FIXED (round-4 low): the per-project floor now REUSES the global authority (isValidTickMs) —
   // no second floor to drift. A DARK (never-ticking) enrollment is EXCLUDED from the cadence, so
   // a broken project's interval cannot drag the fleet's.
-  const resolved = enrolled.map((e) => {
+  // FIXED (round-5 medium): the cadence resolves over TICKING enrollments only — a DARK
+  // (ok:false, never-ticks) project's interval must not drag the fleet's.
+  const ticking = enrolled.filter((e) => e.ok && !e.reason);
+  const resolved = ticking.map((e) => {
     const t = e.spec.tickMs;
     if (t === undefined) return tickMs;
     if (!isValidTickMs(t)) { console.error(`tickMs-invalid:${e.spec.id}:${String(t)} — using the global ${tickMs}`); return tickMs; }

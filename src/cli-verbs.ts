@@ -107,9 +107,15 @@ export async function verbSync(root: string, arg?: string): Promise<VerbResult> 
   // throw there skipped the db cleanup path (and the error was not shaped as a
   // VerbResult). It is inside the try now.
   const projects = await listProjects();
-  // FIXED (round-4 medium): a typo'd project silently synced nothing (ok:true, prNodes:0). Named.
-  if (arg && projects.length > 0 && !projects.some((p) => p.name === arg || (p as { id?: string }).id === arg)) {
-    return emit(2, { ok: false, refused: "SYNC-NO-SUCH-PROJECT", project: arg.slice(0, 64), known: projects.map((p) => p.name).slice(0, 20) });
+  // FIXED (round-4 medium + round-5 medium ×2): a typo'd project silently synced nothing; the
+  // guard now runs even for an EMPTY fleet, and normalizes arg to the id the downstream filter
+  // (`s.projectId === arg`) actually uses — a matching NAME was passing the guard yet syncing 0.
+  if (arg) {
+    const match = projects.find((p) => p.name === arg || (p as { id?: string }).id === arg);
+    if (!match) return emit(2, { ok: false, refused: "SYNC-NO-SUCH-PROJECT", project: arg.slice(0, 64),
+      known: projects.map((p) => ({ name: p.name, id: (p as { id?: string }).id })).slice(0, 20),
+      knownCount: projects.length });
+    arg = (match as { id?: string }).id ?? match.name;
   }
   // FIXED (W26): listPrsFromAo returns { rows, partialErrors }.
   const ao = await listPrsFromAo({ project: arg });
@@ -321,7 +327,7 @@ export async function verbArm(root: string, arg?: string, ...rest: string[]): Pr
     return emit(0, { ok: true, armed: arg, repo: `${spec.owner}/${spec.repo}`, rulesetId: (body as { id?: number }).id, action: existing ? "updated" : "created", factoryContexts, contexts: nCtx });
   } catch (e) {
     // FIXED (round-4 low): a TIMEOUT is named distinctly from a generic throw.
-    const name = (e as { name?: string }).name;
+    const name = (e as { name?: string } | null | undefined)?.name;   // FIXED (round-5 medium): null-safe
     const refused = name === "TimeoutError" || name === "AbortError" ? "ARM-TIMEOUT" : "ARM-THREW";
     return emit(1, { ok: false, refused, id: arg, error: String(e).slice(0, 160) });
   }

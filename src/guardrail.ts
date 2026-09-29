@@ -108,7 +108,8 @@ export async function guardrailRemote(
   const safeSeg = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
   // FIXED 2026-09-23 (qwen-code-audit re-run REAL): a null/undefined sha crashed
   // at `.includes()` instead of returning an honest refusal.
-  if (typeof opts.owner !== "string" || typeof opts.repo !== "string" || !safeSeg.test(opts.owner) || !safeSeg.test(opts.repo)) {
+  // FIXED (round-5 low): a length cap (a megabyte-long owner/repo built a huge URL → DoS).
+  if (typeof opts.owner !== "string" || typeof opts.repo !== "string" || opts.owner.length > 100 || opts.repo.length > 100 || !safeSeg.test(opts.owner) || !safeSeg.test(opts.repo)) {
     return { ok: false, reasons: [`INVALID-OWNER-REPO:${String(opts.owner)}/${String(opts.repo)}`], missing: [...REQUIRED_CONTEXTS], states: {} };
   }
   // FIXED (the whole-file scan HIGH): the check was an allow-list INVERTED (only `/`, `..`, `\0`
@@ -125,7 +126,10 @@ export async function guardrailRemote(
   }
   const url = `${base}/repos/${encodeURIComponent(opts.owner)}/${encodeURIComponent(opts.repo)}/commits/${encodeURIComponent(opts.sha)}/statuses`;
   const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
-  if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
+  // FIXED (round-5 medium): a cleartext (http) endpoint would leak the token over the wire —
+  // `localhost` can resolve off-loopback via a misconfigured hosts/DNS. The token travels ONLY
+  // over https; an http (dev/mock) endpoint gets NO Authorization header.
+  if (opts.token && base.startsWith("https://")) headers.Authorization = `Bearer ${opts.token}`;
   // FIXED 2026-09-23 (ocr round-4 HIGH): fetchFn AND res.json() can both throw
   // (network error, AbortSignal timeout, invalid JSON). The function's contract
   // is to RETURN a RemoteEligibility — a throw breaks it and crashes any caller

@@ -13,6 +13,10 @@ const ROOT = join(import.meta.dir, "..");
 
 function putBug(id: string, dossierPath: string) {
   const db = openStore();
+  // FIXED (test isolation): the DELETE must clear a leftover `kick` row FIRST — the kick table's
+  // FK references bug_record, so a stale kick row made this DELETE throw SQLITE_CONSTRAINT_FOREIGNKEY
+  // and the test aborted BEFORE its own cleanup (delBug), leaving the state that broke the next run.
+  db.query("DELETE FROM kick WHERE bug_record = ?").run(id);
   db.query("DELETE FROM bug_record WHERE id = ?").run(id);
   db.query("INSERT INTO bug_record(id, dossier_path, origin_commit, origin_session, status, created_at) VALUES (?,?,?,?,?,?)")
     .run(id, dossierPath, "c0ffee", null, "open", 0);

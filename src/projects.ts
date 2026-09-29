@@ -11,6 +11,7 @@
 // projects.json, a log, or a status file.
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, isAbsolute, posix } from "node:path";
+import { isValidTickMs, MIN_TICK_MS } from "./runtime";
 
 export interface ProjectSpec {
   /** the stable project key — ALSO the AO project name the sync filters on. */
@@ -92,7 +93,9 @@ function checkProject(p: unknown, index: number): { ok: true; spec: ProjectSpec 
   if (typeof s.tokenEnv !== "string" || !/^[A-Z_][A-Z0-9_]*$/.test(s.tokenEnv)) return bad("tokenEnv must be an ENV VAR NAME (never the bytes)");
   if (typeof s.worktreeRoot !== "string" || !isAbsolute(s.worktreeRoot)) return bad("worktreeRoot must be an absolute path");
   if (typeof s.store !== "string" || !isAbsolute(s.store)) return bad("store must be an absolute path");
-  if (s.tickMs !== undefined && (typeof s.tickMs !== "number" || !Number.isFinite(s.tickMs) || s.tickMs < 1000)) return bad("tickMs must be a number >= 1000");
+  // FIXED (round-5 medium): the floor is the SHARED MIN_TICK_MS (was a hardcoded 1000 that could
+  // drift from runtime.ts's parseTickMs / isValidTickMs).
+  if (s.tickMs !== undefined && !isValidTickMs(s.tickMs)) return bad(`tickMs must be a number >= ${MIN_TICK_MS}`);
   return { ok: true, spec: {
     id: s.id, root: s.root as string, owner: s.owner as string, repo: s.repo as string,
     tokenEnv: s.tokenEnv, worktreeRoot: s.worktreeRoot as string, store: s.store as string,

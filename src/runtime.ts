@@ -31,6 +31,8 @@ export const DAEMON = (process.env.AO_DAEMON ?? "").trim() || "http://localhost:
  *  check share (round-4 low: two floors could drift). */
 export const MIN_TICK_MS = 1000;
 export function isValidTickMs(n: unknown): n is number { return typeof n === "number" && Number.isFinite(n) && n >= MIN_TICK_MS; }
+export const MIN_SHA_LEN = 1;
+export const MAX_SEG_LEN = 100;
 
 /** The bounded-concurrency value for the tick's per-row GitHub calls (the merge poll AND the
  *  publish). ONE constant so the two batching sites cannot drift (ship gate low). */

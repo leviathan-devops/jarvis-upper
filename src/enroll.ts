@@ -78,7 +78,11 @@ function copyOne(src: string, d: string, copied: string[], backedUp: string[], s
   // FIXED (round-4 HIGH): the DESTINATION could be a pre-created SYMLINK — existsSync/statSync/
   // copyFileSync all FOLLOW it, overwriting the link target (e.g. target/gates/x -> /etc/passwd).
   // lstatSync does not; a symlinked destination is SKIPPED, named.
-  try { if (existsSync(d) && lstatSync(d).isSymbolicLink()) { skipped.push(`${d} (destination symlink — not written)`); return; } } catch (e) { console.error(`enroll-dst-lstat:${d}:${String(e).slice(0, 40)}`); }
+  // FIXED (round-5 medium): `existsSync` FOLLOWS links and is FALSE for a DANGLING symlink, so
+  // the guard was skipped and the later copyFileSync followed the link, writing the outside
+  // target. lstat alone (ENOENT = not a symlink).
+  try { if (lstatSync(d).isSymbolicLink()) { skipped.push(`${d} (destination symlink — not written)`); return; } }
+  catch (e) { if ((e as { code?: string }).code !== "ENOENT") console.error(`enroll-dst-lstat:${d}:${String(e).slice(0, 40)}`); }
   if (existsSync(d)) {
     try {
       if (statSync(d).isFile() && !readFileSync(src).equals(readFileSync(d))) {
@@ -104,6 +108,9 @@ export function enroll(opts: EnrollOpts): EnrollResult {
   // FIXED (round-4 medium): typeof-guard + a LENGTH cap — `RegExp.test` coerces, but
   // `.includes("..")` THROWS on undefined/null/number, crashing enroll instead of refusing.
   const ID_OK = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+  // FIXED (round-5 medium): target/kernel typeof-guarded (isAbsolute throws on non-string).
+  if (typeof opts.target !== "string" || !isAbsolute(opts.target) || !existsSync(opts.target)) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-TARGET:${String(opts.target)} (must be an existing absolute path)` };
+  if (typeof opts.kernel !== "string" || !isAbsolute(opts.kernel) || !existsSync(opts.kernel)) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-KERNEL:${String(opts.kernel)}` };
   if (typeof opts.id !== "string" || !ID_OK.test(opts.id) || opts.id.includes("..")) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-ID:${String(opts.id)} (letters/digits/._- only, ≤64, no ..)` };
   if (typeof opts.repo !== "string" || !ID_OK.test(opts.repo) || opts.repo.includes("..")) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-REPO:${String(opts.repo)} (letters/digits/._- only, ≤64, no ..)` };
   if (typeof opts.owner !== "string" || !ID_OK.test(opts.owner)) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-OWNER:${String(opts.owner)}` };
@@ -167,9 +174,7 @@ export function enroll(opts: EnrollOpts): EnrollResult {
     store: join(opts.target, "runtime", opts.id, "store.sqlite"),
   };
   reg.projects = reg.projects.filter((p) => p.id !== opts.id).concat([spec]);
-  // FIXED (the whole-file scan medium): `wrote.push(regPath)` was UNCONDITIONAL — a dry-run
-  // claimed a registry write it never performed. Recorded ONLY when the write actually happens.
-  if (!dry) wrote.push(regPath);
+  // (the registry write is recorded AFTER a successful rename, below)
   // FIXED (the audit SLOP-14): this was the ONLY non-atomic state write in the tree — a
   // destructive read-modify-write of the operator's fleet file. A crash mid-write left a
   // TRUNCATED projects.json, which loadRegistry then reads as unparseable and falls back to the
@@ -185,6 +190,9 @@ export function enroll(opts: EnrollOpts): EnrollResult {
     try {
       writeFileSync(tmp, JSON.stringify(reg, null, 2) + "\n", { encoding: "utf8", flag: "wx" });
       renameSync(tmp, regPath);
+      // FIXED (round-5 medium): recorded ONLY after a SUCCESSFUL rename — a failed write no longer
+      // reports the registry as written.
+      wrote.push(regPath);
     } catch (e) {
       try { if (existsSync(tmp)) rmSync(tmp); } catch (err) { console.error(`enroll-tmp-cleanup-failed:${tmp}:${String(err).slice(0, 40)}`); }
       // FIXED (round-4 medium): a registry-write failure THREW instead of returning the
@@ -199,7 +207,10 @@ export function enroll(opts: EnrollOpts): EnrollResult {
   const copyFailed = skipped.some((s) => s.includes("COPY-FAILED"));
   // FIXED (round-4 medium): the regex missed the generic ".github/workflows (absent in the
   // kernel tree)" skip and used an unescaped `.`. Both covered (the `\.` escapes the dot).
-  const missingRequired = skipped.some((s) => /^(gates|\\.githooks) \(absent|\.github\/workflows/.test(s));
+  // FIXED (round-5 HIGH): the file carried a DOUBLE backslash (`\\.githooks` = a literal
+  // backslash + any char), so a missing `.githooks` never matched and enroll returned ok:true with
+  // the ruleset un-armable. The single-escaped `\.githooks` matches the literal dot.
+  const missingRequired = skipped.some((s) => /^(gates|\.githooks) \(absent|\.github\/workflows/.test(s));
   const reason = copyFailed ? "ENROLL-COPY-FAILED" : missingRequired ? "ENROLL-MISSING-REQUIRED" : undefined;
   return { ok: !copyFailed && !missingRequired, copied, skipped, wrote, backedUp, ...(reason ? { reason } : {}) };
 }
