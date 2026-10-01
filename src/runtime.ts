@@ -11,6 +11,8 @@ import { listPrsFromAo } from "./adapter-verbs";
 import { orderMerges } from "./plan";
 import { guardrail, guardrailRemote, recordGatePass, publishEligible } from "./guardrail";
 import { fetchPrMerge, recordMerge, mergeRecorded, isSha } from "./merge-record";
+// FIXED (the fix plan B1/B2): the target guard runs PER TICK, not once at construction.
+import { targetMatchesRemote, redactRemote } from "./target-guard";
 import { appendTick, writeStatus, type RuntimeStatus } from "./status";
 import type { ProjectSpec } from "./projects";
 import { projectToken } from "./projects";
@@ -35,6 +37,9 @@ export { MIN_TICK_MS, isValidTickMs, MAX_SEG_LEN } from "./limits";
 /** The bounded-concurrency value for the tick's per-row GitHub calls (the merge poll AND the
  *  publish). ONE constant so the two batching sites cannot drift (ship gate low). */
 const MERGE_POLL_CONC = 4;
+
+/** The GitHub host a project's origin must name (matches main.ts's resolve). */
+const TARGET_HOST = (process.env.UPPER_HOST ?? "").trim() || "github.com";
 
 /** The SSE capture ceiling. A buffer that hits it is TRUNCATED — a named failure,
  *  never a clean read (red-team audit W-12). */
@@ -63,6 +68,11 @@ export interface RuntimeDeps {
   rails?: (db: Database, root: string) => Promise<RailCapture>;
   now?: () => Date;
   tickMs?: number;
+  /** THE TARGET GUARD SEAM (the fix plan B2): the per-tick target check is injectable so a
+   *  fixture root (a temp dir with no remote) can test the OTHER machinery without being
+   *  refused. The default is the real guard. */
+  checkTarget?: (o: { root: string; owner: string; repo: string; host: string }) =>
+    { ok: boolean; reason?: string; remote: string };
   // W5 — the publish target. When present, the tick publishes the two
   // factory/* statuses for every eligible PR (sha/headSha are per-PR).
   publishOpts?: Omit<PublishVerdictForPrOpts, "sha" | "headSha">;
@@ -444,6 +454,32 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
     state.inFlight = true;
     try {
     state.tick += 1;
+
+    // ── THE TARGET GUARD — PER TICK (the fix plan B1/B2, both from live evidence) ──────────
+    // WAS: the check ran ONCE in main.ts's enroll(); a mismatch left rt:null, so rt.tick()
+    // NEVER ran — no retry, no per-tick record (the live project logged ONE row in two hours),
+    // and a remote added later required a daemon restart. NOW: the refusal is a RECORDED TICK —
+    // the status is written, the tick ADVANCES, and the next cadence re-checks. Add the remote
+    // and the project arms itself within one tick.
+    if (project) {
+      // FIXED (MEASURED LIVE 2026-10-02 — THE root cause of the whole TARGET-NO-ORIGIN saga):
+      // this passed `root` (the KERNEL's root, opts.root) instead of `project.root`. The guard
+      // therefore read the KERNEL tree's origin for EVERY project — so `jarvis-upper` passed by
+      // accident (its root IS the kernel root) while every OTHER project was refused with the
+      // kernel's own URL as the "mismatch". The tree under test is the PROJECT's.
+      const tgt = (deps.checkTarget ?? targetMatchesRemote)({ root: project.root, owner: project.owner, repo: project.repo, host: TARGET_HOST });
+      if (!tgt.ok) {
+        const s: RuntimeStatus = {
+          ts: now().toISOString(), tick: state.tick, daemonOk: true, reachable: false,
+          cursor: 0, prNodes: 0, ready: 0, eligible: 0, planHash: null, planKind: "none", kicks: 0,
+          errors: [`TARGET-NO-MATCH:${tgt.reason ?? "MISMATCH"} (this tree's origin is ${redactRemote(tgt.remote || "(none)")}, the registry names ${project.owner}/${project.repo})`],
+        };
+        writeStatus(root, s, project.id); appendTick(root, s, project.id);
+        last = s;
+        return s;
+      }
+    }
+
     const errors: string[] = [];
     const daemonOk = await probe();
 

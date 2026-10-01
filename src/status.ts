@@ -7,6 +7,11 @@ export interface RuntimeStatus {
   ts: string;
   tick: number;
   daemonOk: boolean;
+  /** THE TARGET VERDICT (the fix plan B2). `false` = this tree's origin does not name the
+   *  registered owner/repo, so the daemon REFUSES to gate it — but the tick still records.
+   *  `undefined` = not checked (the legacy no-project runtime). A project that adds its remote
+   *  later flips this to `true` on the NEXT tick, with no daemon restart. */
+  reachable?: boolean;
   cursor: number;
   prNodes: number;
   ready: number;
@@ -38,6 +43,10 @@ export interface AggregateStatus extends RuntimeStatus {
   projects: Record<string, ProjectStatusRow>;
   /** the count of projects whose tick REJECTED this cycle (a loud, top-level number). */
   failed: number;
+  /** FIXED (the fix plan B7): the FLEET's health, split from the DAEMON's. `daemonOk` means the
+   *  daemon + its runtimes ran; `projectsHealthy` means every project is armed AND reachable.
+   *  ONE misconfigured project no longer reads as a dead daemon. */
+  projectsHealthy?: boolean;
 }
 
 export function writeAggregate(root: string, agg: AggregateStatus): void {

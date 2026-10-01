@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStore } from "../src/store";
+import { resolveStorePath } from "../src/projects";
 import { dossierSha16 } from "../src/dossier";
 import { kick } from "../src/kick";
 
@@ -12,7 +13,7 @@ const HEAD40 = "b".repeat(40);
 const ROOT = join(import.meta.dir, "..");
 
 function putBug(id: string, dossierPath: string) {
-  const db = openStore();
+  const db = openStore(resolveStorePath(ROOT));
   // FIXED (test isolation): the DELETE must clear a leftover `kick` row FIRST — the kick table's
   // FK references bug_record, so a stale kick row made this DELETE throw SQLITE_CONSTRAINT_FOREIGNKEY
   // and the test aborted BEFORE its own cleanup (delBug), leaving the state that broke the next run.
@@ -23,7 +24,7 @@ function putBug(id: string, dossierPath: string) {
   db.close();
 }
 function delBug(id: string) {
-  const db = openStore();
+  const db = openStore(resolveStorePath(ROOT));
   db.query("DELETE FROM kick WHERE bug_record = ?").run(id);
   db.query("DELETE FROM bug_record WHERE id = ?").run(id);
   db.close();
@@ -32,7 +33,7 @@ function delBug(id: string) {
 // ── R1: the promote verb (the operator's step, now a supported command) ──────
 test("test_promote_open_row", async () => {
   const { verbPromote } = await import("../src/cli-verbs");
-  const db = openStore();
+  const db = openStore(resolveStorePath(ROOT));
   const id = "pr:w2-promote:1";
   db.query("DELETE FROM pr_node WHERE id = ?").run(id);
   db.query("INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state) VALUES (?,?,?,?,?,?)")
@@ -43,7 +44,7 @@ test("test_promote_open_row", async () => {
   expect(r.code).toBe(0);
   expect((r.out as { promoted?: string }).promoted).toBe(id);
 
-  const db2 = openStore();
+  const db2 = openStore(resolveStorePath(ROOT));
   const row = db2.query("SELECT state FROM pr_node WHERE id = ?").get(id) as { state: string };
   expect(row.state).toBe("ready_to_merge");
   db2.query("DELETE FROM pr_node WHERE id = ?").run(id);
@@ -52,7 +53,7 @@ test("test_promote_open_row", async () => {
 
 test("test_promote_refuses_non_open", async () => {
   const { verbPromote } = await import("../src/cli-verbs");
-  const db = openStore();
+  const db = openStore(resolveStorePath(ROOT));
   const id = "pr:w2-promote:2";
   db.query("DELETE FROM pr_node WHERE id = ?").run(id);
   db.query("INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state) VALUES (?,?,?,?,?,?)")
@@ -65,13 +66,13 @@ test("test_promote_refuses_non_open", async () => {
 
   // a missing row and a missing head_sha are their own named refusals
   expect((await verbPromote(ROOT, "pr:w2-absent:9")).out).toMatchObject({ refused: "NO-SUCH-PR" });
-  const db3 = openStore();
+  const db3 = openStore(resolveStorePath(ROOT));
   db3.query("INSERT INTO pr_node(id, project, pr_number, session_id, head_sha, state) VALUES (?,?,?,?,?,?)")
     .run("pr:w2-nosha:3", "w2", 3, "s-w2", null, "open");
   db3.close();
   expect((await verbPromote(ROOT, "pr:w2-nosha:3")).out).toMatchObject({ refused: "NO-HEAD-SHA" });
 
-  const db4 = openStore();
+  const db4 = openStore(resolveStorePath(ROOT));
   db4.query("DELETE FROM pr_node WHERE id = ?").run(id);
   db4.query("DELETE FROM pr_node WHERE id = ?").run("pr:w2-nosha:3");
   db4.close();
@@ -134,7 +135,7 @@ test("test_kick_direct_records_the_kick", async () => {
   const bid = "w2-bug-ok";
   putBug(bid, dir);
 
-  const db = openStore();
+  const db = openStore(resolveStorePath(ROOT));
   const res = await kick(db, {
     sessionAlive: async () => "dead" as const,
     send: async () => ({ ok: false }),

@@ -38,12 +38,17 @@ test("test_enroll_drops_the_full_enforcement_surface", () => {
 });
 
 test("test_enroll_writes_a_valid_registry_entry_the_daemon_can_load", () => {
+  // the kernel's registry BEFORE (it exists in the live multi-project state) — the seam must
+  // leave it byte-identical.
+  const KERNEL_REG_BEFORE = existsSync(registryPath(KERNEL)) ? readFileSync(registryPath(KERNEL), "utf8") : "";
   const proj = scratchProject("beta");
   const r = enroll({ kernel: KERNEL, target: proj, id: "beta", owner: "beta-org", repo: "beta-repo", tokenEnv: "BETA_TOKEN", registryFile: TMPREG });
   expect(r.ok).toBe(true);
   expect(existsSync(TMPREG)).toBe(true);
-  // the KERNEL's own registry is UNTOUCHED — the test seam holds
-  expect(existsSync(registryPath(KERNEL))).toBe(false);
+  // FIXED (the live-registry mess): the kernel now HAS a registry (2 live projects), so
+  // "absent" is the wrong assertion. The INTENT — the test seam does not touch it — is proven
+  // by UNCHANGED: the bytes before == the bytes after.
+  expect(readFileSync(registryPath(KERNEL), "utf8")).toBe(KERNEL_REG_BEFORE);
   const reg = { projects: JSON.parse(readFileSync(TMPREG, "utf8")).projects as { id: string; owner: string; repo: string; tokenEnv: string; root: string }[] };
   const found = reg.projects.find((p) => p.id === "beta");
   expect(found).toBeDefined();

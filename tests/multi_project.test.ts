@@ -28,7 +28,7 @@ test("test_multi_project_ticks_run_concurrently", async () => {
   const N = 3;
   const rts = Array.from({ length: N }, (_, i) => createRuntime({
     root, project: spec(root, `p${i}`), db: openStore(":memory:"),
-    deps: { probe: async () => { await Bun.sleep(120); return true; }, listPrs: async () => [], rails: async () => ({ frames: 0, bytes: 0, lastSeq: 0 }) },
+    deps: { probe: async () => { await Bun.sleep(120); return true; }, listPrs: async () => [], rails: async () => ({ frames: 0, bytes: 0, lastSeq: 0 }), checkTarget: () => ({ ok: true, remote: "git@github.com:some-org/x.git" }) },
   }));
   const t0 = Date.now();
   const settled = await Promise.allSettled(rts.map((rt) => rt.tick()));
@@ -44,7 +44,7 @@ test("test_one_project_failing_never_stops_the_others", async () => {
     root, project: spec(root, id), db: openStore(":memory:"),
     deps: {
       probe: async () => { if (boom) throw new Error("BOOM-PROBE"); return true; },
-      listPrs: async () => [], rails: async () => ({ frames: 0, bytes: 0, lastSeq: 0 }),
+      listPrs: async () => [], rails: async () => ({ frames: 0, bytes: 0, lastSeq: 0 }), checkTarget: () => ({ ok: true, remote: "git@github.com:some-org/x.git" }),
     },
   });
   const a = mk("alpha", false), b = mk("bravo", true), c = mk("charlie", false);
@@ -69,7 +69,7 @@ test("test_each_project_writes_its_own_status_and_nothing_else", async () => {
   const root = mkRoot();
   const rts = ["one", "two"].map((id) => createRuntime({
     root, project: spec(root, id), db: openStore(":memory:"),
-    deps: { probe: async () => true, listPrs: async () => [], rails: async () => ({ frames: 0, bytes: 0, lastSeq: 0 }) },
+    deps: { probe: async () => true, listPrs: async () => [], rails: async () => ({ frames: 0, bytes: 0, lastSeq: 0 }), checkTarget: () => ({ ok: true, remote: "git@github.com:some-org/x.git" }) },
   }));
   await Promise.all(rts.map((rt) => rt.tick()));
   for (const id of ["one", "two"]) {

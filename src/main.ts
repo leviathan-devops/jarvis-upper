@@ -48,17 +48,32 @@ let signalsWired = false;   // FIXED: our OWN registration flag, not the global 
  *  runtime. A failed project is KEPT with `ok:false` + its reason — never dropped silently, so
  *  the aggregate shows exactly which project is dark and why. */
 function enroll(root: string, spec: ProjectSpec, host: string): Enrolled {
-  const tgt = targetMatchesRemote({ root: spec.root, owner: spec.owner, repo: spec.repo, host });
-  if (!tgt.ok) {
-    return { spec, rt: createRuntime({ root, project: spec }), ok: false,
-      reason: `TARGET:${tgt.reason ?? "MISMATCH"} (this tree's origin is ${tgt.remote || "(unreadable)"}, the registry names ${spec.owner}/${spec.repo})` };
-  }
+  // FIXED (the fix plan B2): the TARGET check no longer runs here. It runs PER TICK inside the
+  // runtime, so (a) a mismatched tree still RECORDS every tick instead of dying dark, and
+  // (b) adding the remote later HEALS the project within one cadence — no daemon restart.
+  // This function now records only the DISARM state (a missing credential).
+  void host;   // the target check moved to runtime.tick() (TARGET_HOST there)
   if (!projectToken(spec)) {
     // the runtime handles the disarm (it logs project-disarmed); the enrollment records it
     // so the AGGREGATE carries the state rather than an empty error list.
     return { spec, rt: createRuntime({ root, project: spec }), ok: true, reason: `DISARMED:no ${spec.tokenEnv}` };
   }
   return { spec, rt: createRuntime({ root, project: spec }), ok: true };
+}
+
+/** THE PUBLISHER STATE — read from the per-project STATUS the first tick wrote (the fix plan B2:
+ *  the target check lives in the tick now, so the status file is the only truth). A target-refused
+ *  project reports NOT-ARMED + the named reason; an armed one reports ARMED:<owner>/<repo>. */
+function publisherState(root: string, e: Enrolled): string {
+  if (e.reason?.startsWith("DISARMED")) return e.reason;
+  try {
+    const p = projectStatusPath(root, e.spec.id);
+    if (existsSync(p)) {
+      const s = JSON.parse(readFileSync(p, "utf8")) as RuntimeStatus;
+      if (s.reachable === false) return `NOT-ARMED:${(s.errors[0] ?? "TARGET-UNVERIFIED").slice(0, 140)}`;
+    }
+  } catch (err) { console.error(`publisher-state-read:${e.spec.id}:${String(err).slice(0, 60)}`); }
+  return `ARMED:${e.spec.owner}/${e.spec.repo}`;
 }
 
 /** THE CYCLE FACTORY (exported for the test — SLOP-10). ONE cadence over N projects,
@@ -108,6 +123,12 @@ export function makeCycle(enrolled: Enrolled[], root: string, next: () => number
           // the rejected branch forces false — two failed paths disagreeing, so the aggregate's
           // `every(daemonOk)` could stay true with failed>0. Both failed paths agree now.
           rows[e.spec.id] = { ...r.value, daemonOk: false, ok: false, error: e.reason, errors: [...(r.value.errors ?? []), `enrolled:${e.reason}`] };
+        } else if (r.value.reachable === false) {
+          // FIXED (the fix plan B1): a target-refused tick is a RECORDED, honest red row —
+          // counted in `failed`, carrying the named reason, never a silent ok:true.
+          failed += 1;
+          errors.push(`${e.spec.id}:TARGET-UNVERIFIED`);
+          rows[e.spec.id] = { ...r.value, ok: false, error: r.value.errors[0] ?? "TARGET-UNVERIFIED" };
         } else {
           rows[e.spec.id] = { ...r.value, ok: true };
         }
@@ -137,6 +158,10 @@ export function makeCycle(enrolled: Enrolled[], root: string, next: () => number
       planKind: (all.length > 0 && all.every((r) => r.planKind === "ok") ? "ok" : "none") as RuntimeStatus["planKind"],
       kicks: sum((r) => r.kicks), errors,
       projects: rows, failed,
+      // FIXED (the fix plan B7): the FLEET's health, split from the daemon's. `daemonOk` stays
+      // the daemon+runtime signal; this is the per-project one. One misconfigured project no
+      // longer reads as a dead daemon.
+      projectsHealthy: all.every((r) => r.ok),
     };
     writeAggregate(root, agg as never);
     appendTick(root, { ts: agg.ts, tick: n, daemonOk: agg.daemonOk, cursor: agg.cursor,
@@ -231,11 +256,17 @@ export async function main(): Promise<void> {
   }
 
   await tickCycle();   // the first cycle runs NOW, not after one interval
+  // FIXED (the fix plan B2): the publisher state is READ FROM THE STATUS the first tick just
+  // wrote — the single source of truth now that the target check lives in the tick. A
+  // target-refused project reports NOT-ARMED:TARGET-NO-MATCH, never a false ARMED at boot.
+  const states = enrolled.map((e) => ({ id: e.spec.id, publisher: publisherState(root, e) }));
+  const armedN = states.filter((s) => s.publisher.startsWith("ARMED")).length;
+  const disarmedN = states.filter((s) => s.publisher.startsWith("DISARMED")).length;
   console.log(JSON.stringify({
     started: true, root, tickMs,
-    projects: enrolled.map((e) => ({ id: e.spec.id, publisher: e.ok && !e.reason ? `ARMED:${e.spec.owner}/${e.spec.repo}` : (e.reason?.startsWith("DISARMED") ? e.reason : `NOT-ARMED:${e.reason ?? "?"}`) })),
-    publisher: armed > 0 ? `ARMED:${enrolled.filter((e) => e.ok && !e.reason).map((e) => `${e.spec.owner}/${e.spec.repo}`).join(",")}` : "DISARMED:no-token",
-    counts: { armed, disarmed, dark, enrolled: enrolled.length, legacy: reg.legacy },
+    projects: states,
+    publisher: armedN > 0 ? `ARMED:${enrolled.filter((e) => publisherState(root, e).startsWith("ARMED")).map((e) => `${e.spec.owner}/${e.spec.repo}`).join(",")}` : "DISARMED:no-token",
+    counts: { armed: armedN, disarmed: disarmedN, dark: enrolled.length - armedN - disarmedN, enrolled: enrolled.length, legacy: reg.legacy },
     status: statusPath(root), log: ticksPath(root),
   }));
 }

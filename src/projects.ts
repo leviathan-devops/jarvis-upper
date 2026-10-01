@@ -201,6 +201,15 @@ export function resolveStorePath(root: string, env: Record<string, string | unde
     if (!p) throw new Error(`NO-PROJECT:${id} (known: ${reg.projects.map((x) => x.id).join(",") || "none"})`);
     return p.store;
   }
+  // FIXED (the live-registry mess, measured): with N projects, a bare `upper <verb>` from a
+  // project's OWN TREE was AMBIGUOUS — every existing CLI test + every operator call from the
+  // kernel root threw AMBIGUOUS-STORE. The NATURAL default: the project whose root IS the cwd
+  // (or its ancestor). Run from the kernel root → the kernel's own project; run from a build
+  // tree → that build. Only a cwd that names NO project is ambiguous, and then it is refused.
+  const cwd = process.cwd();
+  const owns = (p: string, c: string): boolean => c === p || c.startsWith(p.endsWith("/") ? p : `${p}/`);
+  const mine = reg.projects.filter((p) => owns(p.root, cwd));
+  if (mine.length === 1) return mine[0].store;
   // FIXED (round-4 medium): the registry-empty/broken refusal below is AFTER the explicit-id
   // branch, so an operator who names a project still gets a clear NO-PROJECT (not a generic
   // REGISTRY-EMPTY) — and a matching legacy id is not shadowed by the refusal.
