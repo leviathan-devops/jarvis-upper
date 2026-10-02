@@ -255,3 +255,26 @@ test("test_attach_refuses_private_free_early — a PRIVATE repo on a PRO plan pa
     expect(v.ok).toBe(true);       // a Pro account CAN carry a ruleset on a private repo
   } finally { globalThis.fetch = real; }
 });
+
+test("THE SEAT'S FINDING — a TRAILING-SLASH kernel root must NOT re-seed the legacy project", () => {
+  // measured live: the CLI's root is `…/jarvis-upper/` while the registry's entry is `…/jarvis-upper`
+  // — a raw `===` failed, so a non-dry attach wrote a DUPLICATE legacy row.
+  const k = "/kernel";
+  const withSlash = `${k}/`;
+  const legacy = legacyProject(withSlash, { HOME: "/h" } as never);
+  // the registry already covers the kernel (no trailing slash), and the SPEC is a DIFFERENT project
+  const reg: Registry = { projects: [{ ...legacy, root: k }] };
+  const spec = { id: "newproj", root: "/other", owner: "o", repo: "newproj", tokenEnv: "T", worktreeRoot: "/w", store: "/s.sqlite" };
+  const merged = mergeRegistry(reg, spec, withSlash, { HOME: "/h" } as never);
+  // exactly TWO: the covered legacy + the new spec — NOT a duplicated legacy
+  expect(merged.projects.filter((p) => p.id === legacy.id).length).toBe(1);
+  expect(merged.projects.length).toBe(2);
+});
+
+test("THE SEAT'S FINDING — a genuinely UNCOVERED kernel still seeds the legacy project", () => {
+  const k = "/kernel";
+  const spec = { id: "newproj", root: "/other", owner: "o", repo: "newproj", tokenEnv: "T", worktreeRoot: "/w", store: "/s.sqlite" };
+  const merged = mergeRegistry({ projects: [] }, spec, k, { HOME: "/h" } as never);
+  const legacy = legacyProject(k, { HOME: "/h" } as never);
+  expect(merged.projects.map((p) => p.id)).toContain(legacy.id);
+});

@@ -35,6 +35,11 @@ function readHooksPath(root: string): string {
   return r.exitCode === 0 ? (r.stdout?.toString().trim() || "") : "";
 }
 
+/** FIXED (the runtime seat's finding, H6): path comparison must be NORMALIZED. The CLI's kernel
+ *  root carries a TRAILING SLASH (`…/jarvis-upper/`) while the registry's entry does not — a raw
+ *  `===` therefore always failed, and a non-dry attach would write a DUPLICATE legacy row. */
+export const normRoot = (p: string): string => p.replace(/\/+$/, "");
+
 /** THE REGISTRY MERGE (pure — the guard's inspect and apply share it). Adds/updates the spec by
  *  id, PRESERVES every existing project, and SEEDS the env-legacy project when the file is new
  *  or when no entry points at the kernel's own root (the B6 kill). */
@@ -44,8 +49,8 @@ export function mergeRegistry(reg: Registry, spec: ProjectSpec, kernel: string, 
   // is new (or its entries do not cover the kernel), the env-legacy project is seeded so the
   // daemon never silently drops the project it has been serving.
   const kernelLegacy = legacyProject(kernel, env);
-  const covered = projects.some((p) => p.root === kernelLegacy.root);
-  if (!covered && spec.root !== kernelLegacy.root) projects.unshift(kernelLegacy);
+  const covered = projects.some((p) => normRoot(p.root) === normRoot(kernelLegacy.root));
+  if (!covered && normRoot(spec.root) !== normRoot(kernelLegacy.root)) projects.unshift(kernelLegacy);
   projects.push(spec);
   return { projects };
 }
@@ -213,8 +218,8 @@ export function realDeps(kernel: string, host = UPPER_ENV): AttachDeps {
         }
         const has = reg.projects.some((p) => p.id === o.id);
         const legacy = legacyProject(kernel, process.env);
-        const legacyCovered = reg.projects.some((p) => p.root === legacy.root);
-        if (!legacyCovered && o.root !== legacy.root) {
+        const legacyCovered = reg.projects.some((p) => normRoot(p.root) === normRoot(legacy.root));
+        if (!legacyCovered && normRoot(o.root) !== normRoot(legacy.root)) {
           return { needed: true, detail: `would add ${o.id} AND re-seed the legacy project ${legacy.id} (the registry does not cover the kernel's own tree)` };
         }
         return { needed: !has, detail: has ? `the entry ${o.id} is already present` : `would add ${o.id} (keeping all ${reg.projects.length} existing project(s))` };
