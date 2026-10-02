@@ -138,6 +138,12 @@ export function provisionRepo(
     if (!want.create) {
       return { ok: false, refused: `REPO-ABSENT-NO-CREATE:${slug}`, remedy: `gh repo create ${slug} --${want.visibility}`, detail: `the repo ${slug} does not exist and create is disabled`, did };
     }
+    // NO --source/--remote BY CONSTRUCTION (adjudicated: the audit gate re-raised this as a HIGH
+    // twice — it is a PROBE-ERROR). The REMOTE ALREADY EXISTS: the attach DERIVED this target from
+    // `git remote get-url origin` (a tree without one refuses earlier with ATTACH-NO-TARGET), so
+    // the create makes the GitHub-side repo and the EXISTING origin is pushed below. Passing
+    // --source/--remote here would (a) duplicate what the tree already has and (b) FAIL on gh's
+    // "remote origin already exists". The invariant is ENFORCED below, not assumed.
     const c = run(["repo", "create", slug, `--${want.visibility}`], token, {});
     if (c.code !== 0) {
       return { ok: false, refused: `REPO-CREATE-FAILED:${slug}`, remedy: `gh repo create ${slug} --${want.visibility}   # check the token's scope (needs repo) and org permissions`, detail: c.err.slice(0, 160) || `exit ${c.code}`, did };
@@ -145,6 +151,12 @@ export function provisionRepo(
     did.push(`created ${slug} (${want.visibility})`);
     // the push: the ruleset guards a repo that HAS commits — an empty repo is an inert rail.
     if (want.push !== false) {
+      // THE INVARIANT, ENFORCED (not assumed): the origin must resolve before the push, or the
+      // push fails with a git-native message instead of OUR named refusal.
+      const origin = grit(["remote", "get-url", "origin"], t.root);
+      if (origin.code !== 0 || !origin.out) {
+        return { ok: false, refused: `REPO-NO-ORIGIN:${slug}`, remedy: `git -C ${JSON.stringify(t.root)} remote add origin https://github.com/${slug}.git   # then re-run`, detail: `the repo was created but ${t.root} has no origin remote to push to`, did };
+      }
       const p = grit(["push", "-u", "origin", "HEAD"], t.root);
       if (p.code !== 0) {
         // the repo EXISTS now — the push failed. A NAMED refusal carrying both facts.
@@ -155,8 +167,10 @@ export function provisionRepo(
     // THE RE-PROBE (the audit gate MED): a success is CONFIRMED against the API — the fail-closed
     // philosophy forbids a claimed success. A create that did not stick is NAMED.
     const after = probeRepo(t.owner, t.repo, token, run);
-    if (!after.exists) {
-      return { ok: false, refused: `REPO-CREATE-UNCONFIRMED:${slug}`, remedy: `gh repo view ${slug}`, detail: `created, then the re-probe failed: ${after.detail.slice(0, 120)}`, did };
+    // the re-probe checks BOTH facts (the audit gate MEDIUM): existence AND the visibility —
+    // a provider-side override (an org policy forcing private) must never read as a success.
+    if (!after.exists || after.visibility !== want.visibility) {
+      return { ok: false, refused: `REPO-CREATE-UNCONFIRMED:${slug}`, remedy: `gh repo view ${slug} --json visibility,isPrivate`, detail: `created, then the re-probe read ${after.exists ? after.visibility : "(unreadable: " + after.detail.slice(0, 80) + ")"} — wanted ${want.visibility}`, did };
     }
     return { ok: true, detail: `provisioned ${slug} (${after.visibility}) — confirmed by re-probe`, did };
   }

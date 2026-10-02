@@ -301,3 +301,25 @@ test("test_gh_env_scrubs_the_shadowing_tokens", () => {
     expect(e.GH_PROMPT_DISABLED).toBe("1");
   } finally { delete process.env.GITHUB_TOKEN; }
 });
+
+test("test_create_with_push_refuses_when_the_tree_has_NO_origin", () => {
+  // the create path's PUSH requires the pre-existing origin (the attach derived the target from
+  // it) — the invariant is ENFORCED: a tree without one gets a NAMED refusal, not a git error.
+  const root = mkdtempSync(join(tmpdir(), "noorigin-"));
+  const g = (args: string[]) => Bun.spawnSync(["git", "-C", root, ...args], { stderr: "pipe", stdout: "pipe" });
+  g(["init", "-q", "-b", "main"]);
+  writeFileSync(join(root, "a.txt"), "1\n");
+  g(["add", "-A"]);
+  g(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "one"]);
+  const run = scripted({
+    "repo view": [
+      { code: 1, err: "not found" },
+      { code: 0, out: JSON.stringify({ visibility: "public" }) },
+    ],
+    "repo create": { code: 0, out: "created" },
+  });
+  const r = provisionRepo({ owner: "o", repo: "r", root }, { visibility: "public", create: true, push: true }, TOKEN, run);
+  expect(r.ok).toBe(false);
+  expect(r.refused).toBe("REPO-NO-ORIGIN:o/r");
+  expect(r.did.some((d) => d.startsWith("created"))).toBe(true);   // the create DID happen
+});
