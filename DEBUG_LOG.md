@@ -2069,3 +2069,38 @@ the battery 7 fail / 1 error.
 **VERIFICATION**: \`tsc\` exit 0 · 263 pass / 0 fail.
 
 **LESSON**: after every scripted edit, the typecheck IS the assertion — it caught it in seconds.
+
+---
+
+## 2026-10-02 — the FR-13 live campaign: five runtime finds, each fixed at its class
+
+**FIND 1 — the phantom gate rejected the kernel's own fixed code.** op8: the repo created, the
+push rejected (PHANTOM-DIFF on a legitimate runtime-verification commit). ROOT: CHECK 2 read the
+narration "The enroll wrote projects.json" as this commit's artifact claim. FIX: FIRING 010
+(tool-subject lines dropped). **FIND 2 — a SECOND commit fired**: the body QUOTED the fence's
+motivating example. FIX: FIRING 011 (quoted spans stripped; backticks stripped, content kept).
+**SWEEP: 250 commits → ZERO firings.**
+
+**FIND 3 — the fixed gate could not REACH the target.** op8b: `wiring: already present (noop)` —
+a present-but-DRIFTED carrier was skipped. ROOT: `inspectWiring` checked existence, never content.
+FIX: the drift law (byte comparison; "would update: <paths>") — op8c copied=17 backedUp=2.
+
+**FIND 4 — a DEAD-END remedy.** op9: ATTACH-HOOKS-INERT with the remedy "re-run to lay the
+wiring" — but the re-run RE-REFUSED (the plan refused at step 6 before the wiring could run).
+ROOT: the plan ignored its own apply order. FIX: the ORDER-AWARE hooks gate (the wiring's sequel);
+both halves pinned.
+
+**FIND 5 — the repo's OWN enforcement read as a failure.** op9b: "direct pushes to main are not
+permitted; open a PR" — branch protection WORKING. FIX: needsPr is an EXPECTED state (ok:true for
+the attach, the state NAMED); proven with a pre-receive hook emitting the exact GH006 text.
+
+**LESSON**: five finds, one shape — the kernel's model of "success" was narrower than reality.
+Each fix moved the model, not the message.
+
+---
+
+## 2026-10-02 — the commit-message overclaim, caught and corrected
+
+The FR-13 audit-fix commit said "285 pass"; the measured count then was 284. The NEXT commit's
+message carries the correction in-line. LESSON: a count in prose is a claim — take it from the
+run's own output, never from the previous run's memory.

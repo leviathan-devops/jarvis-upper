@@ -873,3 +873,24 @@ f2e8d344, scope=range \`5743d9a..952e0d0\`, filesReviewed=3, findings=4 (0 criti
 3 medium / 1 low). The 4 residuals were fixed in round 7 (the structured wrong-type channel).
 
 **AUDIT GATE: PASS (0 critical/high)** — session f2e8d344.
+
+---
+
+## 2026-10-02 — the attach v + FR-13: the full gate chain
+
+**L0** `bunx tsc --noEmit` → exit 0.
+**L1** `bun test` →  285 pass  0 fail (59 files).
+**L2 (the runtime seat — the numbered ops, each with a pre-registered expectation)**:
+  op1 the fleet 2/2 ok · op2 attach jev-fact-kernel → ATTACH-NO-REPO + the create remedy ·
+  op3 attach PLUTUS_VISION → ATTACH-PRIVATE-FREE-REPO + the remedy · op4 the hostile tree →
+  ATTACH-NOT-A-REPO · op5 attach twice → identical plans (mutations=3/3) · op6 a foreign .githooks
+  + a dangling symlink → no crash · op7 the starved kernel → `.githooks` NAMED, copied=1; the
+  wrong-typed kernel → copied=0, the disk CLEAN · op8/8b/8c/8d attach jev-fact-kernel → the repo
+  CREATED public, the phantom FPs fixed, the wiring drift updated (copied=17), **the push CLEARED
+  (ok=True)** · op9/9b/9c attach PLUTUS_VISION → the B3 hooks laid + asserted, the registry merged,
+  the PR-only push classified `needsPr` (ok=True).
+**L3 (the fleet)**: `enrolled=3 ok=jev-fact-kernel,jarvis-upper,PLUTUS_VISION issues=[]` · the daemon `jarvis-upper.service` active · runtime/status.json:
+all three ok=True.
+**THE N-AT-ONCE**: 3 concurrent attaches → the registry kept ALL entries (no lost update).
+**AUDIT GATE: PASS (0 critical/high)** — qwen-code-audit session 38cb141e, scope=range
+dc83b42..b7cb249, filesReviewed=1, 2 low fixed after at 0c6104c.

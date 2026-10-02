@@ -572,3 +572,36 @@ class, never the caller's**.
 - `AUDIT GATE: PASS (0 critical/high)` — session f2e8d344, scope=range 5743d9a..952e0d0
 
 **The seal**: the audit gate CLEARED. The v is COMPLETE.
+
+---
+
+## 2026-10-02 — FR-13 + the W-3 gate campaign + BOTH LIVE BUILDS ATTACHED
+
+**FR-13 (the operator's standing order)**: the kernel now OWNS repo existence + visibility —
+"make all repos public by default ... the kernel auto convert them ... handles the 2fa ... dont
+leave any stupid bs for me to have to manage." `src/repo-visibility.ts` (probeRepo +
+provisionRepo both directions + pushIfAhead + the gh/git seams); `attach` auto-provisions then
+RE-PLANS; `upper vis <id|path> --public|--private` is the explicit dial; the 2FA is a non-issue
+(a PAT bypasses interactive 2FA; `GH_PROMPT_DISABLED=1` makes a hang impossible).
+
+**THE LIVE ACCEPTANCE (the pin's FR-12/W5) — BOTH BUILDS ATTACHED**:
+- `jev-fact-kernel`: repo CREATED public + 250 commits PUSHED + wiring/hooks/registry landed
+  (op8d: ok=True, push.pushed=true).
+- `PLUTUS_VISION`: PUBLIC + wiring laid (copied=17) + hooks asserted (the B3 kill) + registry
+  merged; the push reports `needsPr` — its branch protection is working as designed (op9c).
+- THE FLEET: `armed:3 · enrolled:3 · dark:0` — all three `ok=True` from the daemon's own ticks.
+
+**THE W-3 GATE CAMPAIGN (the live finds)** — three false positives fixed + two new laws:
+- FIRING 010: a TOOL-SUBJECT narration ("The enroll wrote projects.json") is not the commit's
+  artifact claim. The full 250-commit sweep: 2 firings → 1 → **0**.
+- FIRING 011: a QUOTED claim is a REFERENCE (the gate flagged its OWN motivating test case).
+- THE WIRING DRIFT LAW: "present" ≠ "current" — `inspectWiring` now detects content drift, so a
+  fixed carrier REACHES an armed target (measured: the fixed gate could not land without it).
+- THE ORDER-AWARE HOOKS GATE (FR-5): the INERT refusal dead-ended ("re-run" re-refused) while the
+  wiring (step 5) runs BEFORE the hooks (step 6) and lays the chain — the sequel law.
+- FIRING 012: a PR-only push rejection is the repo's OWN enforcement — an EXPECTED state
+  (`needsPr`), never an attach failure.
+
+**THE NUMBERS (at 0c6104c)**: tsc exit 0 ·  285 pass  0 fail · the audit gate **PASS (0 critical/0
+high)** session 38cb141e over dc83b42..b7cb249 (+2 low message-polish fixed at 0c6104c) ·
+the N-at-once registry test: NO LOST UPDATE under 3 concurrent merges.
