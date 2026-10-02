@@ -427,10 +427,23 @@ export async function verbAttach(root: string, arg?: string, ...rest: string[]):
       return emit(2, { ok: false, refused: plan.refused, remedy: plan.remedy, target: plan.target, steps });
     }
     const res = await attachApply(plan, attachOpts, deps);
-    return emit(res.applied ? 0 : 2, {
-      ok: res.applied, attached: res.applied ? res.target.id : undefined, target: res.target,
+    // FR-13's TAIL: the operator banned the manual push ("dont leave any stupid bs for me to have
+    // to manage") — the attach pushes the branch when it is ahead, AFTER the wiring + hooks land,
+    // so the REMOTE carries what the local tree just received. Idempotent; a named refusal on fail.
+    let push: { pushed: boolean; detail: string } | undefined;
+    let pushRefused: { refused?: string; remedy?: string } = {};
+    if (res.applied) {
+      const { pushIfAhead } = await import("./repo-visibility");
+      const p = pushIfAhead(res.target.root);
+      push = { pushed: p.pushed, detail: p.detail };
+      if (!p.ok) pushRefused = { refused: p.refused, remedy: p.remedy };
+    }
+    return emit(res.applied && !pushRefused.refused ? 0 : 2, {
+      ok: res.applied && !pushRefused.refused, attached: res.applied ? res.target.id : undefined, target: res.target,
       action: res.mutations === 0 ? "noop" : "applied", report: res.report,
+      ...(push ? { push } : {}),
       ...(res.refused ? { refused: res.refused, remedy: res.remedy } : {}),
+      ...pushRefused,
     });
   } catch (e) {
     return emit(1, { ok: false, refused: "ATTACH-THREW", error: String(e).slice(0, 200) });

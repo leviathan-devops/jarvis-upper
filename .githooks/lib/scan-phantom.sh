@@ -35,6 +35,16 @@ scan_phantom() {
   # phantom — the check now skips those.
   local FILE_CLAIM_RE='\b(created|added|wrote|built|deployed)[[:space:]]+([^ ]+\.[a-z]{1,4})'
 
+  # FIRING 010 / FIXED (2026-10-02 — measured on jev-fact-kernel@49b4e2e, a legitimate
+  # runtime-verification commit with an 18-file diff that BLOCKED a live push): a claim whose
+  # grammatical SUBJECT is a TOOL or PROCESS — "The enroll wrote projects.json FRESH", "the daemon
+  # created store.sqlite" — is a RUNTIME NARRATION about what a program DID, not a claim that
+  # THIS COMMIT adds the file. The gate read it as a phantom because projects.json is absent from
+  # the tree (it lives in the kernel, a different repo). A first-person/implicit-subject claim
+  # ("created src/gate.ts") still fires. The claim's subject must be the commit — never a named
+  # tool. Lines carrying a tool-subject claim are dropped BEFORE the claim scan.
+  local TOOL_SUBJECT_RE='(the|a|an)[[:space:]]+[a-z0-9_.-]+[[:space:]]+(created|added|wrote|built|deployed)[[:space:]]'
+
   local ORPHANS=0
 
   # Resolve the range into individual commit SHAs.
@@ -64,7 +74,11 @@ scan_phantom() {
 
     # --- CHECK 2: claimed file creation but file does not exist ---
     BODY=$(git log -1 --format='%b' "$SHA" 2>/dev/null) || continue
-    if printf '%s\n' "$BODY" | grep -qiE "$FILE_CLAIM_RE"; then
+    # FIRING 010: a tool-subject narration line ("The enroll wrote projects.json") never reaches
+    # the claim scan — see TOOL_SUBJECT_RE.
+    local CLAIM_BODY
+    CLAIM_BODY=$(printf '%s\n' "$BODY" | grep -viE "$TOOL_SUBJECT_RE" || true)
+    if printf '%s\n' "$CLAIM_BODY" | grep -qiE "$FILE_CLAIM_RE"; then
       # Use process substitution to avoid subshell ORPHANS loss.
       while IFS= read -r match; do
         local CLAIMED_FILE
@@ -77,7 +91,7 @@ scan_phantom() {
           printf 'PHANTOM-DIFF:%s:%s (claimed %s does not exist)\n' "$SHA" "$SUBJECT" "$CLAIMED_FILE"
           ORPHANS=$((ORPHANS + 1))
         fi
-      done < <(printf '%s\n' "$BODY" | grep -oiE "$FILE_CLAIM_RE")
+      done < <(printf '%s\n' "$CLAIM_BODY" | grep -oiE "$FILE_CLAIM_RE")
     fi
   done
 

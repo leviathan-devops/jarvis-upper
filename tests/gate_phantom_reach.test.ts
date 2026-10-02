@@ -67,6 +67,39 @@ test("test_gate_phantom_diff", () => {
     const r = sh(`bash "${PHANTOM}" HEAD`, repo);
     expect(r.out).not.toContain("PHANTOM-DIFF:");
   }
+
+  // 4. POSITIVE (body): a FIRST-PERSON creation claim with an absent file -> FIRES
+  {
+    const repo = makeTempRepo();
+    writeFileSync(join(repo, "real.txt"), "x\n");
+    sh("git add real.txt", repo);
+    sh('git commit --allow-empty -m "feat: the wiring" -m "created src/ghost.ts and wired it"', repo);
+    const r = sh(`bash "${PHANTOM}" HEAD`, repo);
+    expect(r.out).toContain("PHANTOM-DIFF:");
+    expect(r.out).toContain("src/ghost.ts");
+  }
+
+  // 5. NEGATIVE (FIRING 010 — measured on jev-fact-kernel@49b4e2e, which BLOCKED a live push):
+  //    a TOOL-SUBJECT narration ("The enroll wrote projects.json") is a runtime description,
+  //    never this commit's artifact claim — the gate must stay SILENT.
+  {
+    const repo = makeTempRepo();
+    writeFileSync(join(repo, "real2.txt"), "x\n");
+    sh("git add real2.txt", repo);
+    sh('git commit --allow-empty -m "chore: the narrative" -m "The enroll wrote projects.json FRESH with ONE entry"', repo);
+    const r = sh(`bash "${PHANTOM}" HEAD`, repo);
+    expect(r.out).not.toContain("PHANTOM-DIFF:");
+  }
+
+  // 6. NEGATIVE: a claim whose file EXISTS in the tree -> silent (the original contract).
+  {
+    const repo = makeTempRepo();
+    writeFileSync(join(repo, "here.ts"), "export const z = 3;\n");
+    sh("git add here.ts", repo);
+    sh('git commit --allow-empty -m "chore: the narrative 2" -m "added here.ts to the tree"', repo);
+    const r = sh(`bash "${PHANTOM}" HEAD`, repo);
+    expect(r.out).not.toContain("PHANTOM-DIFF:");
+  }
 });
 
 // --- W-8: hardened claim-evidence (case-insensitive anchor) ---

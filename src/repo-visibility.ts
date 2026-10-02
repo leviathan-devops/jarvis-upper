@@ -167,3 +167,47 @@ export function resolveTargetForVis(
   if (byPath) return { owner: byPath.owner, repo: byPath.repo, root: byPath.root, host: byPath.host ?? "github.com" };
   return { error: `no project matches "${arg}" (known: ${reg.projects.map((p) => p.id).join(", ") || "none"})` };
 }
+
+/** PUSH THE LOCAL BRANCH WHEN IT IS AHEAD — the last manual act the operator banned ("dont leave
+ *  any stupid bs for me to have to manage"). The attach writes the wiring + hooks locally; without
+ *  the push the REMOTE has none of it and the ruleset guards nothing. Idempotent: an up-to-date
+ *  branch is a noop. A missing upstream ref = push with `-u`. Every failure is a NAMED refusal. */
+export function pushIfAhead(root: string): { ok: boolean; pushed: boolean; detail: string; refused?: string; remedy?: string } {
+  const g = (args: string[]): { code: number; out: string; err: string } => {
+    try {
+      const r = Bun.spawnSync(["git", "-C", root, ...args], { stderr: "pipe", stdout: "pipe" });
+      return { code: r.exitCode ?? -1, out: (r.stdout?.toString() ?? "").trim(), err: (r.stderr?.toString() ?? "").trim() };
+    } catch (e) {
+      console.error(`push-ahead-git-threw:${args[0] ?? "?"}:${String(e).slice(0, 60)}`);
+      return { code: -1, out: "", err: String(e).slice(0, 100) };
+    }
+  };
+  // FIXED (measured): `rev-parse --abbrev-ref HEAD` EXITS 128 on a repo with no commits
+  // ("unknown revision") — so the empty-repo case was misread as a detached HEAD. `symbolic-ref
+  // --short HEAD` resolves the branch from HEAD's symref and works on an empty repo; it fails
+  // exactly when there IS no branch (a truly detached HEAD).
+  const br = g(["symbolic-ref", "--short", "HEAD"]);
+  if (br.code !== 0 || !br.out) {
+    return { ok: false, pushed: false, detail: "the branch could not be resolved (a detached HEAD?)", refused: `REPO-PUSH-NO-BRANCH:${root}`, remedy: `git -C ${JSON.stringify(root)} switch -c main` };
+  }
+  const branch = br.out;
+  // A TREE WITH ZERO COMMITS CANNOT PUSH, and that is NOT a failure — it is a legitimate empty
+  // repo (measured: two attach tests init a bare-creating fixture with no commit; the push failed
+  // the WHOLE attach for a state that is perfectly valid). The first commit pushes later.
+  const head = g(["rev-parse", "--verify", "HEAD"]);
+  if (head.code !== 0) {
+    return { ok: true, pushed: false, detail: "no commits yet — nothing to push (the first commit will carry it)" };
+  }
+  const ahead = g(["rev-list", "--count", `origin/${branch}..HEAD`]);
+  if (ahead.code === 0 && ahead.out === "0") {
+    return { ok: true, pushed: false, detail: `origin/${branch} is up to date (noop)` };
+  }
+  // the remote ref may not exist yet — the count failed for that reason, not for a real error.
+  const push = g(["push", "-u", "origin", `HEAD:refs/heads/${branch}`]);
+  if (push.code !== 0) {
+    return { ok: false, pushed: false, detail: push.err.slice(0, 200) || `exit ${push.code}`, refused: `REPO-PUSH-FAILED:${branch}`, remedy: `git -C ${JSON.stringify(root)} push -u origin HEAD` };
+  }
+  const n = ahead.code === 0 ? ahead.out : "?";
+  return { ok: true, pushed: true, detail: `pushed ${n} commit(s) → origin/${branch}` };
+}
+

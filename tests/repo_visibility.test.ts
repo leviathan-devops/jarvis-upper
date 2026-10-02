@@ -3,7 +3,7 @@
 // (public→private) work, a missing credential is NAMED, and a probe FAILURE is never mistaken
 // for absence (the stale-substrate law: an empty result and a wrong-scope result differ bytes).
 import { test, expect } from "bun:test";
-import { provisionRepo, probeRepo, ghEnv, resolveTargetForVis, type GhRunner } from "../src/repo-visibility";
+import { provisionRepo, probeRepo, ghEnv, resolveTargetForVis, pushIfAhead, type GhRunner } from "../src/repo-visibility";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -177,3 +177,46 @@ test("test_provision_push_path_against_a_REAL_local_bare_remote", () => {
 });
 
 noop();
+
+test("test_push_if_ahead_pushes_then_noops", () => {
+  const root = mkdtempSync(join(tmpdir(), "ahead-src-"));
+  const bare = mkdtempSync(join(tmpdir(), "ahead-bare-"));
+  const g = (args: string[], cwd: string) => Bun.spawnSync(["git", "-C", cwd, ...args], { stderr: "pipe", stdout: "pipe" });
+  g(["init", "-q", "--bare", "-b", "main"], bare);
+  g(["init", "-q", "-b", "main"], root);
+  writeFileSync(join(root, "a.txt"), "1\n");
+  g(["add", "-A"], root);
+  g(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "one"], root);
+  g(["remote", "add", "origin", bare], root);
+
+  const first = pushIfAhead(root);
+  expect(first.ok).toBe(true);
+  expect(first.pushed).toBe(true);
+
+  const second = pushIfAhead(root);
+  expect(second.ok).toBe(true);
+  expect(second.pushed).toBe(false);
+  expect(second.detail).toContain("up to date");
+
+  // a NEW local commit → ahead again → pushed again
+  writeFileSync(join(root, "b.txt"), "2\n");
+  g(["add", "-A"], root);
+  g(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "two"], root);
+  const third = pushIfAhead(root);
+  expect(third.ok).toBe(true);
+  expect(third.pushed).toBe(true);
+  expect(third.detail).toContain("1 commit");
+});
+
+test("test_push_if_ahead_refuses_on_a_detached_head", () => {
+  const root = mkdtempSync(join(tmpdir(), "detach-"));
+  const g = (args: string[]) => Bun.spawnSync(["git", "-C", root, ...args], { stderr: "pipe", stdout: "pipe" });
+  g(["init", "-q", "-b", "main"]);
+  writeFileSync(join(root, "a.txt"), "1\n");
+  g(["add", "-A"]);
+  g(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "one"]);
+  g(["checkout", "-q", "--detach"]);
+  const r = pushIfAhead(root);
+  expect(r.ok).toBe(false);
+  expect(r.refused).toContain("REPO-PUSH-NO-BRANCH");
+});
