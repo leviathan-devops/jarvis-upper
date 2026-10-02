@@ -935,3 +935,37 @@ the 4 snapshot-path registry tests · the second-operator subagent test NOT run 
 
 **THE LEGAL STOP**: P0-P8 gates green ≡ the verb exists + both live builds attached + the audit
 PASS + the seal + this receipt. THE ONE OPEN ITEM: the pin's "SECOND OPERATOR" subagent test.
+
+---
+
+## 2026-10-02 — THE FINAL ACCEPTANCE SET (the pin's last items)
+
+**THE LEDGER GAINS A FENCE ROW FOR EACH (the pin's GOAL clause — MET)**: two fence jobs ran over
+the live builds via `JARVIS-CORE/b6/fence.sh` (bwrap sandbox):
+- `attach-jev-fact-kernel` → **PASS** (evidence `84e7b46306f9ba39|sandbox=bwrap`).
+- `attach-PLUTUS_VISION` → first `CHECK_FAILED:6` (MY spec's slug bug: the grep used the registry
+  ID `PLUTUS_VISION`, the origin says `plutus-vision` — the fence caught the mismatch) → fixed →
+  **PASS** (evidence `442d5e883cbac956|sandbox=bwrap`). Both rows are in
+  `JARVIS-CORE/b6/verdicts.jsonl`; the failed attempt is preserved (append-only).
+
+**THE SECOND OPERATOR (the pin's RUNTIME SEAT acceptance) — RUN, PASSED, ONE FIND**: a
+zero-context subagent, given ONLY `MASTER_PROMPT.md` + `DPL1_SPEC.md`, attached a scratch repo
+UNAIDED: recon → `--dry` (saw `wouldProvision`) → `--json` REFUSED → applied the remedy →
+`attach` exit 0 (`ok=true`, wiring 17, hooks asserted, registry merged). **THE FIND**: FR-9's own
+contract names `attach <path> --json`; the verb refused `--json` — a docs-vs-impl divergence,
+fixed at `59a07f1` (accepted as an explicit no-op; the stdout is JSON by default) + pinned.
+
+**THE HERMETICITY PROBE (the pin's L3/L4)**: the battery re-run in a FRESH container
+(`omp-ct:master`, plan-gated via the container-testing tool):
+- round 1 (only /work mounted): **275 pass / 1 skip / 9 fail**.
+- round 2 (+ JARVIS-CORE + ~/.omp + the worktrees mounted): **285 pass / 1 fail** — the +10 delta
+  PROVES the coupling mechanism (host substrates, FS-mounted).
+- the ONE residual: `test_preflight_refuses_no_spec` — it asserts the LIVE-runtime preflight
+  passes (the AO daemon :3001 + the systemd unit + the token) — a named live-runtime acceptance
+  test, structurally unmountable.
+- artifact: `artifacts/container-hermeticity-results.json`.
+
+**AUDIT GATE: PASS (0 critical/high)** — sessions 38cb141e + 0e7d78f2 (FM-13 code); the --json
+fix carries its own pinned test + this cycle's battery below.
+**THE BATTERY (at 581c054)**: `bunx tsc --noEmit` exit 0 · `bun test` **286 pass / 0 fail / 984
+expect / 59 files**.

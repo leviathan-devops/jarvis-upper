@@ -2104,3 +2104,20 @@ Each fix moved the model, not the message.
 The FR-13 audit-fix commit said "285 pass"; the measured count then was 284. The NEXT commit's
 message carries the correction in-line. LESSON: a count in prose is a claim — take it from the
 run's own output, never from the previous run's memory.
+
+---
+
+## 2026-10-02 — the second operator's find: the documented invocation refused
+
+**FINDING**: `bun src/cli.ts attach <scratch> --json` → `ATTACH-UNKNOWN-FLAG:--json`. FR-9 of the
+BINDING spec names exactly that invocation; the verb rejected it.
+**ROOT CAUSE**: the CLI's stdout is one JSON object BY DEFAULT, so `--json` was never implemented
+as a flag — but the spec's contract token was never reconciled with the implementation.
+**THE FINDER**: a ZERO-CONTEXT subagent following the docs verbatim (the acceptance test doing
+its job: the docs are the product, and a reader trusted them).
+**FIX**: `--json` joins the known flags as an explicit NO-OP (behavior unchanged); `vis` gains the
+token + an unknown-flag guard. **VERIFICATION**: the exact invocation re-run live (ok=true, 8
+steps) + a pinned test + the battery 286/0.
+
+**LESSON**: a spec's OWN example command is a contract with the reader. An acceptance test that
+follows the docs literally finds divergences no code review does.

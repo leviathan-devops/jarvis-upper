@@ -525,3 +525,13 @@ enrolled+armed live (legacy:true).
   (wiring 17 + hooks asserted + needsPr) · the fleet armed:3 all ok=True.
 - THE CHECKPOINT: JARVIS-CHECKPOINTS/attach-verb-audit-cleared @ fc2a9f0 (the full-tree seal).
 - THE ONE OPEN ITEM: the second-operator subagent test (recorded, not run).
+
+### 2026-10-02 · THE FINAL ACCEPTANCE SET
+- **THE LEDGER**: a fence row PER BUILD — attach-jev-fact-kernel PASS · attach-PLUTUS_VISION PASS
+  (after one honest CHECK_FAILED:6, my spec's slug bug, preserved append-only). The pin's GOAL
+  clause "the ledger gains a fence row for each" is MET.
+- **THE SECOND OPERATOR**: a zero-context subagent attached a scratch repo unaided; ONE find
+  (FR-9's `--json` refused) — fixed at 59a07f1 + pinned + re-run live.
+- **THE HERMETICITY PROBE**: fresh container 275/9 → +host mounts 285/1 (the mechanism PROVEN);
+  the ONE residual = the live-runtime preflight (named). Artifact: container-hermeticity-results.json.
+- **THE BATTERY**: 286 pass / 0 fail / 984 expect / 59 files at 581c054 · tsc exit 0.
