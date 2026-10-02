@@ -104,27 +104,15 @@ function copyOne(src: string, d: string, copied: string[], backedUp: string[], s
 export function copyKernelSurface(opts: { kernel: string; target: string; id: string; dry?: boolean }):
   { copied: string[]; skipped: string[]; backedUp: string[]; missingRequired: string[]; inputError?: string } {
   const dry = opts.dry === true;
-  // FIXED (the audit gate MEDIUM): the surface validation ran AFTER the copy loops — a
-  // file-where-a-dir-belongs threw inside readdirSync BEFORE missingRequired was ever computed,
-  // aborting the remaining artifacts. VALIDATE FIRST (the same law as the registry check).
-  const preMissing: string[] = [];
-  for (const d of TOP_DIRS) {
-    const p = join(opts.kernel, d);
-    let isDir = false;
-    try { isDir = existsSync(p) && statSync(p).isDirectory(); } catch (e) { console.error(`enroll-surface-stat:${p}:${String(e).slice(0, 40)}`); }
-    if (!isDir && existsSync(p)) preMissing.push(`${d} (not a directory)`);
-  }
-  for (const f of WORKFLOW_FILES) {
-    const p = join(opts.kernel, ".github", "workflows", f);
-    let isFile = false;
-    try { isFile = existsSync(p) && statSync(p).isFile(); } catch (e) { console.error(`enroll-surface-stat:${p}:${String(e).slice(0, 40)}`); }
-    if (!isFile && existsSync(p)) preMissing.push(`.github/workflows/${f} (not a file)`);
-  }
+  // THE ORDER (restructured by the audit gate's rounds 5-6): INPUTS → SURFACE (gating) → COPIES.
+  // Round 5 put the surface scan first, so `join(undefined)` threw before the input guards ran;
+  // round 6 found the scan recorded faults but did not GATE the copy. Both are the same law.
   // FIXED (the audit gate HIGH): this is a PUBLIC chokepoint now (`upper attach` calls it
   // directly), so it must validate its OWN inputs — `enroll()` used to be the only caller and
   // its checks do not protect a second one. An id with `..`/a slash, or a non-absolute target,
   // would write OUTSIDE the tree.
   const ID_OK = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+  // ── 1 · THE INPUTS (before ANY join/existsSync touches the filesystem) ──────────────────────
   // FIXED (the audit gate HIGH): `ID_OK.test` coerces, but `.includes` THROWS on undefined/null/
   // a number — so a non-string id crashed instead of returning the structured refusal.
   if (typeof opts.id !== "string" || !ID_OK.test(opts.id) || opts.id.includes("..")) {
@@ -138,6 +126,24 @@ export function copyKernelSurface(opts: { kernel: string; target: string; id: st
   const K = resolve(opts.kernel), T = resolve(opts.target);
   if (K === T || `${T}/`.startsWith(`${K}/`) || `${K}/`.startsWith(`${T}/`)) {
     return { copied: [], skipped: [], backedUp: [], missingRequired: [], inputError: `COPY-INPUT-INVALID: kernel and target overlap (${K})` };
+  }
+
+  // ── 2 · THE SURFACE (scanned ONCE, and it GATES the copy) ───────────────────────────────────
+  // FIXED (the audit gate HIGH ×2): the scan ran first (so `join(undefined)` threw before the
+  // input guards) and did not GATE (a file-where-a-dir-belongs still reached copyTree's
+  // readdirSync and threw ENOTDIR). A wrong-typed surface now REFUSES before any copy.
+  const preMissing: string[] = [];
+  const scan = (p: string, want: "dir" | "file", label: string): void => {
+    const ex = existsSync(p);   // ONE probe, reused below (no re-probe)
+    let ok = false;
+    try { ok = ex && (want === "dir" ? statSync(p).isDirectory() : statSync(p).isFile()); }
+    catch (e) { console.error(`enroll-surface-stat:${p}:${String(e).slice(0, 40)}`); }
+    if (!ok) preMissing.push(`${label}${ex ? ` (not a ${want})` : ""}`);
+  };
+  for (const d of TOP_DIRS) scan(join(opts.kernel, d), "dir", d);
+  for (const f of WORKFLOW_FILES) scan(join(opts.kernel, ".github", "workflows", f), "file", `.github/workflows/${f}`);
+  if (preMissing.some((m) => m.includes("(not a "))) {
+    return { copied: [], skipped: [], backedUp: [], missingRequired: preMissing, inputError: `COPY-SURFACE-WRONG-TYPE: ${preMissing.filter((m) => m.includes("(not a ")).join(", ")}` };
   }
   const copied: string[] = [], skipped: string[] = [], backedUp: string[] = [];
   // 1. the host gates
@@ -169,25 +175,8 @@ export function copyKernelSurface(opts: { kernel: string; target: string; id: st
   // workflow DIR but no gates.yml read as complete. The required FILES are checked too.
   // FIXED (the audit gate MEDIUM): existence-only let a FILE-where-a-dir-belongs pass and then
   // throw inside copyTree. The TYPE is checked (the same isFile/isDirectory discipline).
-  const missingRequired: string[] = [...preMissing];
-  for (const d of TOP_DIRS) {
-    const p = join(opts.kernel, d);
-    // FIXED (the audit gate LOW): the second existsSync RE-PROBED the filesystem and could
-    // mislabel a transient error as a type mismatch. One probe, reused.
-    const ex = existsSync(p);
-    let isDir = false;
-    try { isDir = ex && statSync(p).isDirectory(); } catch (e) { console.error(`enroll-surface-stat:${p}:${String(e).slice(0, 40)}`); }
-    if (!isDir && !preMissing.some((m) => m.startsWith(d))) missingRequired.push(`${d}${ex ? " (not a directory)" : ""}`);
-  }
-  for (const f of WORKFLOW_FILES) {
-    const p = join(opts.kernel, ".github", "workflows", f);
-    // FIXED (the audit gate MEDIUM): existence-only let a DIRECTORY-where-a-file-belongs pass and
-    // then throw inside the copier. The TYPE is checked.
-    let isFile = false;
-    try { isFile = existsSync(p) && statSync(p).isFile(); } catch (e) { console.error(`enroll-surface-stat:${p}:${String(e).slice(0, 40)}`); }
-    if (!isFile) missingRequired.push(`.github/workflows/${f}${existsSync(p) ? " (not a file)" : ""}`);
-  }
-  return { copied, skipped, backedUp, missingRequired };
+  // the scan above ALREADY computed the missing surface (ONE scan, no duplicate probes)
+  return { copied, skipped, backedUp, missingRequired: preMissing };
 }
 
 export function enroll(opts: EnrollOpts): EnrollResult {

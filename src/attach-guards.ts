@@ -107,7 +107,8 @@ function writeRegistryAtomic(path: string, reg: Registry): { ok: boolean; reason
         .map((x) => ({ id: x.id, root: x.root, owner: x.owner, repo: x.repo, tokenEnv: x.tokenEnv, worktreeRoot: x.worktreeRoot, store: x.store, tickMs: x.tickMs ?? null, enabled: x.enabled ?? true }))
         // FIXED (the audit gate MEDIUM): `localeCompare` is not a total byte order (it can return
         // 0 for distinct ids) — a plain code-unit comparison is deterministic everywhere.
-        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
+        // a total BYTE order (localeCompare can return 0 for distinct ids); no nested ternary.
+        .sort((a, b) => { if (a.id < b.id) return -1; if (a.id > b.id) return 1; return 0; }));
     if (canon(reg.projects) !== canon(back.projects as ProjectSpec[])) {
       return { ok: false, reason: `ATTACH-REGISTRY-ASSERT:${path} (the re-parse is not byte-faithful to the merge)` };
     }
@@ -130,7 +131,9 @@ export function realDeps(kernel: string, rawHost = UPPER_ENV): AttachDeps {
   // build the API base WITH the port while the remote-gate comparison uses the BARE hostname
   // (parseRemote returns `URL.hostname`, which drops the port).
   const raw = typeof rawHost === "string" ? rawHost : UPPER_ENV;
-  const hostPort = raw.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "") || "github.com";
+  // FIXED (the audit gate MEDIUM): the scheme strip was case-SENSITIVE (`HTTPS://…` kept its
+  // scheme). Case-insensitive now.
+  const hostPort = raw.trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "") || "github.com";
   // FIXED (the audit gate MEDIUM): `split(":")[0]` broke a bracketed IPv6 host (`[::1]:8080` →
   // "["). Parse the hostname properly via URL.
   const host = ((): string => {
@@ -139,7 +142,10 @@ export function realDeps(kernel: string, rawHost = UPPER_ENV): AttachDeps {
   })();
   // FIXED (the audit gate MEDIUM): the comparison used the UN-lowercased hostPort, so `GitHub.com`
   // built `https://GitHub.com/api/v3`. Compare the NORMALIZED bare host.
-  const apiBase = host === "github.com" ? "https://api.github.com" : `https://${hostPort}/api/v3`;
+  // FIXED (the audit gate LOW): the base used the RAW hostPort (original case + any path). The
+  // NORMALIZED host + the parsed port are used.
+  const port = ((): string => { const m = /:(\d+)$/.exec(hostPort); return m ? `:${m[1]}` : ""; })();
+  const apiBase = host === "github.com" ? "https://api.github.com" : `https://${host}${port}/api/v3`;
 
   /** THE SHARED HOOKS PREDICATE — ONE function used by BOTH the inspect and the apply's assert.
    *  FIXED (the audit gate HIGH): it was the object method `inspectHooks`, and the assert called
@@ -296,9 +302,16 @@ export function realDeps(kernel: string, rawHost = UPPER_ENV): AttachDeps {
       if (!pre.ok && pre.refused === "ATTACH-HOOKS-READ-FAILED") {
         return { ok: false, refused: pre.refused, remedy: pre.remedy, detail: pre.detail };
       }
-      const set = Bun.spawnSync(["git", "-C", o.root, "config", "core.hooksPath", ".githooks"], { stderr: "pipe", stdout: "pipe" });
+      // FIXED (the audit gate MEDIUM): the set itself was UNGUARDED (a spawn failure threw) and
+      // the remedy interpolated the raw path. Guarded + quoted.
+      let set: ReturnType<typeof Bun.spawnSync>;
+      try { set = Bun.spawnSync(["git", "-C", o.root, "config", "core.hooksPath", ".githooks"], { stderr: "pipe", stdout: "pipe" }); }
+      catch (e) {
+        console.error(`attach-hooks-set-threw:${o.root}:${String(e).slice(0, 50)}`);
+        return { ok: false, refused: "ATTACH-HOOKS-SET-FAILED", remedy: `git -C ${JSON.stringify(o.root)} config core.hooksPath .githooks`, detail: `the set threw: ${String(e).slice(0, 70)}` };
+      }
       if (set.exitCode !== 0) {
-        return { ok: false, refused: "ATTACH-HOOKS-SET-FAILED", remedy: `git -C ${o.root} config core.hooksPath .githooks`, detail: set.stderr?.toString().slice(0, 80) || `exit ${set.exitCode}` };
+        return { ok: false, refused: "ATTACH-HOOKS-SET-FAILED", remedy: `git -C ${JSON.stringify(o.root)} config core.hooksPath .githooks`, detail: set.stderr?.toString().slice(0, 80) || `exit ${set.exitCode}` };
       }
       // chmod the hooks executable (a fresh copy may not carry the bit).
       const dir = join(o.root, ".githooks");

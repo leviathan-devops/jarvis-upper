@@ -178,7 +178,7 @@ export async function attachPlan(opts: AttachOpts, deps: AttachDeps): Promise<At
   // FIXED (the audit gate HIGH): an UNGUARDED probe (a spawn failure, EACCES, ENOTDIR) escaped
   // as an exception — the SAME class just fixed for statSync. Guarded → a named refusal.
   let probed: OriginRead;
-  try { probed = deps.readOrigin(opts.path); }
+  try { probed = deps.readOrigin(opts.path) as OriginRead; }
   catch (e) {
     // W-13: a catch LOGS or RETHROWS — the failure is NAMED on stderr AND as a shaped refusal.
     console.error(`attach-origin-probe-failed:${opts.path}:${String(e).slice(0, 60)}`);
@@ -187,9 +187,18 @@ export async function attachPlan(opts: AttachOpts, deps: AttachDeps): Promise<At
       `git -C ${JSON.stringify(opts.path)} rev-parse --is-inside-work-tree   # the probe could not read the tree`);
     return finish(steps, deriveTarget(opts), opts);
   }
+  // FIXED (the audit gate LOW): an injected mock returning null/undefined was dereferenced
+  // OUTSIDE the try — a shape guard now names the fault instead of a TypeError.
+  if (!probed || typeof probed !== "object") {
+    console.error(`attach-origin-shape:${opts.path}`);
+    push(1, "preflight", false, "the origin probe returned a non-object", false, `ATTACH-ORIGIN-SHAPE:${opts.path}`, `git -C ${JSON.stringify(opts.path)} remote -v`);
+    return finish(steps, deriveTarget(opts), opts);
+  }
   // FIXED (the audit gate HIGH): `failed` was DECLARED but never CONSUMED — a transient probe
   // failure still surfaced as a plain not-a-repo. The discriminant is read here.
-  if (probed.failed) {
+  // FIXED (the audit gate MEDIUM): a present-but-EMPTY `failed` ("") was truthy-false and fell
+  // through as success. A PRESENCE check (fail closed).
+  if (probed.failed !== undefined && probed.failed !== null) {
     console.error(`attach-origin-unreadable:${opts.path}:${probed.failed}`);
     push(1, "preflight", false, probed.failed, false,
       `ATTACH-ORIGIN-UNREADABLE:${opts.path}`,
