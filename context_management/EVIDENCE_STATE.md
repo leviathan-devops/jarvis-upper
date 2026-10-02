@@ -517,3 +517,11 @@ enrolled+armed live (legacy:true).
 - **AUDIT GATE: PASS (0 critical/high)** — qwen-code-audit session f2e8d344,
   scope=range 5743d9a..952e0d0, findings 4 (0c/0h/3m/1l). Prior: 6h→2h→2h→1h→2h→2h.
 - HEAD 8788775 (the working tree clean).
+
+### 2026-10-02 · THE RECEIPT (the attach build's legal stop)
+- the baseline diff: 221/773/55 → **285/981/59**; the audit FAIL-DRIVEN (7 attach rounds + 3 FR-13 rounds).
+- **AUDIT GATE: PASS (0 critical/high)** — sessions 38cb141e + 0e7d78f2 (the 2 medium fixed at fc2a9f0).
+- **BOTH LIVE BUILDS ATTACHED**: jev-fact-kernel (created public + pushed) · PLUTUS_VISION
+  (wiring 17 + hooks asserted + needsPr) · the fleet armed:3 all ok=True.
+- THE CHECKPOINT: JARVIS-CHECKPOINTS/attach-verb-audit-cleared @ fc2a9f0 (the full-tree seal).
+- THE ONE OPEN ITEM: the second-operator subagent test (recorded, not run).

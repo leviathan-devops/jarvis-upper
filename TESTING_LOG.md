@@ -894,3 +894,44 @@ all three ok=True.
 **THE N-AT-ONCE**: 3 concurrent attaches → the registry kept ALL entries (no lost update).
 **AUDIT GATE: PASS (0 critical/high)** — qwen-code-audit session 38cb141e, scope=range
 dc83b42..b7cb249, filesReviewed=1, 2 low fixed after at 0c6104c.
+
+---
+
+## 2026-10-02 — THE LEGAL-STOP RECEIPT (the pin's P8)
+
+**THE BASELINE DIFF** (the pin's baseline a0fba3f → HEAD fc2a9f0):
+- tests 221 pass / 773 expect / 55 files → **285 pass / 981 expect / 59 files** (+64 tests).
+- the tree 26 src/*.ts → 29 (repo-visibility.ts is NEW); the audit campaign closed 7 rounds on
+  attach + 3 on FR-13 (every round a real defect).
+- **the pin's DoD: "the verb exists, both live builds attach through it, and the ledger gains a
+  fence row for each" → ALL THREE, LIVE (below).**
+
+**THE BATTERY**: `bunx tsc --noEmit` exit 0 · `bun test` **285 pass / 0 fail / 981 expect** (59 files).
+
+**THE AUDIT VERDICT**: `AUDIT GATE: PASS (0 critical/high)` —
+- session 38cb141e, scope=range dc83b42..b7cb249 (FR-13 + the gate campaign), 2 low fixed;
+- session 0e7d78f2, scope=range b7cb249..d8cb8ba (the docs), 2 medium fixed at fc2a9f0 (my own
+  last fix's nested ternaries — the gate caught the fixer).
+- BEFORE the PASS: the same range FAILed ×2 — every finding adjudicated + fixed, none waived.
+
+**THE RUNTIME LEDGER (the numbered seat ops, each with a pre-registered expectation)**:
+op1 fleet 2/2 → op2 jev-fact-kernel: ATTACH-NO-REPO + the create remedy → op3 PLUTUS_VISION:
+ATTACH-PRIVATE-FREE + the remedy → op4 hostile tree: ATTACH-NOT-A-REPO → op5 attach twice:
+identical plans → op6 foreign .githooks + dangling symlink: no crash → op7 starved kernel:
+`.githooks` named · wrong-typed kernel: copied=0, disk CLEAN → **op8/8b/8c/8d: the repo CREATED
+public, THREE gate false-positives fixed, the wiring drift corrected, the push CLEARED (ok=True)** →
+**op9/9b/9c: the B3 hooks laid + asserted, the registry merged, the PR-only push → `needsPr`
+(ok=True)** · THE N-AT-ONCE: 3 concurrent attaches, the registry kept all entries (no lost update).
+- **THE FIVE FINDS** (what RUNNING taught that READING could not): the phantom-gate tool-subject FP
+  (FIRING 010) · the quoted-example FP (FIRING 011) · the wiring "present ≠ current" drift law ·
+  the dead-end hooks remedy (the order-aware sequel, FR-5) · the PR-only rejection as an EXPECTED
+  state (FIRING 012).
+- **THE FLEET NOW**: `enrolled=3 · ok=jev-fact-kernel:True, jarvis-upper:True, PLUTUS_VISION:True`
+  from the daemon's own ticks; `armed:3 · dark:0`.
+
+**THE CHECKPOINT PATH**: `JARVIS-CHECKPOINTS/attach-verb-audit-cleared/` — HEAD `fc2a9f0`, the
+full-tree seal (git archive + node_modules + .git + CHECKPOINT_MANIFEST with the HONEST GAPS:
+the 4 snapshot-path registry tests · the second-operator subagent test NOT run · the audit scope).
+
+**THE LEGAL STOP**: P0-P8 gates green ≡ the verb exists + both live builds attached + the audit
+PASS + the seal + this receipt. THE ONE OPEN ITEM: the pin's "SECOND OPERATOR" subagent test.
