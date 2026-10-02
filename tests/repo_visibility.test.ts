@@ -10,12 +10,17 @@ import { join } from "node:path";
 
 const TOKEN = "ghp_test_token";
 
-/** A scripted runner: keyed by the args' first two words, recording every call. */
-function scripted(table: Record<string, { code: number; out?: string; err?: string }>, calls: string[] = []): GhRunner {
+/** A scripted runner: keyed by the args' first two words. A value MAY be a SEQUENCE — consumed
+ *  in order — because a mutator (create/edit) is followed by a RE-PROBE against the same key. */
+function scripted(table: Record<string, { code: number; out?: string; err?: string } | { code: number; out?: string; err?: string }[]>, calls: string[] = []): GhRunner {
+  const seq: Record<string, number> = {};
   return (args) => {
     const key = args.slice(0, 2).join(" ");
     calls.push([...args, `tok=${args.includes(TOKEN) ? 0 : 1}`].join(" "));
-    const hit = table[key] ?? { code: 1, err: `no script for "${key}"` };
+    const v = table[key];
+    if (v === undefined) return { code: 1, out: "", err: `no script for "${key}"` };
+    const hit = Array.isArray(v) ? (v[Math.min(seq[key] ?? 0, v.length - 1)] ?? v[v.length - 1]) : v;
+    seq[key] = (seq[key] ?? 0) + 1;
     return { code: hit.code, out: hit.out ?? "", err: hit.err ?? "" };
   };
 }
@@ -24,7 +29,10 @@ const noop = (): void => {};
 test("test_provision_creates_an_absent_repo_public", () => {
   const calls: string[] = [];
   const run = scripted({
-    "repo view": { code: 1, err: "HTTP 404: Not Found" },
+    "repo view": [
+      { code: 1, err: "HTTP 404: Not Found" },                                              // the probe
+      { code: 0, out: JSON.stringify({ visibility: "public" }) },                            // the RE-PROBE
+    ],
     "repo create": { code: 0, out: "created" },
   }, calls);
   const r = provisionRepo({ owner: "o", repo: "r", root: "/tmp" }, { visibility: "public", create: true, push: false }, TOKEN, run);
@@ -44,7 +52,10 @@ test("test_provision_refuses_absent_when_create_disabled", () => {
 test("test_provision_flips_private_to_public_the_operator_default", () => {
   const calls: string[] = [];
   const run = scripted({
-    "repo view": { code: 0, out: JSON.stringify({ visibility: "private", isPrivate: true }) },
+    "repo view": [
+      { code: 0, out: JSON.stringify({ visibility: "private", isPrivate: true }) },
+      { code: 0, out: JSON.stringify({ visibility: "public" }) },
+    ],
     "repo edit": { code: 0 },
   }, calls);
   const r = provisionRepo({ owner: "o", repo: "r", root: "/tmp" }, { visibility: "public", create: true }, TOKEN, run);
@@ -57,7 +68,10 @@ test("test_provision_flips_private_to_public_the_operator_default", () => {
 test("test_provision_flips_public_to_private_the_mirror_case", () => {
   const calls: string[] = [];
   const run = scripted({
-    "repo view": { code: 0, out: JSON.stringify({ visibility: "public", isPrivate: false }) },
+    "repo view": [
+      { code: 0, out: JSON.stringify({ visibility: "public", isPrivate: false }) },
+      { code: 0, out: JSON.stringify({ visibility: "private" }) },
+    ],
     "repo edit": { code: 0 },
   }, calls);
   const r = provisionRepo({ owner: "o", repo: "r", root: "/tmp" }, { visibility: "private", create: false }, TOKEN, run);
@@ -124,9 +138,11 @@ test("test_provision_refuses_with_no_owner_repo", () => {
 test("test_probe_reports_absent_only_on_a_not_found", () => {
   const absent = probeRepo("o", "r", TOKEN, scripted({ "repo view": { code: 1, err: "HTTP 404: Not Found" } }));
   expect(absent.exists).toBe(false);
+  expect(absent.absent).toBe(true);                 // the STRUCTURED fact (not a substring)
   expect(absent.detail).toContain("does not exist");
   const failed = probeRepo("o", "r", TOKEN, scripted({ "repo view": { code: 1, err: "HTTP 500" } }));
   expect(failed.exists).toBe(false);
+  expect(failed.absent).toBe(false);                // a FAILURE is never absence
   expect(failed.detail).toContain("probe failed");
 });
 
@@ -165,7 +181,10 @@ test("test_provision_push_path_against_a_REAL_local_bare_remote", () => {
   g(["remote", "add", "origin", bare], root);
 
   const run = scripted({
-    "repo view": { code: 1, err: "not found" },
+    "repo view": [
+      { code: 1, err: "not found" },
+      { code: 0, out: JSON.stringify({ visibility: "public" }) },
+    ],
     "repo create": { code: 0, out: "created" },
   });
   const r = provisionRepo({ owner: "o", repo: "r", root }, { visibility: "public", create: true, push: true }, TOKEN, run);
@@ -244,4 +263,41 @@ test("test_push_needs_pr_is_an_expected_state_never_a_failure", () => {
   expect(r.needsPr).toBe(true);
   expect(r.detail).toContain("requires a PR");
   expect(r.remedy).toContain("gh pr create");
+});
+
+
+test("test_create_is_UNCONFIRMED_when_the_reprobe_disagrees", () => {
+  const run = scripted({
+    "repo view": [
+      { code: 1, err: "not found" },                                    // the probe: absent
+      { code: 1, err: "HTTP 502: Bad Gateway" },                        // the re-probe: FAILS
+    ],
+    "repo create": { code: 0, out: "created" },
+  });
+  const r = provisionRepo({ owner: "o", repo: "r", root: "/tmp" }, { visibility: "public", create: true, push: false }, TOKEN, run);
+  expect(r.ok).toBe(false);                                           // a claimed success is FORBIDDEN
+  expect(r.refused).toBe("REPO-CREATE-UNCONFIRMED:o/r");
+});
+
+test("test_flip_is_UNCONFIRMED_when_the_visibility_did_not_stick", () => {
+  const run = scripted({
+    "repo view": [
+      { code: 0, out: JSON.stringify({ visibility: "private" }) },
+      { code: 0, out: JSON.stringify({ visibility: "private" }) },     // the flip did NOT stick
+    ],
+    "repo edit": { code: 0 },                                          // the API said ok…
+  });
+  const r = provisionRepo({ owner: "o", repo: "r", root: "/tmp" }, { visibility: "public", create: true }, TOKEN, run);
+  expect(r.ok).toBe(false);
+  expect(r.refused).toBe("REPO-VISIBILITY-UNCONFIRMED:o/r");
+});
+
+test("test_gh_env_scrubs_the_shadowing_tokens", () => {
+  process.env.GITHUB_TOKEN = "stale-shadow";
+  try {
+    const e = ghEnv(TOKEN);
+    expect(e.GH_TOKEN).toBe(TOKEN);
+    expect(e.GITHUB_TOKEN).toBeUndefined();          // the shadow is scrubbed
+    expect(e.GH_PROMPT_DISABLED).toBe("1");
+  } finally { delete process.env.GITHUB_TOKEN; }
 });

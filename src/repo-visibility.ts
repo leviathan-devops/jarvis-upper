@@ -25,6 +25,9 @@ export type Visibility = "public" | "private";
 export interface RepoState {
   exists: boolean;
   visibility: Visibility | null;
+  /** STRUCTURED absence (the audit gate LOW): absence is a FACT, never a substring of `detail` —
+   *  the old `detail.includes("does not exist")` coupling would flip silently on a wording change. */
+  absent: boolean;
   /** the probe's raw detail (the gh stderr on a failure path). */
   detail: string;
 }
@@ -44,22 +47,21 @@ export interface GhRunner {
 }
 
 /** THE NON-INTERACTIVE ENV. `GH_PROMPT_DISABLED=1` is the guarantee: gh can NEVER block on a
- *  prompt (a hang is the worst failure — no evidence, no refusal, no remedy). */
+ *  prompt (a hang is the worst failure — no evidence, no refusal, no remedy). The audit gate MED:
+ *  `GITHUB_TOKEN`/`GH_ENTERPRISE_TOKEN` are DELETED so no stale token can shadow GH_TOKEN. */
 export function ghEnv(token: string, extra: Record<string, string> = {}): Record<string, string> {
-  return {
-    ...process.env as Record<string, string>,
-    GH_TOKEN: token,
-    GH_PROMPT_DISABLED: "1",
-    NO_COLOR: "1",
-    CLICOLOR: "0",
-    ...extra,
-  };
+  const env = { ...process.env as Record<string, string> };
+  delete env.GITHUB_TOKEN;
+  delete env.GH_ENTERPRISE_TOKEN;
+  return { ...env, GH_TOKEN: token, GH_PROMPT_DISABLED: "1", NO_COLOR: "1", CLICOLOR: "0", ...extra };
 }
 
-/** A GUARDED `gh` spawn — never throws; a spawn failure is a code -1 with the reason on stderr. */
+/** A GUARDED `gh` spawn — never throws; a spawn failure is a code -1 with the reason on stderr.
+ *  THE CWD (the audit gate HIGH): `cwd: "/"` — gh must NEVER inherit the caller's process cwd, so
+ *  a `gh repo create` can never pick up the invoking tree's git context by accident. */
 export const ghRun: GhRunner = (args, token, env) => {
   try {
-    const r = Bun.spawnSync(["gh", ...args], { env: { ...ghEnv(token), ...env }, stderr: "pipe", stdout: "pipe" });
+    const r = Bun.spawnSync(["gh", ...args], { cwd: "/", env: { ...ghEnv(token), ...env }, stderr: "pipe", stdout: "pipe" });
     return { code: r.exitCode ?? -1, out: (r.stdout?.toString() ?? "").trim(), err: (r.stderr?.toString() ?? "").trim() };
   } catch (e) {
     console.error(`repo-vis-gh-threw:${args[0] ?? "?"}:${String(e).slice(0, 60)}`);
@@ -67,16 +69,32 @@ export const ghRun: GhRunner = (args, token, env) => {
   }
 };
 
+/** THE GIT RUNNER SEAM (the audit gate MED ×2 + LOW): ONE injectable runner for every git call in
+ *  this module — the create-push, the visibility re-probe's tree ops, and pushIfAhead. The tests
+ *  inject a fake; the production default spawns with `-C root` (never the process cwd). */
+export interface GitRunner {
+  (args: string[], root: string): { code: number; out: string; err: string };
+}
+export const gitRun: GitRunner = (args, root) => {
+  try {
+    const r = Bun.spawnSync(["git", "-C", root, ...args], { stderr: "pipe", stdout: "pipe" });
+    return { code: r.exitCode ?? -1, out: (r.stdout?.toString() ?? "").trim(), err: (r.stderr?.toString() ?? "").trim() };
+  } catch (e) {
+    console.error(`repo-vis-git-threw:${args[0] ?? "?"}:${String(e).slice(0, 60)}`);
+    return { code: -1, out: "", err: `the git spawn threw: ${String(e).slice(0, 80)}` };
+  }
+};
+
 /** PROBE — does the repo exist, and at which visibility? `gh repo view` is the read path (it
  *  resolves the host from gh's own config; our host is always github.com in practice). */
 export function probeRepo(owner: string, repo: string, token: string, run: GhRunner = ghRun): RepoState {
-  if (!owner || !repo) return { exists: false, visibility: null, detail: "no owner/repo to probe" };
+  if (!owner || !repo) return { exists: false, visibility: null, absent: false, detail: "no owner/repo to probe" };
   const r = run(["repo", "view", `${owner}/${repo}`, "--json", "visibility,isPrivate"], token, {});
   if (r.code !== 0) {
     // 404 / "not found" is the ABSENT case; anything else is a read failure we must NOT mistake
     // for absence (the stale-substrate law: an empty result and a wrong-scope result differ).
     const absent = /not found|could not resolve|HTTP 404/i.test(r.err);
-    return { exists: false, visibility: null, detail: absent ? `the repo ${owner}/${repo} does not exist` : `the probe failed: ${r.err.slice(0, 120)}` };
+    return { exists: false, visibility: null, absent, detail: absent ? `the repo ${owner}/${repo} does not exist` : `the probe failed: ${r.err.slice(0, 120)}` };
   }
   let visibility: Visibility | null = null;
   try {
@@ -84,9 +102,9 @@ export function probeRepo(owner: string, repo: string, token: string, run: GhRun
     visibility = (j.visibility ?? (j.isPrivate ? "private" : "public")).toLowerCase() === "private" ? "private" : "public";
   } catch (e) {
     console.error(`repo-vis-probe-parse:${owner}/${repo}:${String(e).slice(0, 50)}`);
-    return { exists: false, visibility: null, detail: `the probe's JSON did not parse: ${r.out.slice(0, 80)}` };
+    return { exists: false, visibility: null, absent: false, detail: `the probe's JSON did not parse: ${r.out.slice(0, 80)}` };
   }
-  return { exists: true, visibility, detail: `${owner}/${repo} exists · visibility=${visibility}` };
+  return { exists: true, visibility, absent: false, detail: `${owner}/${repo} exists · visibility=${visibility}` };
 }
 
 /** THE PROVISIONER — the ONE place the kernel creates a repo or flips its visibility.
@@ -97,6 +115,7 @@ export function provisionRepo(
   want: { visibility: Visibility; create: boolean; push?: boolean },
   token: string,
   run: GhRunner = ghRun,
+  grit: GitRunner = gitRun,
 ): ProvisionVerdict {
   const did: string[] = [];
   const slug = `${t.owner}/${t.repo}`;
@@ -109,7 +128,7 @@ export function provisionRepo(
   }
 
   const state = probeRepo(t.owner, t.repo, token, run);
-  if (!state.exists && !state.detail.includes("does not exist")) {
+  if (!state.exists && !state.absent) {
     // the probe FAILED (not absent) — refuse rather than guess (never create over a read error).
     return { ok: false, refused: `REPO-PROBE-FAILED:${slug}`, remedy: `gh repo view ${slug}`, detail: state.detail, did };
   }
@@ -126,19 +145,20 @@ export function provisionRepo(
     did.push(`created ${slug} (${want.visibility})`);
     // the push: the ruleset guards a repo that HAS commits — an empty repo is an inert rail.
     if (want.push !== false) {
-      const p = ((): { code: number; out: string; err: string } => {
-        try {
-          const r = Bun.spawnSync(["git", "-C", t.root, "push", "-u", "origin", "HEAD"], { stderr: "pipe", stdout: "pipe" });
-          return { code: r.exitCode ?? -1, out: (r.stdout?.toString() ?? "").trim(), err: (r.stderr?.toString() ?? "").trim() };
-        } catch (e) { return { code: -1, out: "", err: String(e).slice(0, 120) }; }
-      })();
+      const p = grit(["push", "-u", "origin", "HEAD"], t.root);
       if (p.code !== 0) {
         // the repo EXISTS now — the push failed. A NAMED refusal carrying both facts.
         return { ok: false, refused: `REPO-PUSH-FAILED:${slug}`, remedy: `git -C ${JSON.stringify(t.root)} push -u origin HEAD`, detail: `the repo was created but the push failed: ${(p.err || `exit ${p.code}`).slice(0, 160)}`, did };
       }
       did.push(`pushed HEAD → origin (${slug})`);
     }
-    return { ok: true, detail: `provisioned ${slug} (${want.visibility})`, did };
+    // THE RE-PROBE (the audit gate MED): a success is CONFIRMED against the API — the fail-closed
+    // philosophy forbids a claimed success. A create that did not stick is NAMED.
+    const after = probeRepo(t.owner, t.repo, token, run);
+    if (!after.exists) {
+      return { ok: false, refused: `REPO-CREATE-UNCONFIRMED:${slug}`, remedy: `gh repo view ${slug}`, detail: `created, then the re-probe failed: ${after.detail.slice(0, 120)}`, did };
+    }
+    return { ok: true, detail: `provisioned ${slug} (${after.visibility}) — confirmed by re-probe`, did };
   }
 
   // ── the PRESENT case: EDIT toward the wanted visibility (both directions) ────────────────
@@ -152,7 +172,12 @@ export function provisionRepo(
     return { ok: false, refused: `REPO-VISIBILITY-FAILED:${slug}`, remedy: `gh repo edit ${slug} --visibility ${want.visibility} --accept-visibility-change-consequences   # needs admin on the repo (repo scope)`, detail: e.err.slice(0, 160) || `exit ${e.code}`, did };
   }
   did.push(`${state.visibility} → ${want.visibility} (${slug})`);
-  return { ok: true, detail: `flipped ${slug}: ${state.visibility} → ${want.visibility}`, did };
+  // THE RE-PROBE (the audit gate MED): confirm the flip against the API — never a claimed success.
+  const after = probeRepo(t.owner, t.repo, token, run);
+  if (!after.exists || after.visibility !== want.visibility) {
+    return { ok: false, refused: `REPO-VISIBILITY-UNCONFIRMED:${slug}`, remedy: `gh repo view ${slug} --json visibility`, detail: `edited, then the re-probe read ${after.exists ? after.visibility : "(absent)"} — the flip did not stick`, did };
+  }
+  return { ok: true, detail: `flipped ${slug}: ${state.visibility} → ${after.visibility} (confirmed by re-probe)`, did };
 }
 
 /** Resolve a target's owner/repo/host from a path or a registry id — the verb's front door.
@@ -163,7 +188,11 @@ export function resolveTargetForVis(
 ): { owner: string; repo: string; root: string; host: string } | { error: string } {
   const byId = reg.projects.find((p) => p.id === arg);
   if (byId) return { owner: byId.owner, repo: byId.repo, root: byId.root, host: byId.host ?? "github.com" };
-  const byPath = reg.projects.find((p) => p.root === arg || arg.startsWith(`${p.root}/`));
+  // the audit gate LOW: with NESTED roots the first match could be the SHALLOWER one — the
+  // LONGEST matching root owns a path.
+  const byPath = reg.projects
+    .filter((p) => p.root === arg || arg.startsWith(`${p.root}/`))
+    .sort((a, b) => b.root.length - a.root.length)[0];
   if (byPath) return { owner: byPath.owner, repo: byPath.repo, root: byPath.root, host: byPath.host ?? "github.com" };
   return { error: `no project matches "${arg}" (known: ${reg.projects.map((p) => p.id).join(", ") || "none"})` };
 }
@@ -172,16 +201,8 @@ export function resolveTargetForVis(
  *  any stupid bs for me to have to manage"). The attach writes the wiring + hooks locally; without
  *  the push the REMOTE has none of it and the ruleset guards nothing. Idempotent: an up-to-date
  *  branch is a noop. A missing upstream ref = push with `-u`. Every failure is a NAMED refusal. */
-export function pushIfAhead(root: string): { ok: boolean; pushed: boolean; detail: string; refused?: string; remedy?: string; /** the remote requires a PR (branch protection) — an EXPECTED state, the attach still landed */ needsPr?: boolean } {
-  const g = (args: string[]): { code: number; out: string; err: string } => {
-    try {
-      const r = Bun.spawnSync(["git", "-C", root, ...args], { stderr: "pipe", stdout: "pipe" });
-      return { code: r.exitCode ?? -1, out: (r.stdout?.toString() ?? "").trim(), err: (r.stderr?.toString() ?? "").trim() };
-    } catch (e) {
-      console.error(`push-ahead-git-threw:${args[0] ?? "?"}:${String(e).slice(0, 60)}`);
-      return { code: -1, out: "", err: String(e).slice(0, 100) };
-    }
-  };
+export function pushIfAhead(root: string, grit: GitRunner = gitRun): { ok: boolean; pushed: boolean; detail: string; refused?: string; remedy?: string; /** the remote requires a PR (branch protection) — an EXPECTED state, the attach still landed */ needsPr?: boolean } {
+  const g = (args: string[]): { code: number; out: string; err: string } => grit(args, root);
   // FIXED (measured): `rev-parse --abbrev-ref HEAD` EXITS 128 on a repo with no commits
   // ("unknown revision") — so the empty-repo case was misread as a detached HEAD. `symbolic-ref
   // --short HEAD` resolves the branch from HEAD's symref and works on an empty repo; it fails
