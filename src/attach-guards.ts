@@ -21,18 +21,33 @@ const UPPER_ENV = process.env.UPPER_HOST ?? "github.com";
 
 /** The git-remote read, discriminated (mirrors target-guard's discipline: a failed read is
  *  NEVER silently "no remote"). */
+// FIXED (the audit gate HIGH ×2, THE CHOKEPOINT): a spawn failure/EACCES/ENOTDIR used to ESCAPE
+// from here, and every caller (the plan's derive, checkRemote) inherited the throw. The helper
+// itself is now throw-proof, so EVERY caller is safe by construction — no call-site guards needed.
 function readOrigin(root: string): { url: string | null; isRepo: boolean } {
-  const inside = Bun.spawnSync(["git", "-C", root, "rev-parse", "--is-inside-work-tree"], { stderr: "pipe", stdout: "pipe" });
-  if (inside.exitCode !== 0 || inside.stdout?.toString().trim() !== "true") return { url: null, isRepo: false };
-  const u = Bun.spawnSync(["git", "-C", root, "remote", "get-url", "origin"], { stderr: "pipe", stdout: "pipe" });
-  if (u.exitCode !== 0) return { url: null, isRepo: true };
-  return { url: (u.stdout?.toString().trim() || "") || null, isRepo: true };
+  try {
+    const inside = Bun.spawnSync(["git", "-C", root, "rev-parse", "--is-inside-work-tree"], { stderr: "pipe", stdout: "pipe" });
+    if (inside.exitCode !== 0 || inside.stdout?.toString().trim() !== "true") return { url: null, isRepo: false };
+    const u = Bun.spawnSync(["git", "-C", root, "remote", "get-url", "origin"], { stderr: "pipe", stdout: "pipe" });
+    if (u.exitCode !== 0) return { url: null, isRepo: true };
+    return { url: (u.stdout?.toString().trim() || "") || null, isRepo: true };
+  } catch (e) {
+    console.error(`attach-read-origin-failed:${root}:${String(e).slice(0, 60)}`);
+    return { url: null, isRepo: false };
+  }
 }
 
 /** Read `core.hooksPath` (empty when unset). */
 function readHooksPath(root: string): string {
-  const r = Bun.spawnSync(["git", "-C", root, "config", "core.hooksPath"], { stderr: "pipe", stdout: "pipe" });
-  return r.exitCode === 0 ? (r.stdout?.toString().trim() || "") : "";
+  // FIXED (the audit gate HIGH): throw-proof — a spawn failure returns "" (the UNSET shape), which
+  // the caller treats as "the attach will set it", never as a crash.
+  try {
+    const r = Bun.spawnSync(["git", "-C", root, "config", "core.hooksPath"], { stderr: "pipe", stdout: "pipe" });
+    return r.exitCode === 0 ? (r.stdout?.toString().trim() || "") : "";
+  } catch (e) {
+    console.error(`attach-read-hookspath-failed:${root}:${String(e).slice(0, 60)}`);
+    return "";
+  }
 }
 
 /** FIXED (the runtime seat's finding, H6): path comparison must be NORMALIZED. The CLI's kernel
@@ -75,7 +90,13 @@ function writeRegistryAtomic(path: string, reg: Registry): { ok: boolean; reason
     }
     // FIXED (the audit gate MEDIUM): id-presence alone let a same-length corruption (truncated
     // fields) pass. Compare the FULL entries.
-    const canon = (list: ProjectSpec[]): string => JSON.stringify(list.map((x) => [x.id, x.root, x.owner, x.repo, x.tokenEnv, x.worktreeRoot, x.store]).sort());
+    // FIXED (the audit gate MEDIUM): the tuple dropped the OPTIONAL fields (tickMs/enabled) and
+    // `.sort()` without a comparator sorted by STRING coercion while the message claimed
+    // byte-faithfulness. Every field, a real comparator.
+    const canon = (list: ProjectSpec[]): string => JSON.stringify(
+      list
+        .map((x) => ({ id: x.id, root: x.root, owner: x.owner, repo: x.repo, tokenEnv: x.tokenEnv, worktreeRoot: x.worktreeRoot, store: x.store, tickMs: x.tickMs ?? null, enabled: x.enabled ?? true }))
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
     if (canon(reg.projects) !== canon(back.projects as ProjectSpec[])) {
       return { ok: false, reason: `ATTACH-REGISTRY-ASSERT:${path} (the re-parse is not byte-faithful to the merge)` };
     }
@@ -89,14 +110,13 @@ function writeRegistryAtomic(path: string, reg: Registry): { ok: boolean; reason
 
 /** THE REAL DEPS — `upper attach`'s guards, closed over the kernel root. The ONLY place these
  *  effects live; `attach.ts` never touches fs/network itself (its purity is by construction). */
-export function realDeps(kernel: string, host = UPPER_ENV): AttachDeps {
+export function realDeps(kernel: string, rawHost = UPPER_ENV): AttachDeps {
   const regPath = registryPath(kernel);
-  // FIXED (the audit gate HIGH): `host` was threaded to checkRemote but checkRepo hardcoded
-  // api.github.com — a GHES/custom host passed the remote gate, then probed the WRONG API.
-  // FIXED (the audit gate LOW): a raw host could carry a scheme/trailing slash/port suffix —
-  // normalize once, the same value checkRemote compares against.
-  const hostNorm = host.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
-  const apiBase = hostNorm === "github.com" ? "https://api.github.com" : `https://${hostNorm}/api/v3`;
+  // FIXED (the audit gate HIGH ×2 + LOW): ONE normalized host feeds BOTH the API base and the
+  // remote-gate comparison. (Was: `hostNorm` for the API while checkRemote compared the RAW host —
+  // `https://ghes.example.com/` built a correct URL and then always failed ATTACH-REMOTE-HOST.)
+  const host = rawHost.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "") || "github.com";
+  const apiBase = host === "github.com" ? "https://api.github.com" : `https://${host}/api/v3`;
 
   /** THE SHARED HOOKS PREDICATE — ONE function used by BOTH the inspect and the apply's assert.
    *  FIXED (the audit gate HIGH): it was the object method `inspectHooks`, and the assert called
@@ -208,7 +228,15 @@ export function realDeps(kernel: string, host = UPPER_ENV): AttachDeps {
         : { needed: false, detail: "the wiring is already present (gates/ + .githooks/ + workflows)" };
     },
     applyWiring(o: AttachTarget): WiringReport {
-      const r = copyKernelSurface({ kernel, target: o.root, id: o.id, dry: false });
+      // FIXED (the audit gate MEDIUM): `copyKernelSurface` is SYNCHRONOUS and can THROW
+      // (readdirSync ENOTDIR when `gates` is a file, EACCES, a null-byte path) — the throw escaped
+      // the shaped-refusal contract. Wrapped.
+      let r: ReturnType<typeof copyKernelSurface>;
+      try { r = copyKernelSurface({ kernel, target: o.root, id: o.id, dry: false }); }
+      catch (e) {
+        console.error(`attach-copy-threw:${o.root}:${String(e).slice(0, 60)}`);
+        return { ok: false, refused: "ATTACH-COPY-FAILED", remedy: `ls -ld ${JSON.stringify(o.root)} ${JSON.stringify(kernel)}/gates   # a path may be the wrong TYPE or unreadable`, copied: [], skipped: [], backedUp: [], detail: `the copier threw: ${String(e).slice(0, 90)}` };
+      }
       // FIXED (the audit gate MEDIUM): an INPUT error and a MISSING KERNEL SURFACE are different
       // faults — folding them into one refusal told the operator to inspect the kernel when the
       // actual fault was the id/path. Distinct channels, distinct remedies.

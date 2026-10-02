@@ -155,7 +155,11 @@ export function copyKernelSurface(opts: { kernel: string; target: string; id: st
   for (const d of TOP_DIRS) if (!existsSync(join(opts.kernel, d))) missingRequired.push(d);
   for (const f of WORKFLOW_FILES) {
     const p = join(opts.kernel, ".github", "workflows", f);
-    if (!existsSync(p)) missingRequired.push(`.github/workflows/${f}`);
+    // FIXED (the audit gate MEDIUM): existence-only let a DIRECTORY-where-a-file-belongs pass and
+    // then throw inside the copier. The TYPE is checked.
+    let isFile = false;
+    try { isFile = existsSync(p) && statSync(p).isFile(); } catch (e) { console.error(`enroll-surface-stat:${p}:${String(e).slice(0, 40)}`); }
+    if (!isFile) missingRequired.push(`.github/workflows/${f}${existsSync(p) ? " (not a file)" : ""}`);
   }
   return { copied, skipped, backedUp, missingRequired };
 }
@@ -205,6 +209,9 @@ export function enroll(opts: EnrollOpts): EnrollResult {
   // 1-3. THE WIRING (the SAME copier `upper attach` uses — one implementation, W3)
   const surface = copyKernelSurface({ kernel: opts.kernel, target: opts.target, id: opts.id, dry });
   copied.push(...surface.copied); skipped.push(...surface.skipped); backedUp.push(...surface.backedUp);
+  // FIXED (the audit gate MEDIUM): enroll() still regex-scanned `skipped` — the fragility just
+  // removed from the attach path. It consumes the STRUCTURED fields now, the same way.
+  if (surface.inputError) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-INPUT: ${surface.inputError}` };
 
   // 4. the registry entry (idempotent: replaces a same-id entry, keeps the others)
   // (the registry was READ + VALIDATED at the top — before any copy)
@@ -251,7 +258,8 @@ export function enroll(opts: EnrollOpts): EnrollResult {
   // FIXED (round-5 HIGH): the file carried a DOUBLE backslash (`\\.githooks` = a literal
   // backslash + any char), so a missing `.githooks` never matched and enroll returned ok:true with
   // the ruleset un-armable. The single-escaped `\.githooks` matches the literal dot.
-  const missingRequired = skipped.some((s) => /^(gates|\.githooks) \(absent|\.github\/workflows/.test(s));
+  // FIXED (the audit gate MEDIUM): enroll() consumed the STRUCTURED field, like the attach path.
+  const missingRequired = surface.missingRequired.length > 0;
   const reason = copyFailed ? "ENROLL-COPY-FAILED" : missingRequired ? "ENROLL-MISSING-REQUIRED" : undefined;
   return { ok: !copyFailed && !missingRequired, copied, skipped, wrote, backedUp, ...(reason ? { reason } : {}) };
 }
