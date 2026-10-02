@@ -27,8 +27,9 @@ function kernel(): string {
   for (const d of ["gates", ".githooks", ".github/workflows"]) mkdirSync(join(k, d), { recursive: true });
   writeFileSync(join(k, "gates", "fence-check.py"), "# fence\n");
   writeFileSync(join(k, "gates", "rt-preflight.sh"), "#!/bin/sh\n");
-  writeFileSync(join(k, ".githooks", "pre-commit"), "#!/bin/sh\n");
-  writeFileSync(join(k, ".githooks", "pre-push"), "#!/bin/sh\n");
+  for (const f of ["pre-commit", "pre-push", "commit-msg", "prepare-commit-msg"]) {
+    writeFileSync(join(k, ".githooks", f), "#!/bin/sh\n");
+  }
   writeFileSync(join(k, ".github", "workflows", "gates.yml"), "name: gates\n");
   writeFileSync(join(k, ".github", "workflows", "drift.yml"), "name: drift\n");
   return k;

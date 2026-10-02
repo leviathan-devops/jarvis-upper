@@ -175,7 +175,18 @@ export async function attachPlan(opts: AttachOpts, deps: AttachDeps): Promise<At
   // FIXED (the audit gate MEDIUM): the plan called Bun.spawnSync ITSELF — a purity violation (it
   // claimed "read-only deps only"), a DI break (tests had to mock git binaries) and a TOCTOU (the
   // derive snapshot could differ from the guard's). The probe is a DEP now.
-  const probed = deps.readOrigin(opts.path);
+  // FIXED (the audit gate HIGH): an UNGUARDED probe (a spawn failure, EACCES, ENOTDIR) escaped
+  // as an exception — the SAME class just fixed for statSync. Guarded → a named refusal.
+  let probed: OriginRead;
+  try { probed = deps.readOrigin(opts.path); }
+  catch (e) {
+    // W-13: a catch LOGS or RETHROWS — the failure is NAMED on stderr AND as a shaped refusal.
+    console.error(`attach-origin-probe-failed:${opts.path}:${String(e).slice(0, 60)}`);
+    push(1, "preflight", false, `the origin probe threw: ${String(e).slice(0, 60)}`, false,
+      `ATTACH-ORIGIN-PROBE-FAILED:${opts.path}`,
+      `git -C ${JSON.stringify(opts.path)} rev-parse --is-inside-work-tree   # the probe could not read the tree`);
+    return finish(steps, deriveTarget(opts), opts);
+  }
   const isRepo = probed.isRepo;
   if (!isRepo) {
     // FIXED (the audit gate LOW): a REFUSED step claimed `mutates:true` — the dry output was

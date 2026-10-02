@@ -102,18 +102,26 @@ function copyOne(src: string, d: string, copied: string[], backedUp: string[], s
 /** THE WIRING COPIER — extracted so `upper attach` REUSES it (the W3 rule: no second copier).
  *  Copies gates/ + .githooks/ + the workflows + the vendored package into the target. */
 export function copyKernelSurface(opts: { kernel: string; target: string; id: string; dry?: boolean }):
-  { copied: string[]; skipped: string[]; backedUp: string[]; missingRequired: string[] } {
+  { copied: string[]; skipped: string[]; backedUp: string[]; missingRequired: string[]; inputError?: string } {
   const dry = opts.dry === true;
   // FIXED (the audit gate HIGH): this is a PUBLIC chokepoint now (`upper attach` calls it
   // directly), so it must validate its OWN inputs — `enroll()` used to be the only caller and
   // its checks do not protect a second one. An id with `..`/a slash, or a non-absolute target,
   // would write OUTSIDE the tree.
   const ID_OK = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-  if (!ID_OK.test(opts.id) || opts.id.includes("..")) {
-    return { copied: [], skipped: [], backedUp: [], missingRequired: [`COPY-INPUT-INVALID: bad id ${String(opts.id).slice(0, 40)}`] };
+  // FIXED (the audit gate HIGH): `ID_OK.test` coerces, but `.includes` THROWS on undefined/null/
+  // a number — so a non-string id crashed instead of returning the structured refusal.
+  if (typeof opts.id !== "string" || !ID_OK.test(opts.id) || opts.id.includes("..")) {
+    return { copied: [], skipped: [], backedUp: [], missingRequired: [], inputError: `COPY-INPUT-INVALID: bad id ${String(opts.id).slice(0, 40)}` };
   }
   if (typeof opts.kernel !== "string" || !isAbsolute(opts.kernel) || typeof opts.target !== "string" || !isAbsolute(opts.target)) {
-    return { copied: [], skipped: [], backedUp: [], missingRequired: [`COPY-INPUT-INVALID: non-absolute kernel/target`] };
+    return { copied: [], skipped: [], backedUp: [], missingRequired: [], inputError: "COPY-INPUT-INVALID: non-absolute kernel/target" };
+  }
+  // FIXED (the audit gate MEDIUM): `enroll()` rejects overlap (kernel==target / nesting) — this
+  // public chokepoint did not, so a direct caller could copy a tree into itself.
+  const K = resolve(opts.kernel), T = resolve(opts.target);
+  if (K === T || `${T}/`.startsWith(`${K}/`) || `${K}/`.startsWith(`${T}/`)) {
+    return { copied: [], skipped: [], backedUp: [], missingRequired: [], inputError: `COPY-INPUT-INVALID: kernel and target overlap (${K})` };
   }
   const copied: string[] = [], skipped: string[] = [], backedUp: string[] = [];
   // 1. the host gates
@@ -141,9 +149,14 @@ export function copyKernelSurface(opts: { kernel: string; target: string; id: st
   // FIXED (the audit gate MEDIUM): the required-surface verdict is STRUCTURED (not a regex over
   // the human-readable `skipped` strings — a wording change in this file would have silently
   // disabled the caller's gate, the exact `\\.githooks` class).
+  // FIXED (the audit gate MEDIUM): dir-existence alone lost the per-FILE gate — a kernel with a
+  // workflow DIR but no gates.yml read as complete. The required FILES are checked too.
   const missingRequired: string[] = [];
   for (const d of TOP_DIRS) if (!existsSync(join(opts.kernel, d))) missingRequired.push(d);
-  if (!existsSync(join(opts.kernel, ".github", "workflows"))) missingRequired.push(".github/workflows");
+  for (const f of WORKFLOW_FILES) {
+    const p = join(opts.kernel, ".github", "workflows", f);
+    if (!existsSync(p)) missingRequired.push(`.github/workflows/${f}`);
+  }
   return { copied, skipped, backedUp, missingRequired };
 }
 

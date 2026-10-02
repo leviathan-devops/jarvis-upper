@@ -73,9 +73,12 @@ function writeRegistryAtomic(path: string, reg: Registry): { ok: boolean; reason
     if (!Array.isArray(back.projects) || back.projects.length !== reg.projects.length) {
       return { ok: false, reason: `ATTACH-REGISTRY-ASSERT:${path} (the re-parse lost entries: ${back.projects?.length ?? 0} != ${reg.projects.length})` };
     }
-    const before = new Set(reg.projects.map((x) => x.id));
-    const after = new Set(back.projects.map((x) => x.id));
-    for (const id of before) if (!after.has(id)) return { ok: false, reason: `ATTACH-REGISTRY-ASSERT:${path} (the id ${id} vanished on the re-parse)` };
+    // FIXED (the audit gate MEDIUM): id-presence alone let a same-length corruption (truncated
+    // fields) pass. Compare the FULL entries.
+    const canon = (list: ProjectSpec[]): string => JSON.stringify(list.map((x) => [x.id, x.root, x.owner, x.repo, x.tokenEnv, x.worktreeRoot, x.store]).sort());
+    if (canon(reg.projects) !== canon(back.projects as ProjectSpec[])) {
+      return { ok: false, reason: `ATTACH-REGISTRY-ASSERT:${path} (the re-parse is not byte-faithful to the merge)` };
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, reason: `ATTACH-REGISTRY-WRITE-FAILED:${String(e).slice(0, 90)}` };
@@ -90,7 +93,10 @@ export function realDeps(kernel: string, host = UPPER_ENV): AttachDeps {
   const regPath = registryPath(kernel);
   // FIXED (the audit gate HIGH): `host` was threaded to checkRemote but checkRepo hardcoded
   // api.github.com — a GHES/custom host passed the remote gate, then probed the WRONG API.
-  const apiBase = host === "github.com" ? "https://api.github.com" : `https://${host}/api/v3`;
+  // FIXED (the audit gate LOW): a raw host could carry a scheme/trailing slash/port suffix —
+  // normalize once, the same value checkRemote compares against.
+  const hostNorm = host.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  const apiBase = hostNorm === "github.com" ? "https://api.github.com" : `https://${hostNorm}/api/v3`;
 
   /** THE SHARED HOOKS PREDICATE — ONE function used by BOTH the inspect and the apply's assert.
    *  FIXED (the audit gate HIGH): it was the object method `inspectHooks`, and the assert called
@@ -108,18 +114,24 @@ export function realDeps(kernel: string, host = UPPER_ENV): AttachDeps {
     }
     // FIXED (the audit gate MEDIUM): the exec-bit gate checked ONLY pre-commit while applyHooks
     // chmods FOUR hooks — a non-executable pre-push passed the gate AND the assert. ALL are checked.
+    // FIXED (the audit gate MEDIUM): an ABSENT non-pre-commit hook was silently tolerated while
+    // the success detail claimed "all 4 executable" — a false statement. All four must be present.
     const HOOKS = ["pre-commit", "pre-push", "commit-msg", "prepare-commit-msg"];
-    const problems: string[] = [];
+    const missing: string[] = [];
+    const nonExec: string[] = [];
     for (const f of HOOKS) {
       const fp = join(dir, f);
-      if (!existsSync(fp)) { if (f === "pre-commit") problems.push(`${f} (absent)`); continue; }
-      try { if ((statSync(fp).mode & 0o111) === 0) problems.push(f); }
-      catch (e) { console.error(`attach-hooks-stat:${String(e).slice(0, 40)}`); problems.push(`${f} (unreadable)`); }
+      if (!existsSync(fp)) { missing.push(f); continue; }
+      try { if ((statSync(fp).mode & 0o111) === 0) nonExec.push(f); }
+      catch (e) { console.error(`attach-hooks-stat:${String(e).slice(0, 40)}`); nonExec.push(`${f} (unreadable)`); }
     }
-    if (problems.length > 0) {
-      return { ok: false, needed: true, refused: "ATTACH-HOOKS-NOT-EXEC", remedy: `chmod +x ${JSON.stringify(dir)}/*`, detail: `not executable: ${problems.join(", ")} — git would skip them` };
+    if (missing.length > 0) {
+      return { ok: false, needed: true, refused: "ATTACH-HOOKS-INCOMPLETE", remedy: `upper attach ${JSON.stringify(o.root)}   # re-run to lay the full chain`, detail: `absent hooks: ${missing.join(", ")}` };
     }
-    return { ok: true, needed: false, detail: `hooksPath=.githooks · the dir exists · all ${HOOKS.length} hooks executable` };
+    if (nonExec.length > 0) {
+      return { ok: false, needed: true, refused: "ATTACH-HOOKS-NOT-EXEC", remedy: `chmod +x ${JSON.stringify(dir)}/*`, detail: `not executable: ${nonExec.join(", ")} — git would skip them` };
+    }
+    return { ok: true, needed: false, detail: `hooksPath=.githooks · the dir exists · all ${HOOKS.length} hooks present + executable` };
   }
 
   return {
@@ -197,6 +209,12 @@ export function realDeps(kernel: string, host = UPPER_ENV): AttachDeps {
     },
     applyWiring(o: AttachTarget): WiringReport {
       const r = copyKernelSurface({ kernel, target: o.root, id: o.id, dry: false });
+      // FIXED (the audit gate MEDIUM): an INPUT error and a MISSING KERNEL SURFACE are different
+      // faults — folding them into one refusal told the operator to inspect the kernel when the
+      // actual fault was the id/path. Distinct channels, distinct remedies.
+      if (r.inputError) {
+        return { ok: false, refused: "ATTACH-BAD-INPUT", remedy: `upper attach <an absolute path> --id <a valid id>   # ${r.inputError}`, copied: [], skipped: [], backedUp: [], detail: r.inputError };
+      }
       const failures = r.skipped.filter((s) => s.includes("COPY-FAILED"));
       // FIXED (the audit gate MEDIUM): the required-surface verdict was a REGEX over the
       // human-readable `skipped` strings — a wording change in enroll.ts silently disabled it

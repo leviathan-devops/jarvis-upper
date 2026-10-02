@@ -24,8 +24,11 @@ function repo(dir: string, origin: string, withWiring = false): string {
   Bun.spawnSync(["git", "-C", dir, "remote", "add", "origin", origin]);
   if (withWiring) {
     mkdirSync(join(dir, ".githooks"), { recursive: true });
-    writeFileSync(join(dir, ".githooks", "pre-commit"), "#!/bin/sh\n");
-    chmodSync(join(dir, ".githooks", "pre-commit"), 0o755);
+    // a REAL .githooks carries all four — the gate requires the full chain.
+    for (const f of ["pre-commit", "pre-push", "commit-msg", "prepare-commit-msg"]) {
+      writeFileSync(join(dir, ".githooks", f), "#!/bin/sh\n");
+      chmodSync(join(dir, ".githooks", f), 0o755);
+    }
     mkdirSync(join(dir, "gates"), { recursive: true });
     mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
     Bun.spawnSync(["git", "-C", dir, "config", "core.hooksPath", ".githooks"]);
@@ -118,10 +121,8 @@ test("test_attach_asserts_the_hooks_path — NEGATIVE: a FOREIGN hooksPath refus
 });
 
 test("test_attach_asserts_the_hooks_path — NEGATIVE: a non-executable pre-commit refuses", () => {
-  const w = repo(join(base, "noexec"), "https://github.com/acme/proj.git");
-  mkdirSync(join(w, ".githooks"), { recursive: true });
-  writeFileSync(join(w, ".githooks", "pre-commit"), "#!/bin/sh\n");
-  chmodSync(join(w, ".githooks", "pre-commit"), 0o644);   // ← not executable
+  const w = repo(join(base, "noexec"), "https://github.com/acme/proj.git", true);
+  chmodSync(join(w, ".githooks", "pre-commit"), 0o644);   // ← the ONE not executable
   Bun.spawnSync(["git", "-C", w, "config", "core.hooksPath", ".githooks"]);
   const v = realDeps(kernelFixture()).inspectHooks(target(w));
   expect(v.ok).toBe(false);
