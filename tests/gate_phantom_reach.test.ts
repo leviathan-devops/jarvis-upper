@@ -106,6 +106,9 @@ test("test_gate_phantom_diff", () => {
   {
     const repo = makeTempRepo();
     sh('git commit --allow-empty -m "chore: the example" -m "ST-99: \\"I created src/ghost2.ts and wired it\\" is the example"', repo);
+    // THE FIXTURE IS ASSERTED FIRST — a silent gate over a MUTATED message would pass vacuously.
+    const msg = sh("git log -1 --format=%b", repo).out;
+    expect(msg).toContain("I created src/ghost2.ts");
     const r = sh(`bash "${PHANTOM}" HEAD`, repo);
     expect(r.out).not.toContain("PHANTOM-DIFF:");
   }
@@ -116,7 +119,11 @@ test("test_gate_phantom_diff", () => {
     const repo = makeTempRepo();
     writeFileSync(join(repo, "real3.txt"), "x\n");
     sh("git add real3.txt", repo);
-    sh('git commit --allow-empty -m "chore: c" -m "created `src/ghost3.ts` for real (no quotes)"', repo);
+    // the backticks are ESCAPED for bash (unescaped, bash would command-substitute them away —
+    // measured: the first version of this fixture silently committed a message with no claim).
+    sh('git commit --allow-empty -m "chore: c" -m "created \\`src/ghost3.ts\\` for real (no quotes)"', repo);
+    const msg = sh("git log -1 --format=%b", repo).out;
+    expect(msg).toContain("src/ghost3.ts");   // the fixture landed (no command-substitution)
     const r = sh(`bash "${PHANTOM}" HEAD`, repo);
     expect(r.out).toContain("PHANTOM-DIFF:");
     expect(r.out).toContain("src/ghost3.ts");
