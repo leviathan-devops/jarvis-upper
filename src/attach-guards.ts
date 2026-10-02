@@ -9,7 +9,7 @@
 //
 // THE RULE (spec §2.2): every refusal is a NAMED token + the EXACT one command that fixes it.
 // A remedy-less refusal is a defect. A silent fallback is a defect.
-import { existsSync, readFileSync, writeFileSync, renameSync, rmSync, mkdirSync, statSync, chmodSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, rmSync, mkdirSync, statSync, lstatSync, readdirSync, chmodSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { parseRemote } from "./target-guard";
@@ -260,12 +260,44 @@ export function realDeps(kernel: string, rawHost = UPPER_ENV): AttachDeps {
 
     // ── STEP 5 · THE WIRING (B4) ───────────────────────────────────────────────────────────────
     inspectWiring(o: AttachTarget) {
+      // FR-13's SIBLING (measured LIVE, op8b — the runtime-ledger entry): a carrier that EXISTS
+      // but DIFFERS was reported "already present (noop)", so the kernel's FIXED gate could never
+      // reach an already-armed target — the attach certified a stale copy. "Present" is not
+      // "current": the wiring is needed when a file is MISSING **or** its BYTES DIFFER.
       const missing: string[] = [];
-      for (const d of ["gates", ".githooks"]) if (!existsSync(join(o.root, d))) missing.push(d);
-      if (!existsSync(join(o.root, ".github", "workflows", "gates.yml"))) missing.push(".github/workflows/gates.yml");
-      return missing.length > 0
-        ? { needed: true, detail: `would copy: ${missing.join(", ")}` }
-        : { needed: false, detail: "the wiring is already present (gates/ + .githooks/ + workflows)" };
+      const drifted: string[] = [];
+      const cmpFile = (rel: string): void => {
+        const kp = join(kernel, rel);
+        let st: ReturnType<typeof lstatSync>;
+        try { st = lstatSync(kp); } catch (e) { console.error(`attach-wiring-lstat:${kp}:${String(e).slice(0, 40)}`); return; }
+        if (st.isSymbolicLink()) return;   // the copier skips symlinks — so does the probe
+        if (st.isDirectory()) {
+          let entries: string[] = [];
+          try { entries = readdirSync(kp); } catch (e) { console.error(`attach-wiring-readdir:${kp}:${String(e).slice(0, 40)}`); return; }
+          for (const e2 of entries) { if (e2 !== "__pycache__") cmpFile(join(rel, e2)); }
+          return;
+        }
+        const dp = join(o.root, rel);
+        if (!existsSync(dp)) { missing.push(rel); return; }
+        try {
+          if (!readFileSync(kp).equals(readFileSync(dp))) drifted.push(rel);
+        } catch (e) {
+          // an unreadable target file is treated as DIFFERING (fail-closed — a re-copy is safe).
+          console.error(`attach-wiring-compare:${dp}:${String(e).slice(0, 40)}`);
+          drifted.push(rel);
+        }
+      };
+      for (const d of ["gates", ".githooks"]) cmpFile(d);
+      for (const f of ["gates.yml", "drift.yml"]) {
+        const rel = join(".github", "workflows", f);
+        if (existsSync(join(kernel, rel))) cmpFile(rel);
+      }
+      const parts: string[] = [];
+      if (missing.length > 0) parts.push(`copy: ${missing.join(", ")}`);
+      if (drifted.length > 0) parts.push(`update: ${drifted.slice(0, 8).join(", ")}${drifted.length > 8 ? ` (+${drifted.length - 8} more)` : ""}`);
+      return parts.length > 0
+        ? { needed: true, detail: `would ${parts.join(" · ")}` }
+        : { needed: false, detail: "the wiring is CURRENT (gates/ + .githooks/ + workflows byte-identical)" };
     },
     applyWiring(o: AttachTarget): WiringReport {
       // FIXED (the audit gate MEDIUM): `copyKernelSurface` is SYNCHRONOUS and can THROW

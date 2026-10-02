@@ -78,6 +78,15 @@ scan_phantom() {
     # the claim scan — see TOOL_SUBJECT_RE.
     local CLAIM_BODY
     CLAIM_BODY=$(printf '%s\n' "$BODY" | grep -viE "$TOOL_SUBJECT_RE" || true)
+    # FIRING 011 / FIXED (2026-10-02 — measured live on jev-fact-kernel@2ab67d4): a claim inside a
+    # QUOTATION is a REFERENCE, never an assertion. The commit's body quoted the fence's MOTIVATING
+    # EXAMPLE — 'ST-403b IS THE MOTIVATING CASE: "I created `kernel/fact-firewall.ts` and wired it
+    # into the CLI"' — and the gate flagged the quoted hypothetical as the commit's own artifact
+    # claim. The source-kind law (own_utterance is actionable; a quotation is recorded, never acted
+    # on) applies to a commit body too. QUOTED SPANS ARE STRIPPED before the claim scan; the
+    # markdown backtick CHARACTERS are stripped (not their content) so a backticked REAL path still
+    # resolves and a backticked ABSENT path still fires.
+    CLAIM_BODY=$(printf '%s\n' "$CLAIM_BODY" | sed -E 's/"[^"]*"//g; s/'"'"'[^'"'"']*'"'"'//g; s/`//g')
     if printf '%s\n' "$CLAIM_BODY" | grep -qiE "$FILE_CLAIM_RE"; then
       # Use process substitution to avoid subshell ORPHANS loss.
       while IFS= read -r match; do

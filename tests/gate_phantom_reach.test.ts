@@ -100,6 +100,27 @@ test("test_gate_phantom_diff", () => {
     const r = sh(`bash "${PHANTOM}" HEAD`, repo);
     expect(r.out).not.toContain("PHANTOM-DIFF:");
   }
+
+  // 7. NEGATIVE (FIRING 011 — measured on jev-fact-kernel@2ab67d4): a claim inside a QUOTATION is
+  //    a REFERENCE, never an assertion (the body quoted the fence's motivating EXAMPLE).
+  {
+    const repo = makeTempRepo();
+    sh('git commit --allow-empty -m "chore: the example" -m "ST-99: \\"I created src/ghost2.ts and wired it\\" is the example"', repo);
+    const r = sh(`bash "${PHANTOM}" HEAD`, repo);
+    expect(r.out).not.toContain("PHANTOM-DIFF:");
+  }
+
+  // 8. POSITIVE: a BACKTICKED real claim about an absent file -> the backtick is stripped, the
+  //    path resolves, the claim FIRES (the backtick fix must not suppress real claims).
+  {
+    const repo = makeTempRepo();
+    writeFileSync(join(repo, "real3.txt"), "x\n");
+    sh("git add real3.txt", repo);
+    sh('git commit --allow-empty -m "chore: c" -m "created `src/ghost3.ts` for real (no quotes)"', repo);
+    const r = sh(`bash "${PHANTOM}" HEAD`, repo);
+    expect(r.out).toContain("PHANTOM-DIFF:");
+    expect(r.out).toContain("src/ghost3.ts");
+  }
 });
 
 // --- W-8: hardened claim-evidence (case-insensitive anchor) ---
