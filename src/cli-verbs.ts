@@ -435,7 +435,7 @@ export async function verbAttach(root: string, arg?: string, ...rest: string[]):
     if (res.applied) {
       const { pushIfAhead } = await import("./repo-visibility");
       const p = pushIfAhead(res.target.root);
-      push = { pushed: p.pushed, detail: p.detail };
+      push = { pushed: p.pushed, detail: p.detail, ...(p.needsPr ? { needsPr: true, remedy: p.remedy } : {}) };
       if (!p.ok) pushRefused = { refused: p.refused, remedy: p.remedy };
     }
     return emit(res.applied && !pushRefused.refused ? 0 : 2, {

@@ -172,7 +172,7 @@ export function resolveTargetForVis(
  *  any stupid bs for me to have to manage"). The attach writes the wiring + hooks locally; without
  *  the push the REMOTE has none of it and the ruleset guards nothing. Idempotent: an up-to-date
  *  branch is a noop. A missing upstream ref = push with `-u`. Every failure is a NAMED refusal. */
-export function pushIfAhead(root: string): { ok: boolean; pushed: boolean; detail: string; refused?: string; remedy?: string } {
+export function pushIfAhead(root: string): { ok: boolean; pushed: boolean; detail: string; refused?: string; remedy?: string; /** the remote requires a PR (branch protection) — an EXPECTED state, the attach still landed */ needsPr?: boolean } {
   const g = (args: string[]): { code: number; out: string; err: string } => {
     try {
       const r = Bun.spawnSync(["git", "-C", root, ...args], { stderr: "pipe", stdout: "pipe" });
@@ -205,6 +205,14 @@ export function pushIfAhead(root: string): { ok: boolean; pushed: boolean; detai
   // the remote ref may not exist yet — the count failed for that reason, not for a real error.
   const push = g(["push", "-u", "origin", `HEAD:refs/heads/${branch}`]);
   if (push.code !== 0) {
+    // FIRING 012 / FIXED (measured LIVE, op9b — PLUTUS_VISION): "REJECT: direct pushes to main are
+    // not permitted; open a PR." That is the repo's OWN branch protection WORKING — the exact
+    // enforcement the kernel exists to install. It is an EXPECTED state, never a failure of the
+    // attach: the wiring + hooks + registry DID land; what the remote demands is the PR flow.
+    // Reported as `needsPr` (ok:true for the attach, the push state NAMED — never silent).
+    if (/pull request|protected branch|not permitted|GH006|required status/i.test(push.err)) {
+      return { ok: true, pushed: false, needsPr: true, detail: `the remote requires a PR for ${branch} — the branch protection is working as designed (the attach landed locally)`, remedy: `git -C ${JSON.stringify(root)} push origin HEAD:refs/heads/attach/${branch} && gh pr create --fill --base ${branch} --head attach/${branch}` };
+    }
     return { ok: false, pushed: false, detail: push.err.slice(0, 200) || `exit ${push.code}`, refused: `REPO-PUSH-FAILED:${branch}`, remedy: `git -C ${JSON.stringify(root)} push -u origin HEAD` };
   }
   const n = ahead.code === 0 ? ahead.out : "?";

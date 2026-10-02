@@ -4,7 +4,7 @@
 // for absence (the stale-substrate law: an empty result and a wrong-scope result differ bytes).
 import { test, expect } from "bun:test";
 import { provisionRepo, probeRepo, ghEnv, resolveTargetForVis, pushIfAhead, type GhRunner } from "../src/repo-visibility";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -219,4 +219,29 @@ test("test_push_if_ahead_refuses_on_a_detached_head", () => {
   const r = pushIfAhead(root);
   expect(r.ok).toBe(false);
   expect(r.refused).toContain("REPO-PUSH-NO-BRANCH");
+});
+
+test("test_push_needs_pr_is_an_expected_state_never_a_failure", () => {
+  // a bare remote with a pre-receive hook that emits GitHub's branch-protection rejection.
+  const root = mkdtempSync(join(tmpdir(), "pr-src-"));
+  const bare = mkdtempSync(join(tmpdir(), "pr-bare-"));
+  const g = (args: string[], cwd: string) => Bun.spawnSync(["git", "-C", cwd, ...args], { stderr: "pipe", stdout: "pipe" });
+  g(["init", "-q", "--bare", "-b", "main"], bare);
+  const hookDir = join(bare, "hooks");
+  mkdirSync(hookDir, { recursive: true });
+  const hook = join(hookDir, "pre-receive");
+  writeFileSync(hook, "#!/bin/sh\necho 'remote: error: GH006: Protected branch update failed for refs/heads/main.'\necho 'remote: error: direct pushes to main are not permitted; open a PR.'\nexit 1\n");
+  chmodSync(hook, 0o755);
+  g(["init", "-q", "-b", "main"], root);
+  writeFileSync(join(root, "a.txt"), "1\n");
+  g(["add", "-A"], root);
+  g(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "one"], root);
+  g(["remote", "add", "origin", bare], root);
+
+  const r = pushIfAhead(root);
+  expect(r.ok).toBe(true);         // the attach landed — the remote's PR rule is EXPECTED
+  expect(r.pushed).toBe(false);
+  expect(r.needsPr).toBe(true);
+  expect(r.detail).toContain("requires a PR");
+  expect(r.remedy).toContain("gh pr create");
 });

@@ -17,28 +17,15 @@
       "tokenEnv": "GH_TOKEN",
       "worktreeRoot": "/home/leviathan/.ao/data/worktrees/jarvis-upper",
       "store": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-FACTORY/jarvis-upper/runtime/jarvis-upper/store.sqlite"
+    },
+    {
+      "id": "PLUTUS_VISION",
+      "root": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/PLUTUS_VISION",
+      "owner": "leviathan-devops",
+      "repo": "plutus-vision",
+      "tokenEnv": "GH_TOKEN",
+      "worktreeRoot": "/home/leviathan/.ao/data/worktrees/plutus-vision",
+      "store": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/PLUTUS_VISION/runtime/PLUTUS_VISION/store.sqlite"
     }
-  ],
-  "_comment": [
-    "THE FLEET REGISTRY. Copy to projects.json (same dir) and add one entry per project.",
-    "",
-    "THE SIX THINGS THE DAEMON NEEDS PER PROJECT:",
-    "  id            the stable key AND the AO project name the sync filters on",
-    "  root          the repo's ABSOLUTE root (where gates/ + .githooks/ + .github/ live)",
-    "  owner / repo  the GitHub target",
-    "  tokenEnv      the NAME of the env var holding the credential -- NEVER the bytes",
-    "  worktreeRoot  where that repo's per-session git worktrees live (absolute)",
-    "  store         the per-project SQLite path (absolute). ONE STORE PER PROJECT:",
-    "                SQLite has one writer, so N projects on one file would contend",
-    "                (SQLITE_BUSY) and share a crash domain. Per-project stores give",
-    "                write isolation, failure isolation, and make the",
-    "                pr:<session>:<num> id collision impossible.",
-    "",
-    "A BAD ENTRY IS NAMED AND SKIPPED -- it never takes the daemon down and never",
-    "takes the other projects with it. `upper projects` lists what loaded and what did not.",
-    "",
-    "ENROLL A PROJECT:   upper enroll /abs/path <id> <owner> <repo> [TOKEN_ENV] [--dry-run]",
-    "ARM ITS RULESET:    upper arm <id>        (AFTER the workflows have run once)",
-    "THE FLEET VIEW:     upper projects"
   ]
 }
