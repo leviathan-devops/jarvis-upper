@@ -26,6 +26,15 @@
       "tokenEnv": "GH_TOKEN",
       "worktreeRoot": "/home/leviathan/.ao/data/worktrees/plutus-vision",
       "store": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/PLUTUS_VISION/runtime/PLUTUS_VISION/store.sqlite"
+    },
+    {
+      "id": "attach-second-op-1790954281",
+      "root": "/tmp/attach-second-op-1790954281",
+      "owner": "leviathan-devops",
+      "repo": "attach-second-op-scratch",
+      "tokenEnv": "GH_TOKEN",
+      "worktreeRoot": "/home/leviathan/.ao/data/worktrees/attach-second-op-scratch",
+      "store": "/tmp/attach-second-op-1790954281/runtime/attach-second-op-1790954281/store.sqlite"
     }
   ]
 }

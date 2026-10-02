@@ -352,12 +352,16 @@ export async function verbAttach(root: string, arg?: string, ...rest: string[]):
   if (!arg) {
     return emit(2, { ok: false, refused: "ATTACH-NEEDS-A-PATH", hint: "upper attach <path> [--id X] [--owner O] [--repo R] [--token-env E] [--host H] [--dry]" });
   }
-  const known = new Set(["--id", "--owner", "--repo", "--token-env", "--host", "--dry", "--visibility", "--no-provision"]);
+  // FIXED (THE SECOND-OPERATOR FIND, measured: a zero-context operator following FR-9's own CLI
+  // contract `attach <path> --json` was REFUSED with ATTACH-UNKNOWN-FLAG): the CLI's stdout IS one
+  // JSON object by DEFAULT (see cli.ts's header), so `--json` is accepted as an explicit NO-OP —
+  // the documented invocation works, the behavior is unchanged.
+  const known = new Set(["--id", "--owner", "--repo", "--token-env", "--host", "--dry", "--visibility", "--no-provision", "--json"]);
   const opts: Record<string, string | boolean> = {};
   for (let i = 0; i < rest.length; i++) {
     const f = rest[i];
     if (!known.has(f)) return emit(2, { ok: false, refused: "ATTACH-UNKNOWN-FLAG", flag: f.slice(0, 40), known: [...known] });
-    if (f === "--dry" || f === "--no-provision") { opts[f.slice(2)] = true; continue; }
+    if (f === "--dry" || f === "--no-provision" || f === "--json") { opts[f.slice(2)] = true; continue; }
     const v = rest[++i];
     if (v === undefined) return emit(2, { ok: false, refused: "ATTACH-FLAG-NEEDS-A-VALUE", flag: f });
     opts[f.slice(2)] = v;
@@ -459,6 +463,8 @@ export async function verbAttach(root: string, arg?: string, ...rest: string[]):
  */
 export async function verbVis(root: string, arg?: string, ...rest: string[]): Promise<VerbResult> {
   if (!arg) return emit(2, { ok: false, refused: "VIS-NEEDS-A-TARGET", hint: "upper vis <id|path> --public|--private" });
+  const unknown = rest.filter((f) => !["--public", "--private", "--json"].includes(f));
+  if (unknown.length > 0) return emit(2, { ok: false, refused: "VIS-UNKNOWN-FLAG", flag: unknown[0].slice(0, 40), known: ["--public", "--private", "--json"] });
   const want = rest.includes("--public") ? "public" as const : rest.includes("--private") ? "private" as const : undefined;
   if (!want) return emit(2, { ok: false, refused: "VIS-NEEDS-A-VISIBILITY", hint: "upper vis <id|path> --public|--private (the alter works BOTH ways)" });
   const { provisionRepo, resolveTargetForVis } = await import("./repo-visibility");

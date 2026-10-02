@@ -160,3 +160,17 @@ test("the applied hooks are EXECUTABLE — a non-exec hook is the silent-inert c
     void chmodSync;
   } finally { restore(); }
 });
+
+// THE SECOND-OPERATOR FIND (measured: a zero-context operator following FR-9's own CLI contract
+// `attach <path> --json` was REFUSED with ATTACH-UNKNOWN-FLAG). The stdout IS one JSON object by
+// default — --json is an explicit NO-OP, and the documented invocation must work.
+test("test_attach_json_flag_is_a_noop — FR-9's documented invocation works", async () => {
+  const k = kernel(), w = targetRepo();
+  const restore = stubPublicRepo();
+  try {
+    const r = await verbAttach(k, w, "--dry", "--json");
+    expect(r.code).toBe(0);
+    expect(r.out.dry).toBe(true);
+    expect(Array.isArray(r.out.steps)).toBe(true);
+  } finally { restore(); }
+});
