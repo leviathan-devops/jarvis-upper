@@ -144,7 +144,12 @@ export function realDeps(kernel: string, rawHost = UPPER_ENV): AttachDeps {
   // built `https://GitHub.com/api/v3`. Compare the NORMALIZED bare host.
   // FIXED (the audit gate LOW): the base used the RAW hostPort (original case + any path). The
   // NORMALIZED host + the parsed port are used.
-  const port = ((): string => { const m = /:(\d+)$/.exec(hostPort); return m ? `:${m[1]}` : ""; })();
+  // FIXED (the audit gate MEDIUM): the port regex was anchored to the END, but `hostPort` can
+  // retain a PATH (`ghes.example.com:8443/prefix`) — the port was dropped. Parsed via URL.
+  const port = ((): string => {
+    try { const u = new URL(`https://${hostPort}`); return u.port ? `:${u.port}` : ""; }
+    catch (e) { console.error(`attach-port-parse:${hostPort}:${String(e).slice(0, 40)}`); return ""; }
+  })();
   const apiBase = host === "github.com" ? "https://api.github.com" : `https://${host}${port}/api/v3`;
 
   /** THE SHARED HOOKS PREDICATE — ONE function used by BOTH the inspect and the apply's assert.
@@ -277,6 +282,11 @@ export function realDeps(kernel: string, rawHost = UPPER_ENV): AttachDeps {
       // actual fault was the id/path. Distinct channels, distinct remedies.
       if (r.inputError) {
         return { ok: false, refused: "ATTACH-BAD-INPUT", remedy: `upper attach <an absolute path> --id <a valid id>   # ${r.inputError}`, copied: [], skipped: [], backedUp: [], detail: r.inputError };
+      }
+      // FIXED (the audit gate MEDIUM): a KERNEL wrong-type is the KERNEL's fault — the remedy
+      // points at the kernel, never at the operator's id/path.
+      if (r.surfaceWrongType.length > 0) {
+        return { ok: false, refused: "ATTACH-KERNEL-SURFACE-WRONG-TYPE", remedy: `ls -ld ${JSON.stringify(kernel)}/gates ${JSON.stringify(kernel)}/.githooks ${JSON.stringify(kernel)}/.github/workflows   # a path is the wrong TYPE`, copied: [], skipped: [], backedUp: [], detail: `wrong-typed: ${r.surfaceWrongType.join(", ")}` };
       }
       const failures = r.skipped.filter((s) => s.includes("COPY-FAILED"));
       // FIXED (the audit gate MEDIUM): the required-surface verdict was a REGEX over the

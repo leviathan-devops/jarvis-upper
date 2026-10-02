@@ -200,7 +200,7 @@ export async function attachPlan(opts: AttachOpts, deps: AttachDeps): Promise<At
   // through as success. A PRESENCE check (fail closed).
   if (probed.failed !== undefined && probed.failed !== null) {
     console.error(`attach-origin-unreadable:${opts.path}:${probed.failed}`);
-    push(1, "preflight", false, probed.failed, false,
+    push(1, "preflight", false, probed.failed || "the git state could not be read", false,
       `ATTACH-ORIGIN-UNREADABLE:${opts.path}`,
       `git -C ${JSON.stringify(opts.path)} remote -v   # the tree exists but its git state could not be read`);
     return finish(steps, deriveTarget(opts), opts);

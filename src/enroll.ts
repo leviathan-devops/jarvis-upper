@@ -102,7 +102,7 @@ function copyOne(src: string, d: string, copied: string[], backedUp: string[], s
 /** THE WIRING COPIER — extracted so `upper attach` REUSES it (the W3 rule: no second copier).
  *  Copies gates/ + .githooks/ + the workflows + the vendored package into the target. */
 export function copyKernelSurface(opts: { kernel: string; target: string; id: string; dry?: boolean }):
-  { copied: string[]; skipped: string[]; backedUp: string[]; missingRequired: string[]; inputError?: string } {
+  { copied: string[]; skipped: string[]; backedUp: string[]; missingRequired: string[]; /** the KERNEL's own wrong-typed surface (≠ an input fault) */ surfaceWrongType: string[]; inputError?: string } {
   const dry = opts.dry === true;
   // THE ORDER (restructured by the audit gate's rounds 5-6): INPUTS → SURFACE (gating) → COPIES.
   // Round 5 put the surface scan first, so `join(undefined)` threw before the input guards ran;
@@ -116,34 +116,41 @@ export function copyKernelSurface(opts: { kernel: string; target: string; id: st
   // FIXED (the audit gate HIGH): `ID_OK.test` coerces, but `.includes` THROWS on undefined/null/
   // a number — so a non-string id crashed instead of returning the structured refusal.
   if (typeof opts.id !== "string" || !ID_OK.test(opts.id) || opts.id.includes("..")) {
-    return { copied: [], skipped: [], backedUp: [], missingRequired: [], inputError: `COPY-INPUT-INVALID: bad id ${String(opts.id).slice(0, 40)}` };
+    return { copied: [], skipped: [], backedUp: [], missingRequired: [], surfaceWrongType: [], inputError: `COPY-INPUT-INVALID: bad id ${String(opts.id).slice(0, 40)}` };
   }
   if (typeof opts.kernel !== "string" || !isAbsolute(opts.kernel) || typeof opts.target !== "string" || !isAbsolute(opts.target)) {
-    return { copied: [], skipped: [], backedUp: [], missingRequired: [], inputError: "COPY-INPUT-INVALID: non-absolute kernel/target" };
+    return { copied: [], skipped: [], backedUp: [], missingRequired: [], surfaceWrongType: [], inputError: "COPY-INPUT-INVALID: non-absolute kernel/target" };
   }
   // FIXED (the audit gate MEDIUM): `enroll()` rejects overlap (kernel==target / nesting) — this
   // public chokepoint did not, so a direct caller could copy a tree into itself.
   const K = resolve(opts.kernel), T = resolve(opts.target);
   if (K === T || `${T}/`.startsWith(`${K}/`) || `${K}/`.startsWith(`${T}/`)) {
-    return { copied: [], skipped: [], backedUp: [], missingRequired: [], inputError: `COPY-INPUT-INVALID: kernel and target overlap (${K})` };
+    return { copied: [], skipped: [], backedUp: [], missingRequired: [], surfaceWrongType: [], inputError: `COPY-INPUT-INVALID: kernel and target overlap (${K})` };
   }
 
   // ── 2 · THE SURFACE (scanned ONCE, and it GATES the copy) ───────────────────────────────────
   // FIXED (the audit gate HIGH ×2): the scan ran first (so `join(undefined)` threw before the
   // input guards) and did not GATE (a file-where-a-dir-belongs still reached copyTree's
   // readdirSync and threw ENOTDIR). A wrong-typed surface now REFUSES before any copy.
+  // FIXED (the audit gate MEDIUM ×2): the wrong-type detection used a SUBSTRING over the
+  // human-readable labels (the exact fragility this file removed) and it was returned through
+  // `inputError`, misclassifying a KERNEL fault as a user-input fault. A STRUCTURED channel now.
   const preMissing: string[] = [];
+  const surfaceWrongType: string[] = [];
   const scan = (p: string, want: "dir" | "file", label: string): void => {
     const ex = existsSync(p);   // ONE probe, reused below (no re-probe)
     let ok = false;
     try { ok = ex && (want === "dir" ? statSync(p).isDirectory() : statSync(p).isFile()); }
     catch (e) { console.error(`enroll-surface-stat:${p}:${String(e).slice(0, 40)}`); }
-    if (!ok) preMissing.push(`${label}${ex ? ` (not a ${want})` : ""}`);
+    if (!ok) {
+      if (ex) { surfaceWrongType.push(`${label} (not a ${want})`); preMissing.push(`${label} (not a ${want})`); }
+      else preMissing.push(label);
+    }
   };
   for (const d of TOP_DIRS) scan(join(opts.kernel, d), "dir", d);
   for (const f of WORKFLOW_FILES) scan(join(opts.kernel, ".github", "workflows", f), "file", `.github/workflows/${f}`);
-  if (preMissing.some((m) => m.includes("(not a "))) {
-    return { copied: [], skipped: [], backedUp: [], missingRequired: preMissing, inputError: `COPY-SURFACE-WRONG-TYPE: ${preMissing.filter((m) => m.includes("(not a ")).join(", ")}` };
+  if (surfaceWrongType.length > 0) {
+    return { copied: [], skipped: [], backedUp: [], missingRequired: preMissing, surfaceWrongType };
   }
   const copied: string[] = [], skipped: string[] = [], backedUp: string[] = [];
   // 1. the host gates
@@ -176,7 +183,7 @@ export function copyKernelSurface(opts: { kernel: string; target: string; id: st
   // FIXED (the audit gate MEDIUM): existence-only let a FILE-where-a-dir-belongs pass and then
   // throw inside copyTree. The TYPE is checked (the same isFile/isDirectory discipline).
   // the scan above ALREADY computed the missing surface (ONE scan, no duplicate probes)
-  return { copied, skipped, backedUp, missingRequired: preMissing };
+  return { copied, skipped, backedUp, missingRequired: preMissing, surfaceWrongType };
 }
 
 export function enroll(opts: EnrollOpts): EnrollResult {
@@ -235,6 +242,8 @@ export function enroll(opts: EnrollOpts): EnrollResult {
   // FIXED (the audit gate MEDIUM): enroll() still regex-scanned `skipped` — the fragility just
   // removed from the attach path. It consumes the STRUCTURED fields now, the same way.
   if (surface.inputError) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-BAD-INPUT: ${surface.inputError}` };
+  // FIXED (the audit gate MEDIUM): a KERNEL wrong-type is its own class (KS), not an input fault.
+  if (surface.surfaceWrongType.length > 0) return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-KERNEL-SURFACE-WRONG-TYPE: ${surface.surfaceWrongType.join(", ")}` };
 
   // 4. the registry entry (idempotent: replaces a same-id entry, keeps the others)
   // (the registry was READ + VALIDATED at the top — before any copy)
