@@ -352,18 +352,27 @@ export async function verbAttach(root: string, arg?: string, ...rest: string[]):
   if (!arg) {
     return emit(2, { ok: false, refused: "ATTACH-NEEDS-A-PATH", hint: "upper attach <path> [--id X] [--owner O] [--repo R] [--token-env E] [--host H] [--dry]" });
   }
-  const known = new Set(["--id", "--owner", "--repo", "--token-env", "--host", "--dry"]);
+  const known = new Set(["--id", "--owner", "--repo", "--token-env", "--host", "--dry", "--visibility", "--no-provision"]);
   const opts: Record<string, string | boolean> = {};
   for (let i = 0; i < rest.length; i++) {
     const f = rest[i];
     if (!known.has(f)) return emit(2, { ok: false, refused: "ATTACH-UNKNOWN-FLAG", flag: f.slice(0, 40), known: [...known] });
-    if (f === "--dry") { opts.dry = true; continue; }
+    if (f === "--dry" || f === "--no-provision") { opts[f.slice(2)] = true; continue; }
     const v = rest[++i];
     if (v === undefined) return emit(2, { ok: false, refused: "ATTACH-FLAG-NEEDS-A-VALUE", flag: f });
     opts[f.slice(2)] = v;
   }
   const { attachPlan, attachApply } = await import("./attach");
   const { realDeps } = await import("./attach-guards");
+  const { provisionRepo } = await import("./repo-visibility");
+  // FR-13 (the operator's standing order, 2026-10-02): the kernel OWNS the repo's existence and
+  // visibility — "make all repos public by default ... dont leave any stupid bs for me to manage".
+  // The default is PUBLIC with auto-provision ON; `--no-provision` restores the refusal-only path.
+  const wantVis = (opts["visibility"] as "public" | "private" | undefined) ?? "public";
+  if (wantVis !== "public" && wantVis !== "private") {
+    return emit(2, { ok: false, refused: "ATTACH-BAD-VISIBILITY", hint: "--visibility public|private" });
+  }
+  const autoProvision = opts["no-provision"] !== true;
 
   const tokenEnv = (opts["token-env"] as string | undefined) ?? "GH_TOKEN";
   // the credential resolves from the ENV-VAR NAME — never from a flag, never persisted.
@@ -382,11 +391,37 @@ export async function verbAttach(root: string, arg?: string, ...rest: string[]):
     token,
   };
   const deps = realDeps(root, attachOpts.host);
+  const mapSteps = (p: Awaited<ReturnType<typeof attachPlan>>) =>
+    p.steps.map((s) => ({ n: s.n, id: s.id, ok: s.ok, mutates: s.mutates, detail: s.detail, ...(s.refused ? { refused: s.refused, remedy: s.remedy } : {}) }));
   try {
-    const plan = await attachPlan(attachOpts, deps);
-    const steps = plan.steps.map((s) => ({ n: s.n, id: s.id, ok: s.ok, mutates: s.mutates, detail: s.detail, ...(s.refused ? { refused: s.refused, remedy: s.remedy } : {}) }));
+    let plan = await attachPlan(attachOpts, deps);
+    // FR-13 — THE SELF-HEAL: `ATTACH-NO-REPO` and `ATTACH-PRIVATE-FREE-REPO` were the two refusals
+    // that demanded an operator click. With auto-provision ON (the default) the kernel PROVISIONS
+    // (create-if-absent / flip-to-public) and RE-PLANS; the refusal survives as the fallback when
+    // the kernel CANNOT act (no token, no scope, a probe failure) — the operator's "dont leave any
+    // stupid bs for me to have to manage", with the honest failure path intact.
+    const PROVISIONABLE = /^ATTACH-(NO-REPO|PRIVATE-FREE-REPO)/;
+    let provision: { did: string[]; detail: string } | undefined;
+    const wouldProvision = !!(plan.refused && PROVISIONABLE.test(plan.refused) && autoProvision);
+    if (wouldProvision && !opts.dry) {
+      const p = provisionRepo(
+        { owner: plan.target.owner, repo: plan.target.repo, root: plan.target.root },
+        { visibility: wantVis, create: true },
+        token,
+      );
+      provision = { did: p.did, detail: p.detail };
+      if (!p.ok) {
+        return emit(2, { ok: false, refused: p.refused, remedy: p.remedy, target: plan.target, provision, steps: mapSteps(plan) });
+      }
+      plan = await attachPlan(attachOpts, deps);   // RE-PLAN — the repo now satisfies the gate
+    }
+    const steps = mapSteps(plan);
     if (opts.dry) {
-      return emit(plan.refused ? 1 : 0, { ok: !plan.refused, dry: true, target: plan.target, steps, mutations: plan.mutations, ...(plan.refused ? { refused: plan.refused, remedy: plan.remedy } : {}) });
+      return emit(plan.refused ? 1 : 0, {
+        ok: !plan.refused, dry: true, target: plan.target, steps, mutations: plan.mutations,
+        ...(wouldProvision ? { wouldProvision: `create/flip ${plan.target.owner}/${plan.target.repo} → ${wantVis}` } : {}),
+        ...(plan.refused ? { refused: plan.refused, remedy: plan.remedy } : {}),
+      });
     }
     if (plan.refused) {
       return emit(2, { ok: false, refused: plan.refused, remedy: plan.remedy, target: plan.target, steps });
@@ -400,6 +435,50 @@ export async function verbAttach(root: string, arg?: string, ...rest: string[]):
   } catch (e) {
     return emit(1, { ok: false, refused: "ATTACH-THREW", error: String(e).slice(0, 200) });
   }
+}
+
+/**
+ * verbVis — THE VISIBILITY DIAL (FR-13, BOTH directions).
+ * Usage: upper vis <id|path> --public | --private
+ * The operator's explicit override: an EXISTING repo is flipped to the asked visibility.
+ * An absent repo refuses (creating is `attach`'s job — there the identity + remote are resolved);
+ * the refusal carries the create remedy so nothing is a dead end.
+ */
+export async function verbVis(root: string, arg?: string, ...rest: string[]): Promise<VerbResult> {
+  if (!arg) return emit(2, { ok: false, refused: "VIS-NEEDS-A-TARGET", hint: "upper vis <id|path> --public|--private" });
+  const want = rest.includes("--public") ? "public" as const : rest.includes("--private") ? "private" as const : undefined;
+  if (!want) return emit(2, { ok: false, refused: "VIS-NEEDS-A-VISIBILITY", hint: "upper vis <id|path> --public|--private (the alter works BOTH ways)" });
+  const { provisionRepo, resolveTargetForVis } = await import("./repo-visibility");
+  const { loadRegistry } = await import("./projects");
+  const { parseOrigin } = await import("./attach");
+
+  let t: { owner: string; repo: string; root: string; host: string };
+  const reg = loadRegistry(root, process.env);
+  const hit = resolveTargetForVis(arg, reg);
+  if ("error" in hit) {
+    // a PATH outside the registry: derive the identity from the tree's own origin.
+    let origin = "";
+    try {
+      const r = Bun.spawnSync(["git", "-C", arg, "remote", "get-url", "origin"], { stderr: "pipe", stdout: "pipe" });
+      if (r.exitCode === 0) origin = (r.stdout?.toString() ?? "").trim();
+    } catch (e) { console.error(`vis-origin-read:${arg}:${String(e).slice(0, 50)}`); }
+    const parsed = origin ? parseOrigin(origin) : null;
+    if (!parsed) {
+      return emit(2, { ok: false, refused: "VIS-NO-TARGET", detail: hit.error, hint: `git -C ${JSON.stringify(arg)} remote add origin git@github.com:<owner>/<repo>.git   # or use a registered id` });
+    }
+    t = { owner: parsed.owner, repo: parsed.repo, root: (await import("node:path")).resolve(arg), host: parsed.host };
+  } else {
+    t = hit;
+  }
+
+  const tokenEnv = (process.env.UPPER_TOKEN_ENV ?? "GH_TOKEN").trim() || "GH_TOKEN";
+  const token = process.env[tokenEnv] ?? "";
+  const p = provisionRepo({ owner: t.owner, repo: t.repo, root: t.root }, { visibility: want, create: false }, token);
+  return emit(p.ok ? 0 : 2, {
+    ok: p.ok, visibility: want, target: { id: t.repo, owner: t.owner, repo: t.repo, root: t.root, host: t.host },
+    detail: p.detail, did: p.did,
+    ...(p.refused ? { refused: p.refused, remedy: p.remedy } : {}),
+  });
 }
 
 /**
@@ -429,7 +508,7 @@ const rawVerbs: Record<string, (root: string, arg?: string, ...rest: string[]) =
   gates: verbGates, sync: verbSync, bug: verbBug, desks: verbDesks, kick: verbKick,
   promote: verbPromote,
   enroll: verbEnroll, arm: verbArm, projects: verbProjects,
-  attach: verbAttach,
+  attach: verbAttach, vis: verbVis,
 };
 export const VERBS: typeof rawVerbs = Object.fromEntries(
   Object.entries(rawVerbs).map(([k, fn]) => [k, async (root: string, arg?: string, ...rest: string[]): Promise<VerbResult> => {

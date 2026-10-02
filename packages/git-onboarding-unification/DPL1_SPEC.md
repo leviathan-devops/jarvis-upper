@@ -96,6 +96,28 @@ through the extension carrier. VERIFY: a live firing on a crafted phrase.
 (its GitHub repo created), `PLUTUS_VISION` (public + pushed). VERIFY: `bun src/cli.ts projects`
 shows both `ok:true` AND a fence row appears in the ledger for each.
 
+**FR-13 — THE KERNEL OWNS THE REPO'S EXISTENCE + VISIBILITY (the operator's standing order,
+2026-10-02, superseding the pin's HARD STOPS on these two acts).** Verbatim: *"make all repos
+public by default so i dont have to deal with any bs make the kernel auto convert them so i dont
+have to think about anything and just add into the kernel the ability to make repos private from
+public alter if we want to and it handles the 2fa so i dont have to deal with any bs ... handle it
+make it work dont leave any stupid bs for me to have to manage."* The implementation:
+(a) `src/repo-visibility.ts` — `probeRepo` + `provisionRepo(create | flip, BOTH directions)` +
+`resolveTargetForVis`, every failure a NAMED refusal with its remedy; (b) `verbAttach`
+AUTO-PROVISIONS on the two provisionable refusals (`ATTACH-NO-REPO` / `ATTACH-PRIVATE-FREE-REPO`)
+and RE-PLANS — default visibility PUBLIC, `--no-provision` restores the refusal-only path,
+`--visibility public|private` sets the wanted default; (c) `upper vis <id|path> --public|--private`
+— the operator's explicit ALTER dial, both directions; (d) the 2FA is a NON-ISSUE by construction:
+a PAT is never subject to interactive 2FA, and `GH_PROMPT_DISABLED=1` guarantees gh can never
+hang on a prompt — a missing scope surfaces as a named refusal instead.
+VERIFY: `bun test tests/repo_visibility.test.ts` (15 cases: create · create-refused · flip both
+ways · the noop · no-token · probe-failure-never-creates · create-failure · flip-failure ·
+no-target · the push path against a REAL bare remote · the no-prompt env) +
+`bun test -t test_attach_is_idempotent` (the re-plan is idempotent) + THE LIVE RUN: the two
+builds provisioning through the verb with the `did[]` trail recorded.
+PASS token: `did` carries `created <slug> (public)` / `<private> → <public>`; a refusal carries
+`refused` + `remedy`, NEVER a claimed success.
+
 ## §4 THE TESTING TIERS
 
 - **L0** `bunx tsc --noEmit` → exit 0.
