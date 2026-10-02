@@ -151,8 +151,15 @@ export function copyKernelSurface(opts: { kernel: string; target: string; id: st
   // disabled the caller's gate, the exact `\\.githooks` class).
   // FIXED (the audit gate MEDIUM): dir-existence alone lost the per-FILE gate — a kernel with a
   // workflow DIR but no gates.yml read as complete. The required FILES are checked too.
+  // FIXED (the audit gate MEDIUM): existence-only let a FILE-where-a-dir-belongs pass and then
+  // throw inside copyTree. The TYPE is checked (the same isFile/isDirectory discipline).
   const missingRequired: string[] = [];
-  for (const d of TOP_DIRS) if (!existsSync(join(opts.kernel, d))) missingRequired.push(d);
+  for (const d of TOP_DIRS) {
+    const p = join(opts.kernel, d);
+    let isDir = false;
+    try { isDir = existsSync(p) && statSync(p).isDirectory(); } catch (e) { console.error(`enroll-surface-stat:${p}:${String(e).slice(0, 40)}`); }
+    if (!isDir) missingRequired.push(`${d}${existsSync(p) ? " (not a directory)" : ""}`);
+  }
   for (const f of WORKFLOW_FILES) {
     const p = join(opts.kernel, ".github", "workflows", f);
     // FIXED (the audit gate MEDIUM): existence-only let a DIRECTORY-where-a-file-belongs pass and
@@ -207,7 +214,15 @@ export function enroll(opts: EnrollOpts): EnrollResult {
   }
 
   // 1-3. THE WIRING (the SAME copier `upper attach` uses — one implementation, W3)
-  const surface = copyKernelSurface({ kernel: opts.kernel, target: opts.target, id: opts.id, dry });
+  // FIXED (the audit gate HIGH): the copier is SYNCHRONOUS and can THROW (readdirSync ENOTDIR on
+  // a file-where-dir-belongs, EACCES, a null-byte path) — it escaped as an uncaught exception
+  // instead of an EnrollResult. The SAME guard applyWiring got.
+  let surface: ReturnType<typeof copyKernelSurface>;
+  try { surface = copyKernelSurface({ kernel: opts.kernel, target: opts.target, id: opts.id, dry }); }
+  catch (e) {
+    console.error(`enroll-copy-threw:${opts.target}:${String(e).slice(0, 60)}`);
+    return { ok: false, copied, skipped, wrote, backedUp, reason: `ENROLL-COPY-FAILED: the copier threw — ${String(e).slice(0, 90)}` };
+  }
   copied.push(...surface.copied); skipped.push(...surface.skipped); backedUp.push(...surface.backedUp);
   // FIXED (the audit gate MEDIUM): enroll() still regex-scanned `skipped` — the fragility just
   // removed from the attach path. It consumes the STRUCTURED fields now, the same way.

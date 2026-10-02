@@ -24,29 +24,38 @@ const UPPER_ENV = process.env.UPPER_HOST ?? "github.com";
 // FIXED (the audit gate HIGH ×2, THE CHOKEPOINT): a spawn failure/EACCES/ENOTDIR used to ESCAPE
 // from here, and every caller (the plan's derive, checkRemote) inherited the throw. The helper
 // itself is now throw-proof, so EVERY caller is safe by construction — no call-site guards needed.
-function readOrigin(root: string): { url: string | null; isRepo: boolean } {
+function readOrigin(root: string): { url: string | null; isRepo: boolean; failed?: string } {
+  // FIXED (the audit gate MEDIUM): the catch collapsed a TRANSIENT failure (EACCES/spawn) into
+  // "not a repo" — the caller then named ATTACH-NOT-A-REPO for a tree that IS one. The failure is
+  // DISCRIMINATED: `failed` is set, and isRepo reflects what was actually established.
   try {
     const inside = Bun.spawnSync(["git", "-C", root, "rev-parse", "--is-inside-work-tree"], { stderr: "pipe", stdout: "pipe" });
     if (inside.exitCode !== 0 || inside.stdout?.toString().trim() !== "true") return { url: null, isRepo: false };
-    const u = Bun.spawnSync(["git", "-C", root, "remote", "get-url", "origin"], { stderr: "pipe", stdout: "pipe" });
-    if (u.exitCode !== 0) return { url: null, isRepo: true };
-    return { url: (u.stdout?.toString().trim() || "") || null, isRepo: true };
+    try {
+      const u = Bun.spawnSync(["git", "-C", root, "remote", "get-url", "origin"], { stderr: "pipe", stdout: "pipe" });
+      if (u.exitCode !== 0) return { url: null, isRepo: true };
+      return { url: (u.stdout?.toString().trim() || "") || null, isRepo: true };
+    } catch (e) {
+      console.error(`attach-read-origin-remote-failed:${root}:${String(e).slice(0, 60)}`);
+      return { url: null, isRepo: true, failed: `the origin read failed (${String(e).slice(0, 50)})` };
+    }
   } catch (e) {
     console.error(`attach-read-origin-failed:${root}:${String(e).slice(0, 60)}`);
-    return { url: null, isRepo: false };
+    return { url: null, isRepo: false, failed: `the tree probe failed (${String(e).slice(0, 50)})` };
   }
 }
 
 /** Read `core.hooksPath` (empty when unset). */
-function readHooksPath(root: string): string {
-  // FIXED (the audit gate HIGH): throw-proof — a spawn failure returns "" (the UNSET shape), which
-  // the caller treats as "the attach will set it", never as a crash.
+function readHooksPath(root: string): { value: string | null; failed?: string } {
+  // FIXED (the audit gate MEDIUM): the catch returned "" — IDENTICAL to unset — so a read failure
+  // read as "no custom hooksPath" and applyHooks could overwrite an unreadable config. `null` =
+  // a FAILED read; `""` = genuinely unset. The caller distinguishes them.
   try {
     const r = Bun.spawnSync(["git", "-C", root, "config", "core.hooksPath"], { stderr: "pipe", stdout: "pipe" });
-    return r.exitCode === 0 ? (r.stdout?.toString().trim() || "") : "";
+    return { value: r.exitCode === 0 ? (r.stdout?.toString().trim() || "") : "" };
   } catch (e) {
     console.error(`attach-read-hookspath-failed:${root}:${String(e).slice(0, 60)}`);
-    return "";
+    return { value: null, failed: `the hooksPath read failed (${String(e).slice(0, 50)})` };
   }
 }
 
@@ -96,7 +105,7 @@ function writeRegistryAtomic(path: string, reg: Registry): { ok: boolean; reason
     const canon = (list: ProjectSpec[]): string => JSON.stringify(
       list
         .map((x) => ({ id: x.id, root: x.root, owner: x.owner, repo: x.repo, tokenEnv: x.tokenEnv, worktreeRoot: x.worktreeRoot, store: x.store, tickMs: x.tickMs ?? null, enabled: x.enabled ?? true }))
-        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
+        .sort((a, b) => a.id.localeCompare(b.id)));
     if (canon(reg.projects) !== canon(back.projects as ProjectSpec[])) {
       return { ok: false, reason: `ATTACH-REGISTRY-ASSERT:${path} (the re-parse is not byte-faithful to the merge)` };
     }
@@ -115,16 +124,25 @@ export function realDeps(kernel: string, rawHost = UPPER_ENV): AttachDeps {
   // FIXED (the audit gate HIGH ×2 + LOW): ONE normalized host feeds BOTH the API base and the
   // remote-gate comparison. (Was: `hostNorm` for the API while checkRemote compared the RAW host —
   // `https://ghes.example.com/` built a correct URL and then always failed ATTACH-REMOTE-HOST.)
-  const host = rawHost.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "") || "github.com";
-  const apiBase = host === "github.com" ? "https://api.github.com" : `https://${host}/api/v3`;
+  // FIXED (the audit gate MEDIUM + LOW): `rawHost` may be a non-string, and a HOST:PORT must
+  // build the API base WITH the port while the remote-gate comparison uses the BARE hostname
+  // (parseRemote returns `URL.hostname`, which drops the port).
+  const raw = typeof rawHost === "string" ? rawHost : UPPER_ENV;
+  const hostPort = raw.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "") || "github.com";
+  const host = hostPort.split(":")[0].toLowerCase();
+  const apiBase = hostPort === "github.com" ? "https://api.github.com" : `https://${hostPort}/api/v3`;
 
   /** THE SHARED HOOKS PREDICATE — ONE function used by BOTH the inspect and the apply's assert.
    *  FIXED (the audit gate HIGH): it was the object method `inspectHooks`, and the assert called
    *  `this.inspectHooks(o)` — a DESTRUCTURED or proxied deps object left `this` undefined and
    *  threw a TypeError MID-MUTATION (after the wiring was already copied). A closure, no `this`. */
   function inspectHooksImpl(o: AttachTarget): { ok: boolean; needed: boolean; refused?: string; remedy?: string; detail: string } {
-    const hp = readHooksPath(o.root);
+    const read = readHooksPath(o.root);
     const dir = join(o.root, ".githooks");
+    if (read.value === null) {
+      return { ok: false, needed: true, refused: "ATTACH-HOOKS-READ-FAILED", remedy: `git -C ${JSON.stringify(o.root)} config core.hooksPath   # the config must be readable`, detail: read.failed ?? "the hooksPath read failed" };
+    }
+    const hp = read.value;
     if (hp === "") return { ok: true, needed: true, detail: "core.hooksPath is unset — the attach will set it to .githooks" };
     if (hp !== ".githooks") {
       return { ok: false, needed: true, refused: "ATTACH-HOOKS-FOREIGN", remedy: `git -C ${JSON.stringify(o.root)} config core.hooksPath .githooks`, detail: `core.hooksPath=${hp} (a foreign hooks dir) — this tree's gate chain lives in .githooks` };
