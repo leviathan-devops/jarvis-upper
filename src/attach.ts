@@ -83,7 +83,7 @@ export interface AttachResult extends AttachPlan {
 
 /** The read-only origin probe — injectable so `attachPlan` owns NO process spawn (the audit's
  *  purity finding) and the tests never have to mock git binaries. */
-export interface OriginRead { url: string | null; isRepo: boolean }
+export interface OriginRead { url: string | null; isRepo: boolean; /** a TRANSIENT read failure (≠ not-a-repo) */ failed?: string }
 export interface RepoVerdict {
   ok: boolean;
   refused?: string;
@@ -185,6 +185,15 @@ export async function attachPlan(opts: AttachOpts, deps: AttachDeps): Promise<At
     push(1, "preflight", false, `the origin probe threw: ${String(e).slice(0, 60)}`, false,
       `ATTACH-ORIGIN-PROBE-FAILED:${opts.path}`,
       `git -C ${JSON.stringify(opts.path)} rev-parse --is-inside-work-tree   # the probe could not read the tree`);
+    return finish(steps, deriveTarget(opts), opts);
+  }
+  // FIXED (the audit gate HIGH): `failed` was DECLARED but never CONSUMED — a transient probe
+  // failure still surfaced as a plain not-a-repo. The discriminant is read here.
+  if (probed.failed) {
+    console.error(`attach-origin-unreadable:${opts.path}:${probed.failed}`);
+    push(1, "preflight", false, probed.failed, false,
+      `ATTACH-ORIGIN-UNREADABLE:${opts.path}`,
+      `git -C ${JSON.stringify(opts.path)} remote -v   # the tree exists but its git state could not be read`);
     return finish(steps, deriveTarget(opts), opts);
   }
   const isRepo = probed.isRepo;

@@ -104,6 +104,22 @@ function copyOne(src: string, d: string, copied: string[], backedUp: string[], s
 export function copyKernelSurface(opts: { kernel: string; target: string; id: string; dry?: boolean }):
   { copied: string[]; skipped: string[]; backedUp: string[]; missingRequired: string[]; inputError?: string } {
   const dry = opts.dry === true;
+  // FIXED (the audit gate MEDIUM): the surface validation ran AFTER the copy loops — a
+  // file-where-a-dir-belongs threw inside readdirSync BEFORE missingRequired was ever computed,
+  // aborting the remaining artifacts. VALIDATE FIRST (the same law as the registry check).
+  const preMissing: string[] = [];
+  for (const d of TOP_DIRS) {
+    const p = join(opts.kernel, d);
+    let isDir = false;
+    try { isDir = existsSync(p) && statSync(p).isDirectory(); } catch (e) { console.error(`enroll-surface-stat:${p}:${String(e).slice(0, 40)}`); }
+    if (!isDir && existsSync(p)) preMissing.push(`${d} (not a directory)`);
+  }
+  for (const f of WORKFLOW_FILES) {
+    const p = join(opts.kernel, ".github", "workflows", f);
+    let isFile = false;
+    try { isFile = existsSync(p) && statSync(p).isFile(); } catch (e) { console.error(`enroll-surface-stat:${p}:${String(e).slice(0, 40)}`); }
+    if (!isFile && existsSync(p)) preMissing.push(`.github/workflows/${f} (not a file)`);
+  }
   // FIXED (the audit gate HIGH): this is a PUBLIC chokepoint now (`upper attach` calls it
   // directly), so it must validate its OWN inputs — `enroll()` used to be the only caller and
   // its checks do not protect a second one. An id with `..`/a slash, or a non-absolute target,
@@ -153,12 +169,15 @@ export function copyKernelSurface(opts: { kernel: string; target: string; id: st
   // workflow DIR but no gates.yml read as complete. The required FILES are checked too.
   // FIXED (the audit gate MEDIUM): existence-only let a FILE-where-a-dir-belongs pass and then
   // throw inside copyTree. The TYPE is checked (the same isFile/isDirectory discipline).
-  const missingRequired: string[] = [];
+  const missingRequired: string[] = [...preMissing];
   for (const d of TOP_DIRS) {
     const p = join(opts.kernel, d);
+    // FIXED (the audit gate LOW): the second existsSync RE-PROBED the filesystem and could
+    // mislabel a transient error as a type mismatch. One probe, reused.
+    const ex = existsSync(p);
     let isDir = false;
-    try { isDir = existsSync(p) && statSync(p).isDirectory(); } catch (e) { console.error(`enroll-surface-stat:${p}:${String(e).slice(0, 40)}`); }
-    if (!isDir) missingRequired.push(`${d}${existsSync(p) ? " (not a directory)" : ""}`);
+    try { isDir = ex && statSync(p).isDirectory(); } catch (e) { console.error(`enroll-surface-stat:${p}:${String(e).slice(0, 40)}`); }
+    if (!isDir && !preMissing.some((m) => m.startsWith(d))) missingRequired.push(`${d}${ex ? " (not a directory)" : ""}`);
   }
   for (const f of WORKFLOW_FILES) {
     const p = join(opts.kernel, ".github", "workflows", f);

@@ -105,7 +105,9 @@ function writeRegistryAtomic(path: string, reg: Registry): { ok: boolean; reason
     const canon = (list: ProjectSpec[]): string => JSON.stringify(
       list
         .map((x) => ({ id: x.id, root: x.root, owner: x.owner, repo: x.repo, tokenEnv: x.tokenEnv, worktreeRoot: x.worktreeRoot, store: x.store, tickMs: x.tickMs ?? null, enabled: x.enabled ?? true }))
-        .sort((a, b) => a.id.localeCompare(b.id)));
+        // FIXED (the audit gate MEDIUM): `localeCompare` is not a total byte order (it can return
+        // 0 for distinct ids) — a plain code-unit comparison is deterministic everywhere.
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
     if (canon(reg.projects) !== canon(back.projects as ProjectSpec[])) {
       return { ok: false, reason: `ATTACH-REGISTRY-ASSERT:${path} (the re-parse is not byte-faithful to the merge)` };
     }
@@ -129,8 +131,15 @@ export function realDeps(kernel: string, rawHost = UPPER_ENV): AttachDeps {
   // (parseRemote returns `URL.hostname`, which drops the port).
   const raw = typeof rawHost === "string" ? rawHost : UPPER_ENV;
   const hostPort = raw.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "") || "github.com";
-  const host = hostPort.split(":")[0].toLowerCase();
-  const apiBase = hostPort === "github.com" ? "https://api.github.com" : `https://${hostPort}/api/v3`;
+  // FIXED (the audit gate MEDIUM): `split(":")[0]` broke a bracketed IPv6 host (`[::1]:8080` →
+  // "["). Parse the hostname properly via URL.
+  const host = ((): string => {
+    try { return new URL(`https://${hostPort}`).hostname.toLowerCase(); }
+    catch (e) { console.error(`attach-host-parse:${hostPort}:${String(e).slice(0, 40)}`); return hostPort.toLowerCase(); }
+  })();
+  // FIXED (the audit gate MEDIUM): the comparison used the UN-lowercased hostPort, so `GitHub.com`
+  // built `https://GitHub.com/api/v3`. Compare the NORMALIZED bare host.
+  const apiBase = host === "github.com" ? "https://api.github.com" : `https://${hostPort}/api/v3`;
 
   /** THE SHARED HOOKS PREDICATE — ONE function used by BOTH the inspect and the apply's assert.
    *  FIXED (the audit gate HIGH): it was the object method `inspectHooks`, and the assert called
@@ -221,7 +230,9 @@ export function realDeps(kernel: string, rawHost = UPPER_ENV): AttachDeps {
     // ── STEP 4 · THE REMOTE GATE (B0/B1) ───────────────────────────────────────────────────────
     checkRemote(o: AttachTarget) {
       const r = readOrigin(o.root);
-      if (!r.isRepo) return { ok: false, refused: `ATTACH-NOT-A-REPO:${o.root}`, remedy: `git -C ${o.root} init -b main`, detail: "not a git work tree" };
+      // FIXED (the audit gate HIGH): a TRANSIENT read failure is not "not a repo" — consumed.
+      if (r.failed) return { ok: false, refused: `ATTACH-ORIGIN-UNREADABLE:${o.root}`, remedy: `git -C ${JSON.stringify(o.root)} remote -v   # the tree exists but its git state could not be read`, detail: r.failed };
+      if (!r.isRepo) return { ok: false, refused: `ATTACH-NOT-A-REPO:${o.root}`, remedy: `git -C ${JSON.stringify(o.root)} init -b main`, detail: "not a git work tree" };
       const url = r.url ?? "";
       const parsed = url ? parseRemote(url) : null;
       if (!parsed) {
@@ -278,6 +289,13 @@ export function realDeps(kernel: string, rawHost = UPPER_ENV): AttachDeps {
     // ── STEP 6 · THE HOOKS GATE (B3 — the silent-inert kill; the closure above) ────────────────
     inspectHooks: inspectHooksImpl,
     applyHooks(o: AttachTarget) {
+      // FIXED (the audit gate HIGH): the config was SET unconditionally BEFORE the assert — an
+      // unreadable pre-existing config (the exact hazard the read-discriminant names) was
+      // OVERWRITTEN before it could be detected. PRE-CHECK, then set.
+      const pre = inspectHooksImpl(o);
+      if (!pre.ok && pre.refused === "ATTACH-HOOKS-READ-FAILED") {
+        return { ok: false, refused: pre.refused, remedy: pre.remedy, detail: pre.detail };
+      }
       const set = Bun.spawnSync(["git", "-C", o.root, "config", "core.hooksPath", ".githooks"], { stderr: "pipe", stdout: "pipe" });
       if (set.exitCode !== 0) {
         return { ok: false, refused: "ATTACH-HOOKS-SET-FAILED", remedy: `git -C ${o.root} config core.hooksPath .githooks`, detail: set.stderr?.toString().slice(0, 80) || `exit ${set.exitCode}` };
