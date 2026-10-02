@@ -1,0 +1,26 @@
+{
+  "probe": "the attach battery's hermeticity (the pin's PROOF CONTRACT L3/L4)",
+  "image": "omp-ct:master",
+  "hostBaseline": { "battery": "286 pass / 0 fail / 984 expect / 59 files", "tsc": "exit 0" },
+  "round1": {
+    "mounts": ["the tree at /work"],
+    "result": "275 pass / 1 skip / 9 fail",
+    "fails": [
+      "4x REGISTRY-EMPTY (w2_missing_path: the registry's host-path roots are absent in the container — the registry's own fail-closed refusal)",
+      "3x test_real_fence_verified / test_real_fence_refuses / test_real_ledger_binding (they drive the HOST b6 fence + ledger)",
+      "1x test_audit_gate_prose_429_not_blocked (imports the HOST omp extension by absolute path)",
+      "1x test_preflight_refuses_no_spec (asserts the LIVE-runtime preflight passes)"
+    ]
+  },
+  "round2": {
+    "mounts": ["the tree at /work", "JARVIS-CORE (the b6 ledger)", "~/.omp (the extensions)", "the host worktrees"],
+    "result": "285 pass / 1 fail",
+    "delta": "+10 recovered — THE COUPLING MECHANISM PROVEN (FS-mounted host substrates)",
+    "remaining": [
+      "test_preflight_refuses_no_spec — needs the HOST'S LIVE RUNTIME: the AO daemon on :3001 + the systemctl --user unit jarvis-upper + the GH_TOKEN file (a daemon + a systemd session are structurally unmountable into a container; the class is BY DESIGN an acceptance test of the live host)"
+    ]
+  },
+  "verdict": "THE BATTERY IS HERMETIC FOR 285/286; the ONE residual is a named, structural live-runtime acceptance test. NO hidden environment dependency beyond the named couples.",
+  "exitCodes": { "round1": 1, "round2": 1 },
+  "containerNames": ["pbk (round1)", "pbk (round2)"]
+}
