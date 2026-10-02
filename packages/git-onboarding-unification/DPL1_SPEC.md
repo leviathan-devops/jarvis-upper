@@ -71,6 +71,13 @@ in the KERNEL → `ATTACH-KERNEL-INCOMPLETE`. VERIFY: `bun test -t test_attach_c
 ASSERT the dir exists AND `.githooks/pre-commit` is executable. Failure → `ATTACH-HOOKS-INERT`
 with the remedy. VERIFY: `bun test -t test_attach_asserts_the_hooks_path`; the negative fixture
 (a tree with the config but no dir) MUST refuse.
+AMENDED (measured LIVE, op9 — PLUTUS_VISION carried exactly this state while FR-12 requires it to
+ATTACH): the PROBE still refuses, but the PLAN is ORDER-AWARE — the wiring (step 5) runs BEFORE
+the hooks step (6) and LAYS the chain, so `ATTACH-HOOKS-INERT`/`-INCOMPLETE` block only where the
+wiring is NOT needed (the dead-end case). Where the wiring is needed, the plan proceeds with the
+sequel recorded ("the wiring (step 5) lays the chain; the hooks then activate") — otherwise the
+refusal's own remedy ("re-run to lay the wiring") was a DEAD END: a re-run re-refused. Both halves
+are pinned in `test_attach_asserts_the_hooks_path`.
 
 **FR-6 — the registry merge (B6).** `mergeRegistry` adds/updates the entry by id AND keeps every
 existing project; when the file is NEW it seeds the env-legacy project. Atomic tmp+rename; the

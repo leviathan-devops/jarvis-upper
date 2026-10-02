@@ -244,7 +244,15 @@ export async function attachPlan(opts: AttachOpts, deps: AttachDeps): Promise<At
   push(5, "wiring", true, wire.detail, wire.needed);
 
   // STEP 6 — HOOKS GATE: the B3 probe (set AND present AND executable).
-  const hooks = deps.inspectHooks(target);
+  let hooks = deps.inspectHooks(target);
+  // FIXED (measured LIVE, op9 — PLUTUS_VISION: hooksPath=.githooks while the dir is ABSENT, the
+  // pin's exact B3 state): the INERT refusal is EXACTLY the state the WIRING step fixes — and the
+  // wiring runs FIRST (step 5's apply precedes step 6's). The refusal's own remedy said "re-run to
+  // lay the wiring", but a re-run RE-REFUSED: a DEAD-END REMEDY, the worst refusal class. When the
+  // wiring is needed, the hooks-gate is not BLOCKING — it is the wiring's SEQUEL.
+  if (!hooks.ok && wire.needed && (hooks.refused === "ATTACH-HOOKS-INERT" || hooks.refused === "ATTACH-HOOKS-INCOMPLETE")) {
+    hooks = { ok: true, needed: true, detail: `${hooks.detail} — the wiring (step 5) lays the chain; the hooks then activate` };
+  }
   push(6, "hooks-gate", hooks.ok, hooks.detail, hooks.needed, hooks.refused, hooks.remedy);
   if (!hooks.ok) return finish(steps, target, opts);
 

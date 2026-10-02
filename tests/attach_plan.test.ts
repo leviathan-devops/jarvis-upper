@@ -97,12 +97,30 @@ test("test_attach_refuses_private_free_early — before ANY mutation", async () 
 });
 
 test("test_attach_asserts_the_hooks_path — a missing dir MUST refuse (the B3 kill)", async () => {
-  const w = repo(join(base, "inert"), "https://github.com/acme/inert.git");
-  const plan = await attachPlan({ path: w }, deps({
-    inspectHooks: () => ({ ok: false, needed: true, refused: "ATTACH-HOOKS-INERT", remedy: `git -C ${w} config core.hooksPath .githooks   # after the wiring lands`, detail: "hooksPath set but the dir is ABSENT — every commit would be ungated" }),
+  // THE PROBE still refuses (attach_guards.test.ts pins that directly). At the PLAN level the law
+  // is ORDER-AWARE (fixed LIVE, op9 — PLUTUS_VISION carried exactly this state): the WIRING step
+  // (5) runs BEFORE the hooks step (6) and lays the chain, so the refusal must survive ONLY where
+  // nothing would lay it. TWO halves:
+  // (a) the wiring CANNOT help (needed:false) → the plan REFUSES (the dead-end B3 kill);
+  const w1 = repo(join(base, "inert"), "https://github.com/acme/inert.git");
+  const planDeadEnd = await attachPlan({ path: w1 }, deps({
+    inspectWiring: () => ({ needed: false, detail: "the wiring is already present" }),
+    inspectHooks: () => ({ ok: false, needed: true, refused: "ATTACH-HOOKS-INERT", remedy: `git -C ${w1} config core.hooksPath .githooks   # after the wiring lands`, detail: "hooksPath set but the dir is ABSENT — every commit would be ungated" }),
   }));
-  expect(plan.refused).toBe("ATTACH-HOOKS-INERT");
-  expect(plan.remedy).toContain("core.hooksPath");
+  expect(planDeadEnd.refused).toBe("ATTACH-HOOKS-INERT");
+  expect(planDeadEnd.remedy).toContain("core.hooksPath");
+
+  // (b) the wiring IS needed (it lays the chain) → the plan PROCEEDS with the sequel recorded —
+  //     the attach FIXES the state instead of dead-ending on a re-run that re-refuses.
+  const w2 = repo(join(base, "inert2"), "https://github.com/acme/inert2.git");
+  const planSequel = await attachPlan({ path: w2 }, deps({
+    inspectHooks: () => ({ ok: false, needed: true, refused: "ATTACH-HOOKS-INERT", remedy: "x", detail: "hooksPath set but the dir is ABSENT — every commit would be ungated" }),
+  }));
+  expect(planSequel.refused).toBeUndefined();
+  const hooksStep = planSequel.steps.find((s) => s.id === "hooks-gate");
+  expect(hooksStep?.ok).toBe(true);
+  expect(hooksStep?.detail).toContain("the wiring (step 5) lays the chain");
+  expect(hooksStep?.mutates).toBe(true);
 });
 
 // ═══ THE HAPPY PATH LAST ═══
