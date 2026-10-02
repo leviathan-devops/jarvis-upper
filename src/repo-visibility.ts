@@ -170,7 +170,7 @@ export function provisionRepo(
     // the re-probe checks BOTH facts (the audit gate MEDIUM): existence AND the visibility —
     // a provider-side override (an org policy forcing private) must never read as a success.
     if (!after.exists || after.visibility !== want.visibility) {
-      return { ok: false, refused: `REPO-CREATE-UNCONFIRMED:${slug}`, remedy: `gh repo view ${slug} --json visibility,isPrivate`, detail: `created, then the re-probe read ${after.exists ? after.visibility : "(unreadable: " + after.detail.slice(0, 80) + ")"} — wanted ${want.visibility}`, did };
+      return { ok: false, refused: `REPO-CREATE-UNCONFIRMED:${slug}`, remedy: `gh repo view ${slug} --json visibility,isPrivate`, detail: `created, then the re-probe read ${after.exists ? after.visibility : after.absent ? "(still absent)" : "(unreadable: " + after.detail.slice(0, 80) + ")"} — wanted ${want.visibility}`, did };
     }
     return { ok: true, detail: `provisioned ${slug} (${after.visibility}) — confirmed by re-probe`, did };
   }
@@ -189,7 +189,7 @@ export function provisionRepo(
   // THE RE-PROBE (the audit gate MED): confirm the flip against the API — never a claimed success.
   const after = probeRepo(t.owner, t.repo, token, run);
   if (!after.exists || after.visibility !== want.visibility) {
-    return { ok: false, refused: `REPO-VISIBILITY-UNCONFIRMED:${slug}`, remedy: `gh repo view ${slug} --json visibility`, detail: `edited, then the re-probe read ${after.exists ? after.visibility : "(absent)"} — the flip did not stick`, did };
+    return { ok: false, refused: `REPO-VISIBILITY-UNCONFIRMED:${slug}`, remedy: `gh repo view ${slug} --json visibility`, detail: `edited, then the re-probe read ${after.exists ? after.visibility : after.absent ? "(absent)" : "(unreadable: " + after.detail.slice(0, 80) + ")"} — the flip did not stick`, did };
   }
   return { ok: true, detail: `flipped ${slug}: ${state.visibility} → ${after.visibility} (confirmed by re-probe)`, did };
 }
