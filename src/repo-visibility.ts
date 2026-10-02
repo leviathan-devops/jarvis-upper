@@ -107,6 +107,15 @@ export function probeRepo(owner: string, repo: string, token: string, run: GhRun
   return { exists: true, visibility, absent: false, detail: `${owner}/${repo} exists · visibility=${visibility}` };
 }
 
+// THE RE-PROBE'S LABEL (the audit gate's round-3 MED ×2): read-failure and absence are different
+// diagnoses, and the distinction was duplicated + written as nested ternaries. ONE helper, no
+// nesting, both call sites share it.
+function readStateLabel(r: RepoState): string {
+  if (r.exists) return String(r.visibility);
+  if (r.absent) return "(absent)";
+  return `(unreadable: ${r.detail.slice(0, 80)})`;
+}
+
 /** THE PROVISIONER — the ONE place the kernel creates a repo or flips its visibility.
  *  `create` gates only the ABSENT case; an existing repo is edited toward the wanted visibility.
  *  Both directions are supported (public→private is the operator's explicit "alter if we want"). */
@@ -170,7 +179,7 @@ export function provisionRepo(
     // the re-probe checks BOTH facts (the audit gate MEDIUM): existence AND the visibility —
     // a provider-side override (an org policy forcing private) must never read as a success.
     if (!after.exists || after.visibility !== want.visibility) {
-      return { ok: false, refused: `REPO-CREATE-UNCONFIRMED:${slug}`, remedy: `gh repo view ${slug} --json visibility,isPrivate`, detail: `created, then the re-probe read ${after.exists ? after.visibility : after.absent ? "(still absent)" : "(unreadable: " + after.detail.slice(0, 80) + ")"} — wanted ${want.visibility}`, did };
+      return { ok: false, refused: `REPO-CREATE-UNCONFIRMED:${slug}`, remedy: `gh repo view ${slug} --json visibility,isPrivate`, detail: `created, then the re-probe read ${readStateLabel(after)} — wanted ${want.visibility}`, did };
     }
     return { ok: true, detail: `provisioned ${slug} (${after.visibility}) — confirmed by re-probe`, did };
   }
@@ -189,7 +198,7 @@ export function provisionRepo(
   // THE RE-PROBE (the audit gate MED): confirm the flip against the API — never a claimed success.
   const after = probeRepo(t.owner, t.repo, token, run);
   if (!after.exists || after.visibility !== want.visibility) {
-    return { ok: false, refused: `REPO-VISIBILITY-UNCONFIRMED:${slug}`, remedy: `gh repo view ${slug} --json visibility`, detail: `edited, then the re-probe read ${after.exists ? after.visibility : after.absent ? "(absent)" : "(unreadable: " + after.detail.slice(0, 80) + ")"} — the flip did not stick`, did };
+    return { ok: false, refused: `REPO-VISIBILITY-UNCONFIRMED:${slug}`, remedy: `gh repo view ${slug} --json visibility`, detail: `edited, then the re-probe read ${readStateLabel(after)} — the flip did not stick`, did };
   }
   return { ok: true, detail: `flipped ${slug}: ${state.visibility} → ${after.visibility} (confirmed by re-probe)`, did };
 }
