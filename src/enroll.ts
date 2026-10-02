@@ -102,8 +102,19 @@ function copyOne(src: string, d: string, copied: string[], backedUp: string[], s
 /** THE WIRING COPIER — extracted so `upper attach` REUSES it (the W3 rule: no second copier).
  *  Copies gates/ + .githooks/ + the workflows + the vendored package into the target. */
 export function copyKernelSurface(opts: { kernel: string; target: string; id: string; dry?: boolean }):
-  { copied: string[]; skipped: string[]; backedUp: string[] } {
+  { copied: string[]; skipped: string[]; backedUp: string[]; missingRequired: string[] } {
   const dry = opts.dry === true;
+  // FIXED (the audit gate HIGH): this is a PUBLIC chokepoint now (`upper attach` calls it
+  // directly), so it must validate its OWN inputs — `enroll()` used to be the only caller and
+  // its checks do not protect a second one. An id with `..`/a slash, or a non-absolute target,
+  // would write OUTSIDE the tree.
+  const ID_OK = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+  if (!ID_OK.test(opts.id) || opts.id.includes("..")) {
+    return { copied: [], skipped: [], backedUp: [], missingRequired: [`COPY-INPUT-INVALID: bad id ${String(opts.id).slice(0, 40)}`] };
+  }
+  if (typeof opts.kernel !== "string" || !isAbsolute(opts.kernel) || typeof opts.target !== "string" || !isAbsolute(opts.target)) {
+    return { copied: [], skipped: [], backedUp: [], missingRequired: [`COPY-INPUT-INVALID: non-absolute kernel/target`] };
+  }
   const copied: string[] = [], skipped: string[] = [], backedUp: string[] = [];
   // 1. the host gates
   for (const d of TOP_DIRS) {
@@ -127,7 +138,13 @@ export function copyKernelSurface(opts: { kernel: string; target: string; id: st
   if (existsSync(pkSrc)) {
     copyTree(pkSrc, pkDst, copied, backedUp, skipped, dry);
   } else { skipped.push("packages/ (absent — specs/spec-diff.ts will need a vendored SPEC)"); }
-  return { copied, skipped, backedUp };
+  // FIXED (the audit gate MEDIUM): the required-surface verdict is STRUCTURED (not a regex over
+  // the human-readable `skipped` strings — a wording change in this file would have silently
+  // disabled the caller's gate, the exact `\\.githooks` class).
+  const missingRequired: string[] = [];
+  for (const d of TOP_DIRS) if (!existsSync(join(opts.kernel, d))) missingRequired.push(d);
+  if (!existsSync(join(opts.kernel, ".github", "workflows"))) missingRequired.push(".github/workflows");
+  return { copied, skipped, backedUp, missingRequired };
 }
 
 export function enroll(opts: EnrollOpts): EnrollResult {

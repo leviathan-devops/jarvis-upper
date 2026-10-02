@@ -368,8 +368,12 @@ export async function verbAttach(root: string, arg?: string, ...rest: string[]):
   const tokenEnv = (opts["token-env"] as string | undefined) ?? "GH_TOKEN";
   // the credential resolves from the ENV-VAR NAME — never from a flag, never persisted.
   const token = process.env[tokenEnv] ?? "";
+  // FIXED (the audit gate HIGH): a RELATIVE path was stored verbatim in the registry, and
+  // `checkProject` requires root/worktreeRoot/store to be ABSOLUTE — so `upper attach ./tree`
+  // wrote an entry the daemon immediately rejected (the REGISTRY-EMPTY fallback). Resolve it here.
+  const absPath = (await import("node:path")).resolve(arg);
   const attachOpts = {
-    path: arg,
+    path: absPath,
     id: opts.id as string | undefined,
     owner: opts.owner as string | undefined,
     repo: opts.repo as string | undefined,

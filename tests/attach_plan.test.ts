@@ -25,6 +25,15 @@ function repo(dir: string, origin: string): string {
 /** a fully-passing deps fixture: every guard says ok, nothing mutates (the pure plan only reads). */
 function deps(over: Partial<AttachDeps> = {}): AttachDeps {
   return {
+    // the probe reads the REAL temp repo (the DI seam is for production purity; a test fixture
+    // legitimately reads git).
+    readOrigin: (root: string) => {
+      const inside = Bun.spawnSync(["git", "-C", root, "rev-parse", "--is-inside-work-tree"], { stdout: "pipe", stderr: "pipe" });
+      if (inside.exitCode !== 0 || inside.stdout?.toString().trim() !== "true") return { url: null, isRepo: false };
+      const u = Bun.spawnSync(["git", "-C", root, "remote", "get-url", "origin"], { stdout: "pipe", stderr: "pipe" });
+      const url = u.exitCode === 0 ? (u.stdout?.toString().trim() || null) : null;
+      return { url, isRepo: true };
+    },
     checkRepo: async () => ({ ok: true, detail: "repo exists, public, ruleset-eligible" }),
     checkRemote: () => ({ ok: true, detail: "origin matches" }),
     inspectWiring: () => ({ needed: true, detail: "would copy gates/ .githooks/ workflows/" }),

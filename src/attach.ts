@@ -29,11 +29,10 @@ export interface AttachOpts {
   host?: string;
   /** the credential for the repo gate — resolved by the caller from `tokenEnv`, never stored. */
   token?: string;
-  /** opt-ins (defaults documented in the spec §8). */
-  create?: boolean;
-  makePublic?: boolean;
-  arm?: boolean;
-  restart?: boolean;
+  // FIXED (the audit gate MEDIUM): `create/makePublic/arm/restart` were DECLARED but never read —
+  // documented opt-ins that silently did nothing. They are also OPERATOR-OWNED actions (creating
+  // a repo, flipping visibility) per the build's HARD STOPS: the correct shape is a NAMED
+  // refusal + the exact remedy, never an auto-fix flag.
 }
 
 /** One of the 8 gated steps. `mutates` is true only for the steps that change the world. */
@@ -82,6 +81,9 @@ export interface AttachResult extends AttachPlan {
 
 // ── THE SEAM (W3 implements these; attachPlan/attachApply only call them) ────────────────────
 
+/** The read-only origin probe — injectable so `attachPlan` owns NO process spawn (the audit's
+ *  purity finding) and the tests never have to mock git binaries. */
+export interface OriginRead { url: string | null; isRepo: boolean }
 export interface RepoVerdict {
   ok: boolean;
   refused?: string;
@@ -101,6 +103,8 @@ export interface WiringReport {
 /** The five effectful guards. `attachPlan` may call the READ-ONLY ones (checkRepo, checkRemote,
  *  inspectWiring) — applyWiring/applyHooks/applyRegistry are called ONLY by `attachApply`. */
 export interface AttachDeps {
+  /** STEP 1/2 — the read-only origin probe (the DI seam for the plan's purity). */
+  readOrigin(root: string): OriginRead;
   /** STEP 3 — the repo exists + the account plan permits the ruleset (the B5 late-403 fix). */
   checkRepo(o: AttachTarget, opts: AttachOpts): Promise<RepoVerdict>;
   /** STEP 4 — the tree's `origin` parses to owner/repo (reuses target-guard's parseRemote). */
@@ -159,22 +163,30 @@ export async function attachPlan(opts: AttachOpts, deps: AttachDeps): Promise<At
   // FIXED (W1's own test caught this — the runtime-ledger entry): `Bun.file(path).exists()` is
   // FALSE for a DIRECTORY (it is a file API), so the preflight refused EVERY valid tree with
   // ATTACH-NOT-A-PATH. A directory check must be a stat, not Bun.file.
-  const exists = existsSync(opts.path) && statSync(opts.path).isDirectory();
+  // FIXED (the audit gate HIGH): `existsSync && statSync(...)` still THREW on an ENOENT race,
+  // EACCES, ENOTDIR or a symlink loop — escaping as ATTACH-THREW instead of a named refusal.
+  let exists = false;
+  try { exists = existsSync(opts.path) && statSync(opts.path).isDirectory(); }
+  catch (e) { console.error(`attach-preflight-stat:${String(e).slice(0, 50)}`); exists = false; }
   if (!exists) {
-    push(1, "preflight", false, `${opts.path} does not exist`, true, `ATTACH-NOT-A-PATH:${opts.path}`, `mkdir -p ${opts.path} && git -C ${opts.path} init -b main`);
+    push(1, "preflight", false, `${opts.path} does not exist`, false, `ATTACH-NOT-A-PATH:${opts.path}`, `mkdir -p ${JSON.stringify(opts.path)} && git -C ${JSON.stringify(opts.path)} init -b main`);
     return finish(steps, deriveTarget(opts), opts);
   }
-  const gitInside = Bun.spawnSync(["git", "-C", opts.path, "rev-parse", "--is-inside-work-tree"], { stderr: "pipe", stdout: "pipe" });
-  const isRepo = (gitInside.exitCode === 0) && (gitInside.stdout?.toString().trim() === "true");
+  // FIXED (the audit gate MEDIUM): the plan called Bun.spawnSync ITSELF — a purity violation (it
+  // claimed "read-only deps only"), a DI break (tests had to mock git binaries) and a TOCTOU (the
+  // derive snapshot could differ from the guard's). The probe is a DEP now.
+  const probed = deps.readOrigin(opts.path);
+  const isRepo = probed.isRepo;
   if (!isRepo) {
-    push(1, "preflight", false, `${opts.path} is not a git work tree`, true, `ATTACH-NOT-A-REPO:${opts.path}`, `git -C ${opts.path} init -b main && git -C ${opts.path} add -A && git -C ${opts.path} commit -m "chore: initial commit"`);
+    // FIXED (the audit gate LOW): a REFUSED step claimed `mutates:true` — the dry output was
+    // self-contradictory (the step said mutates, the plan's count said 0).
+    push(1, "preflight", false, `${opts.path} is not a git work tree`, false, `ATTACH-NOT-A-REPO:${opts.path}`, `git -C ${JSON.stringify(opts.path)} init -b main && git -C ${JSON.stringify(opts.path)} add -A && git -C ${JSON.stringify(opts.path)} commit -m "chore: initial commit"`);
     return finish(steps, deriveTarget(opts), opts);
   }
   push(1, "preflight", true, `a git work tree at ${opts.path}`, false);
 
   // STEP 2 — DERIVE: the identity from the flags + the tree's origin.
-  const urlRaw = Bun.spawnSync(["git", "-C", opts.path, "remote", "get-url", "origin"], { stderr: "pipe", stdout: "pipe" });
-  const originUrl = urlRaw.exitCode === 0 ? (urlRaw.stdout?.toString().trim() || "") : "";
+  const originUrl = probed.url ?? "";
   const parsed = originUrl ? parseOrigin(originUrl) : null;
   const target = deriveTarget(opts, parsed);
   if (!target.owner || !target.repo) {

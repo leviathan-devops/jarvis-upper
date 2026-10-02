@@ -15,7 +15,7 @@ import { randomBytes } from "node:crypto";
 import { parseRemote } from "./target-guard";
 import { registryPath, legacyProject, type Registry, type ProjectSpec } from "./projects";
 import { copyKernelSurface } from "./enroll";
-import type { AttachDeps, AttachTarget, RepoVerdict, WiringReport } from "./attach";
+import type { AttachDeps, AttachTarget, RepoVerdict, WiringReport, OriginRead } from "./attach";
 
 const UPPER_ENV = process.env.UPPER_HOST ?? "github.com";
 
@@ -38,7 +38,7 @@ function readHooksPath(root: string): string {
 /** FIXED (the runtime seat's finding, H6): path comparison must be NORMALIZED. The CLI's kernel
  *  root carries a TRAILING SLASH (`…/jarvis-upper/`) while the registry's entry does not — a raw
  *  `===` therefore always failed, and a non-dry attach would write a DUPLICATE legacy row. */
-export const normRoot = (p: string): string => p.replace(/\/+$/, "");
+export const normRoot = (p: string): string => { const t = p.replace(/\/+$/, ""); return t === "" ? "/" : t; };
 
 /** THE REGISTRY MERGE (pure — the guard's inspect and apply share it). Adds/updates the spec by
  *  id, PRESERVES every existing project, and SEEDS the env-legacy project when the file is new
@@ -68,9 +68,14 @@ function writeRegistryAtomic(path: string, reg: Registry): { ok: boolean; reason
       throw e;
     }
     const back = JSON.parse(readFileSync(path, "utf8")) as Registry;
-    if (!Array.isArray(back.projects) || back.projects.length < reg.projects.length) {
-      return { ok: false, reason: `ATTACH-REGISTRY-ASSERT:${path} (re-parse lost entries)` };
+    // FIXED (the audit gate MEDIUM): the assert was LENGTH-only — a same-length corruption
+    // (truncated entries, swapped ids) passed. Assert IDENTITY: every merged id must be present.
+    if (!Array.isArray(back.projects) || back.projects.length !== reg.projects.length) {
+      return { ok: false, reason: `ATTACH-REGISTRY-ASSERT:${path} (the re-parse lost entries: ${back.projects?.length ?? 0} != ${reg.projects.length})` };
     }
+    const before = new Set(reg.projects.map((x) => x.id));
+    const after = new Set(back.projects.map((x) => x.id));
+    for (const id of before) if (!after.has(id)) return { ok: false, reason: `ATTACH-REGISTRY-ASSERT:${path} (the id ${id} vanished on the re-parse)` };
     return { ok: true };
   } catch (e) {
     return { ok: false, reason: `ATTACH-REGISTRY-WRITE-FAILED:${String(e).slice(0, 90)}` };
@@ -83,16 +88,54 @@ function writeRegistryAtomic(path: string, reg: Registry): { ok: boolean; reason
  *  effects live; `attach.ts` never touches fs/network itself (its purity is by construction). */
 export function realDeps(kernel: string, host = UPPER_ENV): AttachDeps {
   const regPath = registryPath(kernel);
+  // FIXED (the audit gate HIGH): `host` was threaded to checkRemote but checkRepo hardcoded
+  // api.github.com — a GHES/custom host passed the remote gate, then probed the WRONG API.
+  const apiBase = host === "github.com" ? "https://api.github.com" : `https://${host}/api/v3`;
+
+  /** THE SHARED HOOKS PREDICATE — ONE function used by BOTH the inspect and the apply's assert.
+   *  FIXED (the audit gate HIGH): it was the object method `inspectHooks`, and the assert called
+   *  `this.inspectHooks(o)` — a DESTRUCTURED or proxied deps object left `this` undefined and
+   *  threw a TypeError MID-MUTATION (after the wiring was already copied). A closure, no `this`. */
+  function inspectHooksImpl(o: AttachTarget): { ok: boolean; needed: boolean; refused?: string; remedy?: string; detail: string } {
+    const hp = readHooksPath(o.root);
+    const dir = join(o.root, ".githooks");
+    if (hp === "") return { ok: true, needed: true, detail: "core.hooksPath is unset — the attach will set it to .githooks" };
+    if (hp !== ".githooks") {
+      return { ok: false, needed: true, refused: "ATTACH-HOOKS-FOREIGN", remedy: `git -C ${JSON.stringify(o.root)} config core.hooksPath .githooks`, detail: `core.hooksPath=${hp} (a foreign hooks dir) — this tree's gate chain lives in .githooks` };
+    }
+    if (!existsSync(dir)) {
+      return { ok: false, needed: true, refused: "ATTACH-HOOKS-INERT", remedy: `upper attach ${JSON.stringify(o.root)}   # re-run to lay the wiring, then the hooks activate`, detail: `core.hooksPath=.githooks but ${dir} is ABSENT — EVERY commit is ungated` };
+    }
+    // FIXED (the audit gate MEDIUM): the exec-bit gate checked ONLY pre-commit while applyHooks
+    // chmods FOUR hooks — a non-executable pre-push passed the gate AND the assert. ALL are checked.
+    const HOOKS = ["pre-commit", "pre-push", "commit-msg", "prepare-commit-msg"];
+    const problems: string[] = [];
+    for (const f of HOOKS) {
+      const fp = join(dir, f);
+      if (!existsSync(fp)) { if (f === "pre-commit") problems.push(`${f} (absent)`); continue; }
+      try { if ((statSync(fp).mode & 0o111) === 0) problems.push(f); }
+      catch (e) { console.error(`attach-hooks-stat:${String(e).slice(0, 40)}`); problems.push(`${f} (unreadable)`); }
+    }
+    if (problems.length > 0) {
+      return { ok: false, needed: true, refused: "ATTACH-HOOKS-NOT-EXEC", remedy: `chmod +x ${JSON.stringify(dir)}/*`, detail: `not executable: ${problems.join(", ")} — git would skip them` };
+    }
+    return { ok: true, needed: false, detail: `hooksPath=.githooks · the dir exists · all ${HOOKS.length} hooks executable` };
+  }
 
   return {
-    // ── STEP 3 · THE REPO GATE (B5: the 403 moves from arm-time to attach-time) ────────────────
+    /** STEP 1/2 — the origin probe (the SAME readOrigin the remote gate uses — ONE impl). */
+    readOrigin(root: string): OriginRead {
+      return readOrigin(root);
+    },
+
+    // ── STEP 4 · THE REPO GATE (B5: the 403 moves from arm-time to attach-time) ────────────────
     async checkRepo(o: AttachTarget, opts): Promise<RepoVerdict> {
       if (!opts.token) {
         return { ok: false, refused: "ATTACH-DISARMED", remedy: `printf '%s\\n' '${o.tokenEnv}=<the PAT>' >> ~/.config/jarvis-upper.env`, detail: `no credential for ${o.tokenEnv}` };
       }
       const hdrs = { Authorization: `Bearer ${opts.token}`, Accept: "application/vnd.github+json" };
       try {
-        const res = await fetch(`https://api.github.com/repos/${encodeURIComponent(o.owner)}/${encodeURIComponent(o.repo)}`, { headers: hdrs, signal: AbortSignal.timeout(10000) });
+        const res = await fetch(`${apiBase}/repos/${encodeURIComponent(o.owner)}/${encodeURIComponent(o.repo)}`, { headers: hdrs, signal: AbortSignal.timeout(10000) });
         if (res.status === 404) {
           return { ok: false, refused: `ATTACH-NO-REPO:${o.owner}/${o.repo}`, remedy: `gh repo create ${o.owner}/${o.repo} --public --source=${o.root} --remote=origin --push`, detail: "the GitHub repo does not exist" };
         }
@@ -106,11 +149,17 @@ export function realDeps(kernel: string, host = UPPER_ENV): AttachDeps {
           // "Upgrade to GitHub Pro or make this repository public"). Refuse BEFORE any copy.
           let plan = "unknown";
           try {
-            const u = await fetch("https://api.github.com/user", { headers: hdrs, signal: AbortSignal.timeout(10000) });
+            const u = await fetch(`${apiBase}/user`, { headers: hdrs, signal: AbortSignal.timeout(10000) });
             if (u.ok) plan = ((await u.json()) as { plan?: { name?: string } }).plan?.name ?? "unknown";
           } catch (e) { console.error(`attach-plan-probe:${String(e).slice(0, 50)}`); }
-          if (plan === "free") {
-            return { ok: false, refused: "ATTACH-PRIVATE-FREE-REPO", remedy: `gh repo edit ${o.owner}/${o.repo} --visibility public   # or upgrade to Pro (the ruleset is unavailable on private repos at plan=free)`, detail: `PRIVATE + plan=${plan}` };
+          // FIXED (the audit gate MEDIUM): the probe failing left plan="unknown" and the gate
+          // PROCEEDED — a free-plan private repo with a transient auth/network error slid
+          // through to the late 403 the B5 fix exists to move EARLIER. For a PRIVATE repo the
+          // gate now FAILS CLOSED on an unresolved plan: the operator must know before the copy.
+          if (plan === "free" || plan === "unknown") {
+            return { ok: false, refused: plan === "free" ? "ATTACH-PRIVATE-FREE-REPO" : "ATTACH-PLAN-UNRESOLVED",
+              remedy: `gh repo edit ${o.owner}/${o.repo} --visibility public   # or upgrade to Pro (the ruleset needs a public repo at plan=free); if the plan is Pro, re-run (the probe failed)`,
+              detail: `PRIVATE + plan=${plan}` };
           }
         }
         return { ok: true, detail: `repo exists · visibility=${visibility}` };
@@ -149,9 +198,12 @@ export function realDeps(kernel: string, host = UPPER_ENV): AttachDeps {
     applyWiring(o: AttachTarget): WiringReport {
       const r = copyKernelSurface({ kernel, target: o.root, id: o.id, dry: false });
       const failures = r.skipped.filter((s) => s.includes("COPY-FAILED"));
-      const missingRequired = r.skipped.some((s) => /^(gates|\.githooks) \(absent|\.github\/workflows/.test(s));
+      // FIXED (the audit gate MEDIUM): the required-surface verdict was a REGEX over the
+      // human-readable `skipped` strings — a wording change in enroll.ts silently disabled it
+      // (history: the `\\.githooks` double-escape). The copier returns it STRUCTURED now.
+      const missingRequired = r.missingRequired.length > 0;
       if (missingRequired) {
-        return { ok: false, refused: "ATTACH-KERNEL-INCOMPLETE", remedy: `ls ${kernel}/gates ${kernel}/.githooks ${kernel}/.github/workflows   # the kernel must carry all three`, copied: r.copied, skipped: r.skipped, backedUp: r.backedUp, detail: `the kernel is missing a required surface` };
+        return { ok: false, refused: "ATTACH-KERNEL-INCOMPLETE", remedy: `ls ${JSON.stringify(kernel)}/gates ${JSON.stringify(kernel)}/.githooks ${JSON.stringify(kernel)}/.github/workflows   # the kernel must carry all three`, copied: r.copied, skipped: r.skipped, backedUp: r.backedUp, detail: `the kernel is missing: ${r.missingRequired.join(", ")}` };
       }
       if (failures.length > 0) {
         return { ok: false, refused: "ATTACH-COPY-FAILED", remedy: `ls -ld ${o.root}/gates   # check the target is writable`, copied: r.copied, skipped: r.skipped, backedUp: r.backedUp, detail: failures.slice(0, 3).join("; ") };
@@ -159,35 +211,8 @@ export function realDeps(kernel: string, host = UPPER_ENV): AttachDeps {
       return { ok: true, copied: r.copied, skipped: r.skipped, backedUp: r.backedUp, detail: `copied=${r.copied.length} skipped=${r.skipped.length} backedUp=${r.backedUp.length}` };
     },
 
-    // ── STEP 6 · THE HOOKS GATE (B3 — the silent-inert kill) ───────────────────────────────────
-    inspectHooks(o: AttachTarget) {
-      const hp = readHooksPath(o.root);
-      const dir = join(o.root, ".githooks");
-      // UNSET = the NORMAL fresh-repo case. The attach SETS it — that is the job, not a refusal.
-      // (FIXED BY RUNNING: refusing here made every fresh attach fail at step 6.)
-      if (hp === "") {
-        return { ok: true, needed: true, detail: "core.hooksPath is unset — the attach will set it to .githooks" };
-      }
-      // SET TO SOMETHING ELSE = a foreign hooks dir; setting ours would silently shadow theirs.
-      if (hp !== ".githooks") {
-        return { ok: false, needed: true, refused: "ATTACH-HOOKS-FOREIGN", remedy: `git -C ${o.root} config core.hooksPath .githooks`, detail: `core.hooksPath=${hp} (a foreign hooks dir) — this tree's gate chain lives in .githooks` };
-      }
-      // SET TO .githooks — now the dir MUST exist. THE B3 DEFECT, MEASURED LIVE: `hooksPath=.githooks`
-      // with the dir ABSENT = git silently runs NOTHING (115 ungated commits on PLUTUS_VISION).
-      if (!existsSync(dir)) {
-        return { ok: false, needed: true, refused: "ATTACH-HOOKS-INERT", remedy: `upper attach ${o.root}   # re-run to lay the wiring, then the hooks activate`, detail: `core.hooksPath=.githooks but ${dir} is ABSENT — EVERY commit is ungated` };
-      }
-      const pre = join(dir, "pre-commit");
-      if (!existsSync(pre)) {
-        return { ok: false, needed: true, refused: "ATTACH-HOOKS-INCOMPLETE", remedy: `upper attach ${o.root}`, detail: `no .githooks/pre-commit in ${dir}` };
-      }
-      let exec = false;
-      try { exec = (statSync(pre).mode & 0o111) !== 0; } catch (e) { console.error(`attach-hooks-stat:${String(e).slice(0, 40)}`); }
-      if (!exec) {
-        return { ok: false, needed: true, refused: "ATTACH-HOOKS-NOT-EXEC", remedy: `chmod +x ${dir}/*`, detail: `${pre} is not executable — git would skip it` };
-      }
-      return { ok: true, needed: false, detail: "hooksPath=.githooks · the dir exists · pre-commit is executable" };
-    },
+    // ── STEP 6 · THE HOOKS GATE (B3 — the silent-inert kill; the closure above) ────────────────
+    inspectHooks: inspectHooksImpl,
     applyHooks(o: AttachTarget) {
       const set = Bun.spawnSync(["git", "-C", o.root, "config", "core.hooksPath", ".githooks"], { stderr: "pipe", stdout: "pipe" });
       if (set.exitCode !== 0) {
@@ -201,8 +226,8 @@ export function realDeps(kernel: string, host = UPPER_ENV): AttachDeps {
           if (existsSync(p)) chmodSync(p, 0o755);
         }
       } catch (e) { console.error(`attach-hooks-chmod:${String(e).slice(0, 50)}`); }
-      // ASSERT — the apply and the inspect run the SAME predicate (no drift).
-      const check = this.inspectHooks(o);
+      // ASSERT — the apply and the inspect run the SAME predicate (no drift, NO `this`).
+      const check = inspectHooksImpl(o);
       return check.ok ? { ok: true, detail: `set + asserted: ${check.detail}` } : { ok: false, refused: check.refused, remedy: check.remedy, detail: check.detail };
     },
 
@@ -232,7 +257,13 @@ export function realDeps(kernel: string, host = UPPER_ENV): AttachDeps {
       if (existsSync(regPath)) {
         try {
           const parsed = JSON.parse(readFileSync(regPath, "utf8")) as Registry;
-          if (Array.isArray(parsed?.projects)) reg = parsed;
+          // FIXED (the audit gate HIGH): a file WITHOUT a `projects` array stayed `{projects:[]}`
+          // and was then atomically OVERWRITTEN — a SILENT FLEET RESET, while `inspectRegistry`
+          // refused the same shape (plan and apply DIVERGED). They agree: refuse.
+          if (!Array.isArray(parsed?.projects)) {
+            return { ok: false, refused: "ATTACH-REGISTRY-CORRUPT", remedy: `cp ${JSON.stringify(regPath)} ${JSON.stringify(regPath)}.bak && rm ${JSON.stringify(regPath)}`, detail: "the registry has no `projects` array — refusing to overwrite a fleet file" };
+          }
+          reg = parsed;
         } catch (e) {
           return { ok: false, refused: "ATTACH-REGISTRY-CORRUPT", remedy: `cp ${regPath} ${regPath}.bak && rm ${regPath}`, detail: `unparseable: ${String(e).slice(0, 70)}` };
         }
