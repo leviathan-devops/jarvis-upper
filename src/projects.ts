@@ -64,7 +64,9 @@ export function projectStorePath(root: string, id: string): string {
 
 /** The SYNTHESIZED single project from the legacy env vars — the backward-compatibility
  *  path. A daemon with no projects.json keeps behaving EXACTLY as before (zero regression). */
-function legacyProject(root: string, env: Record<string, string | undefined>): ProjectSpec {
+/** THE ENV-LEGACY PROJECT — exported so `upper attach`'s registry merge can PRESERVE it
+ *  (the B6 kill: a fresh registry write must never drop the project the daemon serves). */
+export function legacyProject(root: string, env: Record<string, string | undefined>): ProjectSpec {
   const repo = env.UPPER_REPO || "jarvis-upper";
   const home = env.HOME || "/home/leviathan";
   return {

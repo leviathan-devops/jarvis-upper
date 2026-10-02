@@ -99,6 +99,37 @@ function copyOne(src: string, d: string, copied: string[], backedUp: string[], s
   catch (e) { skipped.push(`${d} (COPY-FAILED:${String(e).slice(0, 40)})`); }
 }
 
+/** THE WIRING COPIER — extracted so `upper attach` REUSES it (the W3 rule: no second copier).
+ *  Copies gates/ + .githooks/ + the workflows + the vendored package into the target. */
+export function copyKernelSurface(opts: { kernel: string; target: string; id: string; dry?: boolean }):
+  { copied: string[]; skipped: string[]; backedUp: string[] } {
+  const dry = opts.dry === true;
+  const copied: string[] = [], skipped: string[] = [], backedUp: string[] = [];
+  // 1. the host gates
+  for (const d of TOP_DIRS) {
+    const s = join(opts.kernel, d);
+    if (!existsSync(s)) { skipped.push(`${d} (absent in the kernel tree)`); continue; }
+    copyTree(s, join(opts.target, d), copied, backedUp, skipped, dry);
+  }
+  // 2. the workflows (the check-run producers)
+  const wfSrc = join(opts.kernel, ".github", "workflows");
+  if (existsSync(wfSrc)) {
+    if (!dry) mkdirSync(join(opts.target, ".github", "workflows"), { recursive: true });
+    for (const f of WORKFLOW_FILES) {
+      const s = join(wfSrc, f);
+      if (!existsSync(s)) { skipped.push(`.github/workflows/${f} (absent)`); continue; }
+      copyOne(s, join(opts.target, ".github", "workflows", f), copied, backedUp, skipped, dry);
+    }
+  } else { skipped.push(".github/workflows (absent in the kernel tree)"); }
+  // 3. the vendored build package
+  const pkSrc = join(opts.kernel, "packages", "jarvis-upper-tier");
+  const pkDst = join(opts.target, "packages", opts.id);
+  if (existsSync(pkSrc)) {
+    copyTree(pkSrc, pkDst, copied, backedUp, skipped, dry);
+  } else { skipped.push("packages/ (absent — specs/spec-diff.ts will need a vendored SPEC)"); }
+  return { copied, skipped, backedUp };
+}
+
 export function enroll(opts: EnrollOpts): EnrollResult {
   const dry = opts.dryRun === true;
   const copied: string[] = [], skipped: string[] = [], wrote: string[] = [], backedUp: string[] = [];
@@ -141,32 +172,9 @@ export function enroll(opts: EnrollOpts): EnrollResult {
     }
   }
 
-  // 1. the host gates
-  for (const d of TOP_DIRS) {
-    const s = join(opts.kernel, d);
-    if (!existsSync(s)) { skipped.push(`${d} (absent in the kernel tree)`); continue; }
-    copyTree(s, join(opts.target, d), copied, backedUp, skipped, dry);
-  }
-  // 2. the workflows (the check-run producers)
-  const wfSrc = join(opts.kernel, ".github", "workflows");
-  if (existsSync(wfSrc)) {
-    if (!dry) mkdirSync(join(opts.target, ".github", "workflows"), { recursive: true });
-    for (const f of WORKFLOW_FILES) {
-      const s = join(wfSrc, f);
-      if (!existsSync(s)) { skipped.push(`.github/workflows/${f} (absent)`); continue; }
-      // FIXED (the ship gate medium): the workflows used a BARE copyFileSync — a foreign
-      // gates.yml/drift.yml was still silently overwritten despite the backedUp ledger claiming
-      // visibility. They now route through the SAME backup chokepoint as copyTree.
-      copyOne(s, join(opts.target, ".github", "workflows", f), copied, backedUp, skipped, dry);
-    }
-  } else { skipped.push(".github/workflows (absent in the kernel tree)"); }
-  // 3. the vendored build package (the alignment gates READ this path)
-  const pkSrc = join(opts.kernel, "packages", "jarvis-upper-tier");
-  const pkDst = join(opts.target, "packages", opts.id);
-  if (existsSync(pkSrc)) {
-    // FIXED (the whole-file scan low): the trailing mkdir was dead (copyTree creates pkDst).
-    copyTree(pkSrc, pkDst, copied, backedUp, skipped, dry);
-  } else { skipped.push("packages/ (absent — specs/spec-diff.ts will need a vendored SPEC)"); }
+  // 1-3. THE WIRING (the SAME copier `upper attach` uses — one implementation, W3)
+  const surface = copyKernelSurface({ kernel: opts.kernel, target: opts.target, id: opts.id, dry });
+  copied.push(...surface.copied); skipped.push(...surface.skipped); backedUp.push(...surface.backedUp);
 
   // 4. the registry entry (idempotent: replaces a same-id entry, keeps the others)
   // (the registry was READ + VALIDATED at the top — before any copy)

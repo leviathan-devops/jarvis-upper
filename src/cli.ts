@@ -3,14 +3,14 @@ import { fileURLToPath } from "node:url";
 import { openStore, tableNames, STORE_PATH } from "./store";
 import { VERBS, type VerbResult } from "./cli-verbs";
 
-const usage = `usage: upper <init|cursor|status|plan|order|graph|gates|sync|bug|desks|kick> [args]
+const usage = `usage: upper <init|cursor|status|plan|order|graph|gates|sync|bug|desks|kick|attach> [args]
   init             create/open the store, print tables
   cursor <source>  print last_seq for an event source (default ao-events)`;
 
 // FIXED (the whole-file scan): the WHOLE dispatch is now shaped. init/cursor shared the VERBS
 // path's error contract (a store-open throw escaped as a bare stack before), the VerbResult is
 // validated before use, and extras are rejected for the two zero/one-arg fast-paths.
-const EXTRA_ALLOWANCE: Record<string, number> = { kick: 1, enroll: 5, arm: 1 };
+const EXTRA_ALLOWANCE: Record<string, number> = { kick: 1, enroll: 5, arm: 1, attach: 12 };
 
 /** A shaped refusal on stdout + a contract exit code. `code` is 0/1/2 only. */
 function fail(code: 1 | 2, out: Record<string, unknown>): never {

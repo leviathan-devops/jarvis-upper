@@ -341,6 +341,64 @@ export async function verbArm(root: string, arg?: string, ...rest: string[]): Pr
 }
 
 /**
+ * verbAttach — THE ONE-CLICK ONBOARDING.
+ * Usage: upper attach <path> [--id X] [--owner O] [--repo R] [--token-env E] [--host H]
+ *                             [--dry]
+ * ONE idempotent verb: the 8 gated steps (preflight → derive → repo gate → remote gate → wiring
+ * → hooks gate → registry merge → verify); every refusal a NAMED token + the exact remedy.
+ * `--dry` prints the plan and changes NOTHING. A second run reports noop.
+ */
+export async function verbAttach(root: string, arg?: string, ...rest: string[]): Promise<VerbResult> {
+  if (!arg) {
+    return emit(2, { ok: false, refused: "ATTACH-NEEDS-A-PATH", hint: "upper attach <path> [--id X] [--owner O] [--repo R] [--token-env E] [--host H] [--dry]" });
+  }
+  const known = new Set(["--id", "--owner", "--repo", "--token-env", "--host", "--dry"]);
+  const opts: Record<string, string | boolean> = {};
+  for (let i = 0; i < rest.length; i++) {
+    const f = rest[i];
+    if (!known.has(f)) return emit(2, { ok: false, refused: "ATTACH-UNKNOWN-FLAG", flag: f.slice(0, 40), known: [...known] });
+    if (f === "--dry") { opts.dry = true; continue; }
+    const v = rest[++i];
+    if (v === undefined) return emit(2, { ok: false, refused: "ATTACH-FLAG-NEEDS-A-VALUE", flag: f });
+    opts[f.slice(2)] = v;
+  }
+  const { attachPlan, attachApply } = await import("./attach");
+  const { realDeps } = await import("./attach-guards");
+
+  const tokenEnv = (opts["token-env"] as string | undefined) ?? "GH_TOKEN";
+  // the credential resolves from the ENV-VAR NAME — never from a flag, never persisted.
+  const token = process.env[tokenEnv] ?? "";
+  const attachOpts = {
+    path: arg,
+    id: opts.id as string | undefined,
+    owner: opts.owner as string | undefined,
+    repo: opts.repo as string | undefined,
+    tokenEnv,
+    host: (opts.host as string | undefined) ?? ((process.env.UPPER_HOST ?? "").trim() || "github.com"),
+    token,
+  };
+  const deps = realDeps(root, attachOpts.host);
+  try {
+    const plan = await attachPlan(attachOpts, deps);
+    const steps = plan.steps.map((s) => ({ n: s.n, id: s.id, ok: s.ok, mutates: s.mutates, detail: s.detail, ...(s.refused ? { refused: s.refused, remedy: s.remedy } : {}) }));
+    if (opts.dry) {
+      return emit(plan.refused ? 1 : 0, { ok: !plan.refused, dry: true, target: plan.target, steps, mutations: plan.mutations, ...(plan.refused ? { refused: plan.refused, remedy: plan.remedy } : {}) });
+    }
+    if (plan.refused) {
+      return emit(2, { ok: false, refused: plan.refused, remedy: plan.remedy, target: plan.target, steps });
+    }
+    const res = await attachApply(plan, attachOpts, deps);
+    return emit(res.applied ? 0 : 2, {
+      ok: res.applied, attached: res.applied ? res.target.id : undefined, target: res.target,
+      action: res.mutations === 0 ? "noop" : "applied", report: res.report,
+      ...(res.refused ? { refused: res.refused, remedy: res.remedy } : {}),
+    });
+  } catch (e) {
+    return emit(1, { ok: false, refused: "ATTACH-THREW", error: String(e).slice(0, 200) });
+  }
+}
+
+/**
  * verbProjects — THE FLEET VIEW.
  * Usage: upper projects
  * The registry's projects + each one's live status row (from the aggregate).
@@ -367,6 +425,7 @@ const rawVerbs: Record<string, (root: string, arg?: string, ...rest: string[]) =
   gates: verbGates, sync: verbSync, bug: verbBug, desks: verbDesks, kick: verbKick,
   promote: verbPromote,
   enroll: verbEnroll, arm: verbArm, projects: verbProjects,
+  attach: verbAttach,
 };
 export const VERBS: typeof rawVerbs = Object.fromEntries(
   Object.entries(rawVerbs).map(([k, fn]) => [k, async (root: string, arg?: string, ...rest: string[]): Promise<VerbResult> => {
