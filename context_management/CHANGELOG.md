@@ -425,3 +425,12 @@ errors) · PR #2 MERGED + recorded.
 dossier.ts · attribute.ts · adapter-verbs.ts) carry the documented §0 pre-existing findings — the
 operator's arm-to-N-projects path, not the runtime path; a SECOND real project has never been
 enrolled+armed live (legacy:true).
+
+## [2026-10-02] the attach v — the audit gate CLEARED
+
+- `upper attach <path> [--id] [--dry]` — the 9-step pipeline, the pure plan + live deps.
+- The audit campaign: 7 rounds, each a real defect; the convergence 6h→2h→2h→1h→2h→2h→0h.
+- **AUDIT GATE: PASS (0 critical/high)** (session f2e8d344, range 5743d9a..952e0d0).
+- The final commit: 8788775. The battery: 263/0. The smoke: 8/8 green.
+- The laws the rounds re-derived: validate-then-gate · the discriminant must be CONSUMED ·
+  a fault returns in its OWN class.

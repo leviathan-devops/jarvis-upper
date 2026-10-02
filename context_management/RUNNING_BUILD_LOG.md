@@ -601,3 +601,10 @@ errors) · PR #2 MERGED + recorded.
 dossier.ts · attribute.ts · adapter-verbs.ts) carry the documented §0 pre-existing findings — the
 operator's arm-to-N-projects path, not the runtime path; a SECOND real project has never been
 enrolled+armed live (legacy:true).
+
+### 2026-10-02 · attach v — the audit campaign closes
+- Rounds 5→7 applied: the discriminants CONSUMED (the seam type + both consumers) · applyHooks
+  pre-checks before it SETS · the surface validated BEFORE the copies and GATING them · the
+  scheme case · the IPv6 host · the port via URL · the structured wrong-type channel.
+- The 7th round: **GATE: PASS (0 critical/high)**. The 4 residuals fixed same-round.
+- `8788775` — tsc exit 0 · 263/0 · the smoke 8/8 · mutations=3.

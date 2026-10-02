@@ -2032,3 +2032,40 @@ both measured working.
 
 **ANCHORS:** src/projects.ts, src/runtime.ts:358, src/main.ts, src/status.ts, src/enroll.ts,
 src/cli-verbs.ts, projects.json.example, tests/multi_project.test.ts, tests/enroll.test.ts.
+
+---
+
+## 2026-10-02 — the attach audit campaign (7 rounds, 6h→0h)
+
+**FINDING**: the auditors kept finding the SAME TWO LAWS re-derived at different sites — (1) a
+validate/scan phase that does not GATE the mutate phase is decoration; (2) a discriminant that
+is declared but never CONSUMED is not a fix.
+
+**ROOT CAUSE**: the fixes were applied POINT-BY-POINT (this call site, then that one) while the
+STRUCTURE that produces the class stayed. Each round's fix moved the site, the next round found
+the class again.
+
+**THE FIX**: round 6 restructured the copier's ORDER (INPUTS → SURFACE-scanned-with-a-structured-
+flag → COPIES) and made every discriminant fail CLOSED. Round 7 closed the returning substring.
+
+**VERIFICATION**: \`AUDIT GATE: PASS (0 critical/high)\` (session f2e8d344) · 263/0 battery ·
+the live smoke 8/8.
+
+**LESSON**: when an audit's findings keep re-deriving one law, the next fix is the STRUCTURE,
+never another site. Count the class, not the findings.
+
+---
+
+## 2026-10-02 — the round-6 self-inflicted break (documented, not hidden)
+
+**FINDING**: the round-6 cast edit landed a DUPLICATED \`catch (e) {\` line (the script's \`old\`
+string included the line its replacement also emitted). \`tsc\` reported TS1005 at attach.ts:183,
+the battery 7 fail / 1 error.
+
+**ROOT CAUSE**: a scripted replacement whose old-string and new-string OVERLAP.
+
+**THE FIX**: one surgical edit removed the duplicate; the battery re-ran green (263/0).
+
+**VERIFICATION**: \`tsc\` exit 0 · 263 pass / 0 fail.
+
+**LESSON**: after every scripted edit, the typecheck IS the assertion — it caught it in seconds.

@@ -851,3 +851,25 @@ with the fix holding.
 **RESUME CONDITION:** wait out the Go 429 window (or run the gate per-file / on a smaller range).
 The gate DID run fully at W24/W25 (both GATE: FAIL with real findings) - the lane degrades under
 a sustained sweep, not because of any configuration.
+
+---
+
+## 2026-10-02 — the attach v: the battery, the live smoke, the audit gate
+
+**Local battery**: \`tsc --noEmit\` exit 0 · \`bun test\` 263 pass / 0 fail / 897 expect() / 58 files.
+
+**The live smoke** (real deps, a temp git repo with a real origin):
+  1 preflight ok — a git work tree · 2 derive ok — the slug derived
+  3 remote-gate ok — origin matches leviathan-devops/jarvis-upper on github.com
+  4 repo-gate ok — repo exists · visibility=public
+  5 wiring ok — would copy: gates, .githooks, .github/workflows/gates.yml
+  6 hooks-gate ok — core.hooksPath unset → the attach would set .githooks
+  7 registry ok — would add the project, KEEPING all 2 existing project(s)
+  8 verify ok — 3 step(s) would change the world
+  → \`ok=true mutations=3\`
+
+**The audit campaign**: 7 rounds, convergence 6h→2h→2h→1h→2h→2h→**0h**. Final run session
+f2e8d344, scope=range \`5743d9a..952e0d0\`, filesReviewed=3, findings=4 (0 critical / 0 high /
+3 medium / 1 low). The 4 residuals were fixed in round 7 (the structured wrong-type channel).
+
+**AUDIT GATE: PASS (0 critical/high)** — session f2e8d344.

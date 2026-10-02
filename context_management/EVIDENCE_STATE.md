@@ -509,3 +509,11 @@ errors) · PR #2 MERGED + recorded.
 dossier.ts · attribute.ts · adapter-verbs.ts) carry the documented §0 pre-existing findings — the
 operator's arm-to-N-projects path, not the runtime path; a SECOND real project has never been
 enrolled+armed live (legacy:true).
+
+### 2026-10-02 · the attach v evidence
+- `tsc --noEmit` → exit 0.
+- `bun test` → 263 pass / 0 fail / 897 expect() / 58 files.
+- The live smoke → ok=true, mutations=3, the registry keeping both projects.
+- **AUDIT GATE: PASS (0 critical/high)** — qwen-code-audit session f2e8d344,
+  scope=range 5743d9a..952e0d0, findings 4 (0c/0h/3m/1l). Prior: 6h→2h→2h→1h→2h→2h.
+- HEAD 8788775 (the working tree clean).

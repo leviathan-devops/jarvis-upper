@@ -1066,3 +1066,13 @@ across 19 rows. The 1 FAIL was the doc (no current head SHA) — now stamped.
 **THE HONEST RESIDUALS.** `eligible` reads 0 in production until an operator runs `promote`
 (the factory never self-promotes by design); the 3 `jarvis-upper-2`/`-4` AO sessions are legacy
 fixtures; the `kick` table is EMPTY (no live kick has ever run — R9's wiring is test-proven only).
+
+### 2026-10-02 · the attach audit rounds (finding → root cause → fix → verification)
+- **Finding**: findings re-deriving ONE law across sites.
+  **Root cause**: point-by-point fixes while the producing STRUCTURE stayed.
+  **Fix**: the copier's ORDER restructured (inputs → gating surface → copies) + fail-closed
+  discriminants + the structured wrong-type channel.
+  **Verification**: GATE: PASS (f2e8d344) · 263/0 · the live smoke 8/8.
+- **Finding**: the round-6 scripted edit duplicated a `catch (e) {` (TS1005, 7 test fails).
+  **Root cause**: an overlapping old/new string in a replacement.
+  **Fix**: one surgical edit. **Verification**: tsc exit 0 · 263/0.

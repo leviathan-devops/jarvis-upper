@@ -537,3 +537,38 @@ That is why the four waves exist: the gate is one instrument, and it has a named
 
 **EVERY success claim in this report carries its tier artifact above. A claim without one would
 be a hypothesis, not a finding.**
+
+---
+
+## 2026-10-02 — `upper attach` v: the verb, driven to a CLEARED audit gate
+
+**The build**: the single `upper attach <path> [--id] [--dry]` verb — the 9-step pipeline
+(preflight → derive → remote-gate → repo-gate → wiring → hooks-gate → registry → verify) that
+turns "put this project on git" into one gated command. Extracted from the `project-on-git`
+skill (the manual 9-step runbook a fresh agent would have hand-run).
+
+**The code**: `src/attach.ts` (the plan + the live deps + the derivation), `src/attach-guards.ts`
+(the real-deps guard bundle + `checkRemote` + `checkRegistry` + `applyWiring` + `applyHooks`),
+`src/enroll.ts` (the copier: `copyKernelSurface` + `copyTree` + the enroll result). The plan is
+PURE (deps injected — read-only); the smoke is a REAL run (live deps).
+
+**The audit campaign**: SEVEN rounds against the deployed artifact. The convergence:
+
+  round 1: 6 high  →  round 2: 2 high  →  round 3: 2 high  →  round 4: 1 high
+  round 5: 2 high  →  round 6: 2 high  →  round 7: **0 critical / 0 high — GATE: PASS**
+
+Every round was a REAL defect (not noise): an unguarded `statSync`, a `String(undefined)`
+smuggling "undefined" past a guard, an existence-only workflow check that aborted the copy, an
+`isFile()` check that ran BEFORE the copy it was meant to gate, a hook-apply that SET before it
+CHECKED, discriminants declared but never CONSUMED, and (round 7) the string-matching
+wrong-type gate the very same file had removed for `skipped`. The laws each round re-derived:
+**validate-then-gate**, **the discriminant must be consumed**, **a fault is returned in its own
+class, never the caller's**.
+
+**The final evidence**:
+- `tsc --noEmit` → exit 0
+- `bun test` → **263 pass / 0 fail / 897 expect() / 58 files**
+- the live smoke → `ok=true, mutations=3`, all 8 steps green, the registry keeping both projects
+- `AUDIT GATE: PASS (0 critical/high)` — session f2e8d344, scope=range 5743d9a..952e0d0
+
+**The seal**: the audit gate CLEARED. The v is COMPLETE.
