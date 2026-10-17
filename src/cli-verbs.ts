@@ -9,7 +9,7 @@ import { renderGraph } from "./graph";
 import { attributeBug } from "./attribute";
 import { executePlan, type MergeAdapter } from "./execute";
 import { waveA, waveB, waveC, waveD } from "./desks";
-import { readStatus } from "./status";
+import { digestPlan, readStatus } from "./status";
 import { syncPrs } from "./sync";
 import { listProjects, listPrsFromAo } from "./adapter-verbs";
 
@@ -36,7 +36,7 @@ export async function verbPlan(root: string, _arg?: string): Promise<VerbResult>
   try {
   const v = orderMerges(db);
   if (v.kind === "cycle") return emit(1, { ok: false, kind: "cycle", nodes: v.nodes });
-  const hash = new Bun.CryptoHasher("sha256").update(v.order.join(",")).digest("hex").slice(0, 16);
+  const hash = digestPlan(v.order.join(","));
   return emit(0, { ok: true, kind: "ok", order: v.order, hash });
   } finally { db.close(); }
 }

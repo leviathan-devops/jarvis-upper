@@ -10,7 +10,7 @@ import { syncPrs, type PrRow } from "./sync";
 import { listPrsFromAo } from "./adapter-verbs";
 import { orderMerges } from "./plan";
 import { guardrail, guardrailRemote, recordGatePass } from "./guardrail";
-import { appendTick, writeStatus, type RuntimeStatus } from "./status";
+import { appendTick, assertStatusSchema, digestPlan, writeStatus, type RuntimeStatus } from "./status";
 import { EventRail, parseSse } from "../ao-client/rail";
 import { reduceEvent } from "./reducers";
 import { health } from "../ao-client/client";
@@ -23,6 +23,10 @@ export const DAEMON = process.env.AO_DAEMON ?? "http://localhost:3001";
 
 // FIXED 2026-09-23 (ocr round-4 HIGH): Number("")===0 / Number("abc")===NaN —
 // a present-but-invalid env var produced a 0/NaN interval. Validate the parse.
+// A cycle that is still in flight after this budget is abandoned.
+// The bar is one minute. Tests pin 60_000 themselves.
+export const CYCLE_TIMEOUT_MS = 60_000;
+
 function parseTickMs(raw: string | undefined, fallback = 15000): number {
   const n = Number(raw ?? fallback);
   return Number.isFinite(n) && n > 0 ? n : fallback;
@@ -34,9 +38,18 @@ export interface RuntimeDeps {
   rails?: (db: Database, root: string) => Promise<RailCapture>;
   now?: () => Date;
   tickMs?: number;
+  // Test clock. Production uses setTimeout. A fake schedule lets a test
+  // advance time without waiting out the cycle budget.
+  schedule?: (fn: () => void, delayMs: number) => { cancel(): void };
   // W5 — the publish target. When present, the tick publishes the two
   // factory/* statuses for every eligible PR (sha/headSha are per-PR).
   publishOpts?: Omit<PublishVerdictForPrOpts, "sha" | "headSha">;
+}
+
+export interface InFlightStreak {
+  startedAtMs: number;
+  endedAtMs: number;
+  durationMs: number;
 }
 
 export interface Runtime {
@@ -44,7 +57,8 @@ export interface Runtime {
   start(): void;
   stop(): Promise<RuntimeStatus>;
   status(): RuntimeStatus | null;
-  state: { running: boolean; tick: number };
+  inFlightStreaks(asOfMs?: number): InFlightStreak[];
+  state: { running: boolean; tick: number; inFlight: boolean };
 }
 
 export async function defaultProbe(): Promise<boolean> {
@@ -227,6 +241,10 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
   const listPrs = deps.listPrs ?? ((): Promise<PrRow[]> => listPrsFromAo());
   const rails = deps.rails ?? defaultRails;
   const now = deps.now ?? (() => new Date());
+  const schedule = deps.schedule ?? ((fn: () => void, delayMs: number) => {
+    const id = setTimeout(fn, delayMs);
+    return { cancel() { clearTimeout(id); } };
+  });
   // W5 — the publish target (absent by default: the tick publishes only when
   // a caller supplies it, so a bare runtime tick never POSTs to GitHub).
   const publishOpts = deps.publishOpts;
@@ -236,15 +254,46 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
   let timer: NodeJS.Timeout | null = null;
   let inFlightPromise: Promise<unknown> | null = null;
   let everTicked = false;
+  let flightGen = 0;
+  let openStart: number | null = null;
+  const spans: { startedAtMs: number; endedAtMs: number }[] = [];
+  const closeOpen = (endedAtMs: number): void => {
+    if (openStart === null) return;
+    spans.push({ startedAtMs: openStart, endedAtMs });
+    openStart = null;
+  };
+  const inFlightStreaks = (asOfMs?: number): InFlightStreak[] => {
+    const asOf = asOfMs ?? now().getTime();
+    const rows: InFlightStreak[] = spans.map((s) => ({
+      startedAtMs: s.startedAtMs,
+      endedAtMs: s.endedAtMs,
+      durationMs: s.endedAtMs - s.startedAtMs,
+    }));
+    if (openStart !== null) {
+      rows.push({ startedAtMs: openStart, endedAtMs: asOf, durationMs: asOf - openStart });
+    }
+    return rows;
+  };
 
   async function tick(): Promise<RuntimeStatus> {
+    const gen = flightGen;
+    const abandoned = (): RuntimeStatus | null => {
+      if (gen === flightGen) return null;
+      return last ?? {
+        ts: now().toISOString(), tick: state.tick, daemonOk: false, cursor: 0,
+        prNodes: 0, ready: 0, eligible: 0, planHash: digestPlan(""), planKind: "none",
+        kicks: 0, errors: ["CYCLE-TIMEOUT"],
+      };
+    };
     state.tick += 1;
     const errors: string[] = [];
     const daemonOk = await probe();
+    const dropped = abandoned();
+    if (dropped) return dropped;
 
     let prNodes = 0;
     let planKind: RuntimeStatus["planKind"] = "none";
-    let planHash: string | null = null;
+    let planHash = digestPlan("");
 
     if (daemonOk) {
       try {
@@ -323,11 +372,26 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       }
     }
 
+    const droppedLater = abandoned();
+    if (droppedLater) return droppedLater;
+
     const plan = orderMerges(db);
-    planKind = plan.kind as RuntimeStatus["planKind"];
-    if (plan.kind === "ok") {
-      planHash = new Bun.CryptoHasher("sha256").update(plan.order.join(",")).digest("hex").slice(0, 16);
+    let material: string;
+    switch (plan.kind) {
+      case "ok":
+        planKind = "ok";
+        material = plan.order.join(",");
+        break;
+      case "cycle":
+        planKind = "cycle";
+        material = plan.nodes.join(",");
+        break;
+      default: {
+        const unreachable: never = plan;
+        throw new Error(`PLAN-KIND:${String(unreachable)}`);
+      }
     }
+    planHash = digestPlan(material);
 
     const s: RuntimeStatus = {
       ts: now().toISOString(), tick: state.tick, daemonOk, cursor,
@@ -342,10 +406,36 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
   return {
     state,
     tick,
+    inFlightStreaks,
     start() {
       if (state.running) return;
       state.running = true;
-      const safeTick = () => { if (state.inFlight) return; state.inFlight = true; everTicked = true; inFlightPromise = tick().catch((e) => { console.error(`tick-error: ${String(e).slice(0,120)}`); }).finally(() => { state.inFlight = false; }); };
+      const safeTick = () => {
+        if (state.inFlight) return;
+        const gen = ++flightGen;
+        state.inFlight = true;
+        everTicked = true;
+        const started = now().getTime();
+        openStart = started;
+        const budget = schedule(() => {
+          if (gen !== flightGen) return;
+          if (!state.inFlight || openStart === null) return;
+          const at = now().getTime();
+          if (at - started < CYCLE_TIMEOUT_MS) return;
+          flightGen += 1;
+          closeOpen(started + CYCLE_TIMEOUT_MS);
+          state.inFlight = false;
+        }, CYCLE_TIMEOUT_MS);
+        inFlightPromise = tick().catch((e) => { console.error(`tick-error: ${String(e).slice(0,120)}`); }).finally(() => {
+          budget.cancel();
+          if (gen !== flightGen) return;
+          if (!state.inFlight) return;
+          const at = now().getTime();
+          const end = at - started > CYCLE_TIMEOUT_MS ? started + CYCLE_TIMEOUT_MS : at;
+          closeOpen(end);
+          state.inFlight = false;
+        });
+      };
       safeTick();
       timer = setInterval(safeTick, tickMs);
     },
@@ -358,16 +448,35 @@ export function createRuntime(opts: { root: string; db?: Database; deps?: Runtim
       // stop() awaits the ACTUAL in-flight promise (the tick is internally
       // timeout-bounded), so no racetick can ever run.
       if (last) return last;
-      if (inFlightPromise) await inFlightPromise;
-      if (last) return last;
+      if (inFlightPromise) {
+        await Promise.race([
+          inFlightPromise,
+          new Promise<void>((resolve) => { schedule(() => resolve(), CYCLE_TIMEOUT_MS); }),
+        ]);
+      }
+      if (state.inFlight && openStart !== null) {
+        const at = now().getTime();
+        const end = at - openStart > CYCLE_TIMEOUT_MS ? openStart + CYCLE_TIMEOUT_MS : at;
+        flightGen += 1;
+        closeOpen(end);
+        state.inFlight = false;
+      }
+      if (last) {
+        assertStatusSchema(last);
+        return last;
+      }
       // FIXED 2026-09-23 (qwen-code-audit run 3 CRITICAL): if the awaited tick
       // THREW, `last ?? await tick()` launched a SECOND tick at stop time. stop()
       // now runs a tick ONLY when none has EVER run and none is in flight; a
       // status is synthesized otherwise (never a racing tick).
-      if (!state.inFlight && !everTicked) { everTicked = true; return tick(); }
-      return last ?? { ts: now().toISOString(), tick: state.tick, daemonOk: false, cursor: 0,
-        prNodes: 0, ready: 0, eligible: 0, planHash: null, planKind: "none", kicks: 0,
-        errors: ["stop-no-status"] };
+      if (!everTicked) { everTicked = true; return tick(); }
+      const synthesized: RuntimeStatus = {
+        ts: now().toISOString(), tick: state.tick, daemonOk: false, cursor: 0,
+        prNodes: 0, ready: 0, eligible: 0, planHash: digestPlan(""), planKind: "none", kicks: 0,
+        errors: ["stop-no-status"],
+      };
+      assertStatusSchema(synthesized);
+      return synthesized;
     },
     status() { return last; },
   };

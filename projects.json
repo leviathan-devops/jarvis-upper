@@ -1,0 +1,40 @@
+{
+  "projects": [
+    {
+      "id": "jev-fact-kernel",
+      "root": "/home/leviathan/JARVIS_WORKSPACE/worktrees/jev-fact-kernel",
+      "owner": "leviathan-devops",
+      "repo": "jev-manager-tool",
+      "tokenEnv": "GH_TOKEN",
+      "worktreeRoot": "/home/leviathan/.ao/data/worktrees/jev-fact-kernel",
+      "store": "/home/leviathan/JARVIS_WORKSPACE/worktrees/jev-fact-kernel/runtime/jev-fact-kernel/store.sqlite"
+    },
+    {
+      "id": "JevManager",
+      "root": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JevManager",
+      "owner": "leviathan-devops",
+      "repo": "jev-manager-tool",
+      "tokenEnv": "GH_TOKEN",
+      "worktreeRoot": "/home/leviathan/.ao/data/worktrees/jev-manager-tool",
+      "store": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JevManager/runtime/JevManager/store.sqlite"
+    },
+    {
+      "id": "jarvis-upper",
+      "root": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-FACTORY/jarvis-upper",
+      "owner": "leviathan-devops",
+      "repo": "jarvis-upper",
+      "tokenEnv": "GH_TOKEN",
+      "worktreeRoot": "/home/leviathan/.ao/data/worktrees/jarvis-upper",
+      "store": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-FACTORY/jarvis-upper/runtime/jarvis-upper/store.sqlite"
+    },
+    {
+      "id": "Graph_Intelligence",
+      "root": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/Graph_Intelligence",
+      "owner": "leviathan-devops",
+      "repo": "omp-code-intel",
+      "tokenEnv": "GH_TOKEN",
+      "worktreeRoot": "/home/leviathan/.ao/data/worktrees/omp-code-intel",
+      "store": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/Graph_Intelligence/runtime/Graph_Intelligence/store.sqlite"
+    }
+  ]
+}
