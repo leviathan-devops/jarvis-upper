@@ -1,5 +1,6 @@
 // status.ts — the runtime's observable output: status.json + ticks.log.
-// Atomic status writes; append-only tick rows. No external dependencies.
+// Atomic status writes; append-only tick rows. planHash is a frozen 16-hex string.
+import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync, appendFileSync, readFileSync, renameSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -11,7 +12,7 @@ export interface RuntimeStatus {
   prNodes: number;
   ready: number;
   eligible: number;
-  planHash: string | null;
+  planHash: string;
   planKind: "ok" | "cycle" | "none";
   kicks: number;
   errors: string[];
@@ -21,7 +22,24 @@ export function statusPath(root: string): string { return join(root, "runtime/st
 export function ticksPath(root: string): string { return join(root, "runtime/ticks.log"); }
 export function wireCapturePath(root: string): string { return join(root, "runtime/wire_capture.json"); }
 
+export function digestPlan(material: string): string {
+  return createHash("sha256").update(material).digest("hex").slice(0, 16);
+}
+
+export const STATUS_SCHEMA = {
+  planHash: { type: "string" as const, nullable: false as const, pattern: "^[0-9a-f]{16}$" },
+} as const;
+
+const PLAN_HASH_RE = /^[0-9a-f]{16}$/;
+
+export function assertStatusSchema(s: { planHash: unknown }): asserts s is { planHash: string } {
+  if (typeof s.planHash !== "string" || !PLAN_HASH_RE.test(s.planHash)) {
+    throw new Error(`STATUS-SCHEMA: planHash must be a 16-hex string, never null (got ${String(s.planHash)})`);
+  }
+}
+
 export function writeStatus(root: string, s: RuntimeStatus): void {
+  assertStatusSchema(s);
   mkdirSync(join(root, "runtime"), { recursive: true });
   const p = statusPath(root);
   const tmp = `${p}.${process.pid}.${Date.now()}.tmp`;
