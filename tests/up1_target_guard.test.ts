@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { canonicalOrigin, checkTargets, gitOrigin, type RegistryEntry } from "../src/target-guard";
+import { canonicalOrigin, checkTargets, gitOrigin, projectsJsonOverlap, type RegistryEntry } from "../src/target-guard";
 
 function repoWithOrigin(origin: string): string {
   const root = mkdtempSync(join(tmpdir(), "up1-"));
@@ -112,8 +112,13 @@ test("UP-1: a credential in the remote URL is not part of the origin", () => {
     .toBe("https://github.com/acme/widget.git");
 });
 
-test("UP-1: live projects.json is absent on this GitHub head", () => {
-  const path = join(import.meta.dir, "..", "projects.json");
+test("UP-1: live projects.json is STALE_BASE on this GitHub head", () => {
+  const root = join(import.meta.dir, "..");
   // Leviathan-only commits 050ff69 and 01e314e are not on this head.
-  expect(existsSync(path)).toBe(false);
+  expect(existsSync(join(root, "projects.json"))).toBe(false);
+  const overlap = projectsJsonOverlap(root);
+  expect(overlap.staleBase).toBe(true);
+  expect(overlap.note).toContain("STALE_BASE");
+  expect(overlap.note).toContain("050ff69");
+  expect(overlap.note).toContain("01e314e");
 });

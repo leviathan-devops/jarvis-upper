@@ -1,6 +1,18 @@
 // target-guard.ts — each registry project root's git origin must match
 // the registry entry. PLUTUS_VISION is skipped (owner rule). The guard
 // never rewrites an entry; jev-fact-kernel is an owner decision.
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
+export const PROJECTS_JSON_STALE_BASE =
+  "STALE_BASE: projects.json overlaps Leviathan-only commits 050ff69 and 01e314e and is absent on this GitHub head";
+
+export function projectsJsonOverlap(root: string): { staleBase: boolean; note: string } {
+  if (!existsSync(join(root, "projects.json"))) {
+    return { staleBase: true, note: PROJECTS_JSON_STALE_BASE };
+  }
+  return { staleBase: false, note: "projects.json is on this head and is not repointed" };
+}
 export interface RegistryEntry {
   id: string;
   root: string;
