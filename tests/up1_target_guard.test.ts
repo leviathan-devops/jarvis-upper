@@ -2,7 +2,7 @@
 // A mismatch fails. PLUTUS_VISION is skipped and never read.
 // jev-fact-kernel is reported, never repointed.
 import { test, expect } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -112,8 +112,15 @@ test("UP-1: a credential in the remote URL is not part of the origin", () => {
     .toBe("https://github.com/acme/widget.git");
 });
 
-test("UP-1: live projects.json is absent on this GitHub head", () => {
+test("UP-1: synced projects.json is on this head and omits PLUTUS_VISION", () => {
   const path = join(import.meta.dir, "..", "projects.json");
-  // Leviathan-only commits 050ff69 and 01e314e are not on this head.
-  expect(existsSync(path)).toBe(false);
+  expect(existsSync(path)).toBe(true);
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as {
+    projects: { id: string; repo: string }[];
+  };
+  const ids = parsed.projects.map((p) => p.id);
+  expect(ids).not.toContain("PLUTUS_VISION");
+  const repo = (id: string) => parsed.projects.find((p) => p.id === id)?.repo;
+  expect(repo("jev-fact-kernel")).toBe("jev-manager-tool");
+  expect(repo("JevManager")).toBe("jev-manager-tool");
 });
