@@ -1,5 +1,6 @@
 // status.ts — the runtime's observable output: status.json + ticks.log.
-// Atomic status writes; append-only tick rows. planHash is a frozen 16-hex string.
+// Atomic status writes; append-only tick rows.
+// planHash is frozen: a 16-hex string, never null (the package spec's status shape).
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync, appendFileSync, readFileSync, renameSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";

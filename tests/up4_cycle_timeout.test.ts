@@ -1,5 +1,6 @@
 // UP-4: a stuck cycle cannot stay in flight longer than 1 minute.
 // The clock is fake. 60_000 is the bar (1 minute), not a tunable.
+// container fixture: the cycle promise never resolves; time moves only on the fake clock.
 import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
