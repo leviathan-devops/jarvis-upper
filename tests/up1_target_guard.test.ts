@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { canonicalOrigin, checkTargets, gitOrigin, type RegistryEntry } from "../src/target-guard";
+import { canonicalOrigin, checkTargets, gitOrigin, projectsJsonOverlap, type RegistryEntry } from "../src/target-guard";
 
 function repoWithOrigin(origin: string): string {
   const root = mkdtempSync(join(tmpdir(), "up1-"));
@@ -112,9 +112,27 @@ test("UP-1: a credential in the remote URL is not part of the origin", () => {
     .toBe("https://github.com/acme/widget.git");
 });
 
+test("UP-1: an absent projects.json is STALE_BASE", () => {
+  const root = mkdtempSync(join(tmpdir(), "up1-reg-"));
+  try {
+    const overlap = projectsJsonOverlap(root);
+    expect(existsSync(join(root, "projects.json"))).toBe(false);
+    expect(overlap.staleBase).toBe(true);
+    expect(overlap.note).toContain("STALE_BASE");
+    expect(overlap.note).toContain("050ff69");
+    expect(overlap.note).toContain("01e314e");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("UP-1: synced projects.json is on this head and omits PLUTUS_VISION", () => {
-  const path = join(import.meta.dir, "..", "projects.json");
+  const root = join(import.meta.dir, "..");
+  const path = join(root, "projects.json");
   expect(existsSync(path)).toBe(true);
+  const overlap = projectsJsonOverlap(root);
+  expect(overlap.staleBase).toBe(false);
+  expect(overlap.note).toBe("projects.json is on this head and is not repointed");
   const parsed = JSON.parse(readFileSync(path, "utf8")) as {
     projects: { id: string; repo: string }[];
   };
