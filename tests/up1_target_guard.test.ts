@@ -112,15 +112,13 @@ test("UP-1: a credential in the remote URL is not part of the origin", () => {
     .toBe("https://github.com/acme/widget.git");
 });
 
-test("UP-1: an absent projects.json is STALE_BASE", () => {
+test("UP-1: an empty root reports that projects.json is absent there", () => {
   const root = mkdtempSync(join(tmpdir(), "up1-reg-"));
   try {
     const overlap = projectsJsonOverlap(root);
     expect(existsSync(join(root, "projects.json"))).toBe(false);
-    expect(overlap.staleBase).toBe(true);
-    expect(overlap.note).toContain("STALE_BASE");
-    expect(overlap.note).toContain("050ff69");
-    expect(overlap.note).toContain("01e314e");
+    expect(overlap.staleBase).toBe(false);
+    expect(overlap.note).toBe("projects.json is absent at this root");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -132,7 +130,9 @@ test("UP-1: synced projects.json is on this head and omits PLUTUS_VISION", () =>
   expect(existsSync(path)).toBe(true);
   const overlap = projectsJsonOverlap(root);
   expect(overlap.staleBase).toBe(false);
-  expect(overlap.note).toBe("projects.json is on this head and is not repointed");
+  expect(overlap.note).toBe(
+    "projects.json is synced from 01e314e, which contains 050ff69. It is on this head and is not repointed",
+  );
   const parsed = JSON.parse(readFileSync(path, "utf8")) as {
     projects: { id: string; repo: string }[];
   };

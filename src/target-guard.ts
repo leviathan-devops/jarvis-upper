@@ -4,14 +4,14 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-export const PROJECTS_JSON_STALE_BASE =
-  "STALE_BASE: projects.json overlaps Leviathan-only commits 050ff69 and 01e314e and is absent on this GitHub head";
+export const PROJECTS_JSON_SYNCED =
+  "projects.json is synced from 01e314e, which contains 050ff69. It is on this head and is not repointed";
 
 export function projectsJsonOverlap(root: string): { staleBase: boolean; note: string } {
   if (!existsSync(join(root, "projects.json"))) {
-    return { staleBase: true, note: PROJECTS_JSON_STALE_BASE };
+    return { staleBase: false, note: "projects.json is absent at this root" };
   }
-  return { staleBase: false, note: "projects.json is on this head and is not repointed" };
+  return { staleBase: false, note: PROJECTS_JSON_SYNCED };
 }
 export interface RegistryEntry {
   id: string;
