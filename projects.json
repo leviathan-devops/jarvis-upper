@@ -26,6 +26,15 @@
       "tokenEnv": "GH_TOKEN",
       "worktreeRoot": "/home/leviathan/.ao/data/worktrees/plutus-vision",
       "store": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/PLUTUS_VISION/runtime/PLUTUS_VISION/store.sqlite"
+    },
+    {
+      "id": "Graph_Intelligence",
+      "root": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/Graph_Intelligence",
+      "owner": "leviathan-devops",
+      "repo": "omp-code-intel",
+      "tokenEnv": "GH_TOKEN",
+      "worktreeRoot": "/home/leviathan/.ao/data/worktrees/omp-code-intel",
+      "store": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/Graph_Intelligence/runtime/Graph_Intelligence/store.sqlite"
     }
   ]
 }
