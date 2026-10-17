@@ -4,10 +4,19 @@
       "id": "jev-fact-kernel",
       "root": "/home/leviathan/JARVIS_WORKSPACE/worktrees/jev-fact-kernel",
       "owner": "leviathan-devops",
-      "repo": "jev-fact-kernel",
+      "repo": "jev-manager-tool",
       "tokenEnv": "GH_TOKEN",
       "worktreeRoot": "/home/leviathan/.ao/data/worktrees/jev-fact-kernel",
       "store": "/home/leviathan/JARVIS_WORKSPACE/worktrees/jev-fact-kernel/runtime/jev-fact-kernel/store.sqlite"
+    },
+    {
+      "id": "JevManager",
+      "root": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JevManager",
+      "owner": "leviathan-devops",
+      "repo": "jev-manager-tool",
+      "tokenEnv": "GH_TOKEN",
+      "worktreeRoot": "/home/leviathan/.ao/data/worktrees/jev-manager-tool",
+      "store": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JevManager/runtime/JevManager/store.sqlite"
     },
     {
       "id": "jarvis-upper",
@@ -17,15 +26,6 @@
       "tokenEnv": "GH_TOKEN",
       "worktreeRoot": "/home/leviathan/.ao/data/worktrees/jarvis-upper",
       "store": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/JARVIS-FACTORY/jarvis-upper/runtime/jarvis-upper/store.sqlite"
-    },
-    {
-      "id": "PLUTUS_VISION",
-      "root": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/PLUTUS_VISION",
-      "owner": "leviathan-devops",
-      "repo": "plutus-vision",
-      "tokenEnv": "GH_TOKEN",
-      "worktreeRoot": "/home/leviathan/.ao/data/worktrees/plutus-vision",
-      "store": "/home/leviathan/JARVIS_WORKSPACE/Shared_Workspace/PLUTUS_VISION/runtime/PLUTUS_VISION/store.sqlite"
     },
     {
       "id": "Graph_Intelligence",
